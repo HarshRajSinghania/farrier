@@ -228,8 +228,8 @@ body:has([data-dashboard]) {
   font-family: var(--font-sans);
   letter-spacing: -0.006em;
 }
-:root { --canvas: #ffffff; }
-.dark { --canvas: #090909; }
+:root { --canvas: #f6f6f3; }   /* a whisper of warm tint: the sidebar reads apart from the white page */
+.dark { --canvas: #050505; }
 
 /* theme changes crossfade (View Transitions, ThemeToggle); nothing moves under reduced motion */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.4s; animation-timing-function: ease; }
