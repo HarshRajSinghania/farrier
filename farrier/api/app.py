@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from farrier.connectors import REGISTRY, is_automated, make_connector
@@ -21,6 +21,19 @@ from farrier.core.discovery import expand_targets, scan
 from farrier.core.engine import Engine, NotApproved
 from farrier.db.store import OPEN_STATES, parse_dt
 from farrier.security.vault import REF_PREFIXES, SecretRefused, check_secret_refs
+
+
+INDEX_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Farrier engine API</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.5">
+<h1>Farrier engine API</h1>
+<p>This is the Farrier engine API. The dashboard is the web app (<code>web/</code>): <code>docker compose up</code>
+runs both, or run <code>cd web &amp;&amp; FARRIER_API_URL=http://&lt;host&gt;:&lt;port&gt; npm run dev</code>
+and open <code>http://localhost:3000/dashboard</code>.</p>
+<ul><li><a href="/docs">OpenAPI reference</a> (<code>/docs</code>)</li>
+<li><a href="https://github.com/gagankarthik/farrier">Project documentation</a></li></ul>
+</body></html>
+"""
 
 
 class EndpointIn(BaseModel):
@@ -159,9 +172,10 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.get("/", include_in_schema=False)
+    @app.get("/dashboard", include_in_schema=False)
     def index():
-        # The dashboard is the separate Next.js app in web/; the API documents itself.
-        return RedirectResponse("/docs")
+        # The dashboard is the separate Next.js app in web/. Unauthenticated, static, no data.
+        return HTMLResponse(INDEX_HTML)
 
     @app.get("/api/summary", dependencies=[Depends(auth)])
     def summary():

@@ -1,0 +1,30 @@
+export const metadata = {
+  title: "Command line",
+  description: "Every farrier command: run the engine, scan TLS and SSH, report PQC readiness, inspect certificates.",
+};
+
+# Command line
+
+`farrier` runs the engine and works directly on the data directory (`--data`, default `$FARRIER_DATA` or `./farrier-data`), so the read and scan commands below need no API token. Commands marked **json** take `--json` and print the same payload as the matching API route.
+
+| Command | Does |
+|---|---|
+| `farrier serve [--host --port --tick]` | Run the engine API (OpenAPI at `/docs`) and the renewal loop. The dashboard is the web app: `docker compose up` runs both, or `cd web && FARRIER_API_URL=http://127.0.0.1:8740 npm run dev` |
+| `farrier demo` | A simulated estate of real TLS endpoints, with the API running against it |
+| `farrier scan <targets> [--register]` | Handshake with TLS targets and list the certificates they serve; `--register` adds unknown ones as `discovered` |
+| `farrier tick` | Run one scan, plan and advance cycle and print the result |
+| `farrier import <file.json>` | Import endpoints from a JSON inventory |
+| `farrier endpoints approve <name or id>` | Let a discovered endpoint be renewed (logged with actor `cli`). **json** |
+| `farrier certs show <name or id>` | Certificate details: subject, SANs, issuer, key, chain, renewals, health. Exits 4 if there is no such endpoint. **json** |
+| `farrier ssh scan <targets>` | Probe SSH hosts without logging in: banner, host keys, PQC key exchange, findings. Results are stored. **json** |
+| `farrier ssh keys` | Collected authorized keys and their findings. **json** |
+| `farrier crypto scan <targets> [--timeout]` | TLS versions, key exchange and PQC status with reasons, per target. Results are stored. **json** |
+| `farrier crypto summary` | Stored assets by PQC status, key algorithm and weak-crypto flag. **json** |
+| `farrier crypto cbom [-o file]` | CycloneDX 1.6 cryptography bill of materials as JSON |
+| `farrier forecast` | Renewal workload under the CA/B Forum lifetime schedule |
+| `farrier mcp` | MCP server on stdio for AI agents ([AI agents](/docs/mcp)) |
+| `farrier db migrate --to <url>` | Copy every table to another database |
+| `farrier backup --to <url>` / `restore --from <url>` | Signed export to object storage, and load it into an empty database |
+| `farrier version` / `--version` | Print the version |
+
+Targets use the discovery syntax: `host[:port]`, `10.0.0.0/24:443|8443`, `sni@ip:port` (SSH defaults to port 22). Run `farrier <command> --help` for every flag.

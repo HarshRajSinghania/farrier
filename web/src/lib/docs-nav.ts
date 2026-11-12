@@ -41,7 +41,10 @@ export const DOCS_NAV: DocsGroup[] = [
   },
   {
     title: "Reference",
-    items: [{ href: "/docs/api", label: "REST API and metrics" }],
+    items: [
+      { href: "/docs/api", label: "REST API and metrics" },
+      { href: "/docs/cli", label: "Command line" },
+    ],
   },
   {
     title: "Operations",
