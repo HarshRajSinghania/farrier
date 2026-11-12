@@ -1,0 +1,5 @@
+{{- /* Extra manifests from extraObjects, rendered as given. */}}
+{{- range .Values.extraObjects }}
+---
+{{ toYaml . }}
+{{- end }}

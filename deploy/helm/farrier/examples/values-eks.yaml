@@ -1,0 +1,118 @@
+# Farrier on Amazon EKS: RDS PostgreSQL (two engine replicas), secrets from AWS Secrets Manager
+# through the External Secrets Operator, master key wrapped by KMS, S3 for artifacts, IRSA (or EKS
+# Pod Identity), and an AWS Load Balancer Controller ALB.
+#
+#   terraform -chdir=deploy/terraform/eks apply                      # IAM, KMS, secrets, S3, RDS
+#   terraform -chdir=deploy/terraform/eks output -raw kubernetes_manifests | kubectl apply -f -
+#   terraform -chdir=deploy/terraform/eks output -raw helm_values > cloud-values.yaml
+#   helm install farrier deploy/helm/farrier -n farrier -f deploy/helm/farrier/examples/values-eks.yaml -f cloud-values.yaml
+#
+# cloud-values.yaml fills every account-specific value below (role ARN, KMS key, bucket, database,
+# secret names). Without Terraform, replace them yourself: <ANGLE_BRACKETS> take any string;
+# 111122223333, eu-west-1 and 10.0.x.x are documentation values where the schema needs a real format.
+# Assumes the release name "farrier" in namespace "farrier" (service accounts farrier-engine/-web).
+#
+# Cluster prerequisites: AWS Load Balancer Controller, External Secrets Operator, a CNI that enforces
+# NetworkPolicy (VPC CNI with network policy enabled, or Calico/Cilium), and for IRSA the cluster's
+# IAM OIDC provider (eksctl utils associate-iam-oidc-provider --cluster <CLUSTER> --approve).
+
+cloud:
+  provider: eks
+  # irsa: the role ARN annotation below. pod-identity: an aws_eks_pod_identity_association for
+  # farrier/farrier-engine, no annotation (set awsRoleArn to ""); the NetworkPolicy then opens the
+  # Pod Identity agent (169.254.170.23 / fd00:ec2::23, port 80) and nothing else in link-local.
+  identity: irsa
+
+# The managed database is the production choice: several engine replicas, one elected leader.
+# RDS needs the CA bundle for verify-full:
+#   curl -sSo ca.crt https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+#   kubectl -n farrier create secret generic farrier-db-ca --from-file=ca.crt
+database:
+  type: postgresql
+  url: postgresql://farrier@<RDS_ENDPOINT>:5432/farrier?sslmode=verify-full&sslrootcert=/etc/farrier/db-tls/ca.crt
+  tls:
+    existingSecret: farrier-db-ca
+
+# External Secrets Operator reads Secrets Manager with its own IRSA role (never static keys): the
+# ServiceAccount + SecretStore come from `terraform output kubernetes_manifests`, or from
+# deploy/kubernetes/external-secrets/aws.yaml (apply its ServiceAccount and SecretStore only).
+secrets:
+  mode: externalSecrets
+  externalSecrets:
+    secretStoreRef:
+      name: farrier-aws
+      kind: SecretStore
+    remoteRefs:
+      apiToken: { key: farrier-runtime/api-token }
+      apiReadToken: { key: farrier-runtime/api-read-token }
+      # The KMS-wrapped master key (seed it once, see deploy/terraform/eks/README.md).
+      masterKey: { key: farrier-runtime/master-key }
+      # RDS-managed master user secret (JSON); RDS rotates it, ESO re-reads it every refreshInterval.
+      databasePassword: { key: "<RDS_MASTER_USER_SECRET_ARN>", property: password }
+      dashboardPassword: { key: farrier-runtime/dashboard-password }
+
+engine:
+  replicaCount: 2
+  masterKey:
+    kms: aws-kms:arn:aws:kms:eu-west-1:111122223333:key/<KEY_ID>
+  secretBackend:
+    type: aws
+    aws:
+      region: eu-west-1
+      prefix: farrier/
+  storage:
+    url: s3://<BUCKET>/farrier
+    kmsKey: arn:aws:kms:eu-west-1:111122223333:key/<KEY_ID>
+  config:
+    AWS_REGION: eu-west-1
+  serviceAccount:
+    name: farrier-engine
+    cloudIdentity:
+      awsRoleArn: arn:aws:iam::111122223333:role/farrier-engine
+  # Only used with database.type=sqlite (one replica). EKS has no default gp3 class: create one
+  # (provisioner ebs.csi.aws.com, parameters.type gp3) or use EKS Auto Mode's.
+  persistence:
+    storageClass: gp3
+  networkPolicy:
+    database:
+      cidrs: [10.0.32.0/20]                 # <DATABASE_SUBNET_CIDRS>
+    managementNetworks:
+      - cidr: 10.100.0.0/16                 # <DEVICE_MANAGEMENT_CIDR>, over Direct Connect or VPN
+        ports: [443, 22]
+    # STS, KMS, Secrets Manager and S3 are reached on 443 through the internet rule. If you use
+    # VPC interface endpoints for them (private IPs), allow their subnets here:
+    # extraEgress:
+    #   - to: [{ ipBlock: { cidr: 10.0.48.0/24 } }]
+    #     ports: [{ port: 443, protocol: TCP }]
+
+web:
+  replicaCount: 2
+  # The ALB (IP targets) appends the client address to X-Forwarded-For and talks to the pods
+  # directly: one hop. Make it 2 if CloudFront sits in front of the ALB.
+  trustedProxyHops: 1
+  auth:
+    mode: basic
+    # mode: oidc
+    # oidc: { issuer: https://<IDP>/, clientId: <CLIENT_ID>, adminGroups: pki-admins }
+  ingress:
+    enabled: true
+    className: alb
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internal
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-1:111122223333:certificate/<CERT_ID>
+      alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      alb.ingress.kubernetes.io/backend-protocol: HTTP
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      alb.ingress.kubernetes.io/success-codes: "200"
+      alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
+    hosts:
+      - host: farrier.example.com           # <DASHBOARD_HOST>
+        paths:
+          - path: /
+            pathType: Prefix
+  networkPolicy:
+    # With IP targets the ALB connects from its own ENIs in the VPC.
+    ingressFrom:
+      - ipBlock: { cidr: 10.0.0.0/16 }      # <VPC_CIDR>

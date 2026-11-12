@@ -363,6 +363,114 @@ def test_azure_workload_identity_assertion(cloud, monkeypatch, tmp_path):
     assert not cloud.to("169.254.169.254")
 
 
+def test_azure_workload_identity_sovereign_authority_and_rotated_token(cloud, monkeypatch, tmp_path):
+    """AKS Entra Workload ID: the webhook sets AZURE_AUTHORITY_HOST (with a trailing slash); the projected
+    token is rotated by the kubelet, so every refresh re-reads it. IMDS is never tried."""
+    tok = tmp_path / "azure-identity-token"
+    tok.write_text("jwt-1\n")
+    for k, v in {"AZURE_FEDERATED_TOKEN_FILE": str(tok), "AZURE_CLIENT_ID": "client-1", "AZURE_TENANT_ID": "tenant-1",
+                 "AZURE_AUTHORITY_HOST": "https://login.microsoftonline.us/"}.items():
+        monkeypatch.setenv(k, v)
+    cloud.on("login.microsoftonline.us", lambda r: httpx.Response(200, json={"access_token": "wi", "expires_in": 3600}))
+    from farrier.security.cloud_auth.azure import VAULT_SCOPE, AzureTokenProvider
+    p = AzureTokenProvider()
+    assert p.token(VAULT_SCOPE) == "wi"
+    tok.write_text("jwt-2\n")
+    assert p.token(VAULT_SCOPE) == "wi" and len(cloud.calls) == 1          # cached until near expiry
+    p.clear()
+    p.token(VAULT_SCOPE)
+    reqs = cloud.to("login.microsoftonline.us", "/tenant-1/oauth2/v2.0/token")
+    assert [parse_qs(r.content.decode())["client_assertion"] for r in reqs] == [["jwt-1"], ["jwt-2"]]
+    assert all(parse_qs(r.content.decode())["client_id"] == ["client-1"] for r in reqs)
+    assert not cloud.to("169.254.169.254") and not cloud.to("login.microsoftonline.com")
+
+
+def test_azure_workload_identity_needs_client_and_tenant(cloud, monkeypatch, tmp_path):
+    tok = tmp_path / "t"
+    tok.write_text("jwt")
+    monkeypatch.setenv("AZURE_FEDERATED_TOKEN_FILE", str(tok))
+    monkeypatch.setenv("AZURE_CLIENT_ID", "client-1")
+    from farrier.security.cloud_auth.azure import VAULT_SCOPE, AzureTokenProvider
+    with pytest.raises(cloud_auth.CloudConfigError, match="AZURE_TENANT_ID"):
+        AzureTokenProvider().token(VAULT_SCOPE)
+    assert not cloud.calls
+
+
+# ---- EKS Pod Identity / ECS container credentials ------------------------------------------------
+def _container_creds(seen: list):
+    def handler(req):
+        seen.append(req.headers.get("Authorization"))
+        return httpx.Response(200, json={"AccessKeyId": "ASIAPOD", "SecretAccessKey": "pod-secret",
+                                         "Token": "pod-session", "Expiration": "2099-01-01T00:00:00Z"})
+    return handler
+
+
+@pytest.mark.parametrize("uri,host", [("http://169.254.170.23/v1/credentials", "169.254.170.23"),
+                                      ("http://[fd00:ec2::23]/v1/credentials", "fd00:ec2::23")])
+def test_eks_pod_identity_credentials(cloud, monkeypatch, tmp_path, uri, host):
+    tok = tmp_path / "eks-pod-identity-token"
+    tok.write_text("pod-jwt-1\n")
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", uri)
+    monkeypatch.setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", str(tok))
+    seen: list = []
+    cloud.on(host, _container_creds(seen), "/v1/credentials")
+    from farrier.security.cloud_auth.aws import AwsCredentialProvider
+    p = AwsCredentialProvider()
+    c = p.get()
+    assert (c.access_key, c.secret_key, c.token, c.source) == ("ASIAPOD", "pod-secret", "pod-session", "container")
+    assert c.expires and c.expires > 4_000_000_000
+    tok.write_text("pod-jwt-2\n")                                     # the kubelet rotated the token
+    p.clear()
+    p.get()
+    assert seen == ["pod-jwt-1", "pod-jwt-2"]
+    assert not cloud.to("169.254.169.254") and not cloud.to("sts.amazonaws.com")
+
+
+def test_irsa_wins_over_pod_identity(cloud, monkeypatch, tmp_path):
+    env_aws_irsa(monkeypatch, tmp_path)
+    fake_sts(cloud)
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "http://169.254.170.23/v1/credentials")
+    from farrier.security.cloud_auth.aws import AwsCredentialProvider
+    assert AwsCredentialProvider().get().source == "web-identity"
+    assert not cloud.to("169.254.170.23")
+
+
+@pytest.mark.parametrize("uri,ok", [
+    ("http://169.254.170.2/v2/credentials/abc", True),       # ECS agent
+    ("http://127.0.0.1:8080/creds", True),
+    ("http://localhost/creds", True),
+    ("http://[::1]/creds", True),
+    ("https://creds.internal.example/v1", True),
+    ("http://creds.internal.example/v1", False),               # the token would travel in clear text
+    ("http://169.254.169.254/latest/meta-data/", False),
+    ("http://10.0.0.5/v1/credentials", False),
+    ("file:///etc/passwd", False),
+])
+def test_container_full_uri_must_be_https_or_a_known_agent(cloud, monkeypatch, uri, ok):
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", uri)
+    monkeypatch.setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN", "tok")
+    seen: list = []
+    cloud.routes = [(h, "", _container_creds(seen)) for h in
+                    ("169.254.170.2", "127.0.0.1", "localhost", "::1", "creds.internal.example")]
+    from farrier.security.cloud_auth.aws import AwsCredentialProvider
+    if ok:
+        assert AwsCredentialProvider().get().access_key == "ASIAPOD" and seen == ["tok"]
+    else:
+        with pytest.raises(cloud_auth.CloudConfigError, match="AWS_CONTAINER_CREDENTIALS_FULL_URI"):
+            AwsCredentialProvider().get()
+        assert not cloud.calls
+
+
+def test_ecs_relative_uri_wins_over_full_uri(cloud, monkeypatch):
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/task")
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "http://169.254.170.23/v1/credentials")
+    seen: list = []
+    cloud.on("169.254.170.2", _container_creds(seen), "/v2/credentials/task")
+    from farrier.security.cloud_auth.aws import AwsCredentialProvider
+    assert AwsCredentialProvider().get().access_key == "ASIAPOD"
+    assert not cloud.to("169.254.170.23")
+
+
 # ---- HashiCorp Vault -------------------------------------------------------------------------------
 def test_vault_kubernetes_auth_kv2_and_renewal(cloud, monkeypatch, tmp_path):
     sa = tmp_path / "sa-token"

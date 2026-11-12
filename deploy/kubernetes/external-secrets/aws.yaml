@@ -1,5 +1,7 @@
-# farrier-secrets from AWS Secrets Manager, through the External Secrets Operator with IRSA
-# (or EKS Pod Identity: drop the annotation and associate the role with this service account).
+# farrier-secrets from AWS Secrets Manager, through the External Secrets Operator with IRSA (no
+# static keys). With EKS Pod Identity instead: SecretStore auth.jwt needs IRSA, so drop this
+# ServiceAccount and the `auth` block, and associate the role with the ESO controller's own service
+# account (external-secrets/external-secrets); every SecretStore without auth then uses that role.
 #
 # The IAM role needs secretsmanager:GetSecretValue (and kms:Decrypt on the secrets' key) on
 # arn:aws:secretsmanager:<region>:<account>:secret:farrier-runtime/* only.

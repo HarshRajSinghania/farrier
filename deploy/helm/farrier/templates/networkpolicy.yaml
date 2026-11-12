@@ -1,7 +1,8 @@
 {{- /*
 Default-deny NetworkPolicies with explicit allowances.
   engine ingress: web pods (and the helm test pod) on 8740; optionally Prometheus on 8740.
-  engine egress:  DNS, the database, device management networks, 443 to the internet.
+  engine egress:  DNS, the database, device management networks, 443 to the internet, and the
+                  link-local endpoint the cloud.provider's workload identity needs (only that one).
   web ingress:    port 3000 (from web.networkPolicy.ingressFrom when set).
   web egress:     DNS, the engine on 8740, the identity provider on 443.
 */}}
@@ -78,6 +79,26 @@ spec:
         {{- range $np.internet.ports }}
         - { port: {{ . }}, protocol: TCP }
         {{- end }}
+    {{- end }}
+    {{- $identity := include "farrier.cloud.identity" . }}
+    {{- if eq $identity "pod-identity" }}
+    # EKS Pod Identity agent (IPv4 and IPv6 clusters)
+    - to:
+        - ipBlock: { cidr: 169.254.170.23/32 }
+        - ipBlock: { cidr: "fd00:ec2::23/128" }
+      ports:
+        - { port: 80, protocol: TCP }
+    {{- else if eq .Values.cloud.provider "gke" }}
+    # GKE metadata server (Workload Identity Federation for GKE)
+    - to:
+        - ipBlock: { cidr: 169.254.169.254/32 }
+      ports:
+        - { port: 80, protocol: TCP }
+        - { port: 988, protocol: TCP }
+    - to:
+        - ipBlock: { cidr: 169.254.169.252/32 }
+      ports:
+        - { port: 988, protocol: TCP }
     {{- end }}
     {{- with $np.extraEgress }}
     {{- toYaml . | nindent 4 }}

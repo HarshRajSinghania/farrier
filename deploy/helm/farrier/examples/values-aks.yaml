@@ -1,0 +1,109 @@
+# Farrier on Azure Kubernetes Service: Azure Database for PostgreSQL flexible server (two engine
+# replicas), secrets from Key Vault through the External Secrets Operator, master key wrapped by a
+# Key Vault key, Blob Storage for artifacts, Microsoft Entra Workload ID, and the application
+# routing add-on (managed NGINX) with a Key Vault certificate.
+#
+#   terraform -chdir=deploy/terraform/aks apply                      # identities, Key Vault, storage, PostgreSQL
+#   terraform -chdir=deploy/terraform/aks output -raw kubernetes_manifests | kubectl apply -f -
+#   terraform -chdir=deploy/terraform/aks output -raw helm_values > cloud-values.yaml
+#   helm install farrier deploy/helm/farrier -n farrier -f deploy/helm/farrier/examples/values-aks.yaml -f cloud-values.yaml
+#
+# cloud-values.yaml fills every subscription-specific value below. Without Terraform, replace them
+# yourself: <ANGLE_BRACKETS> take any string; the all-zero client ID and 10.x addresses are
+# documentation values where the schema needs a real format.
+# Assumes the release name "farrier" in namespace "farrier" (Ingress farrier-web, KSA farrier-engine).
+#
+# Cluster prerequisites: az aks update --enable-oidc-issuer --enable-workload-identity, the
+# application routing add-on (az aks approuting enable) with Key Vault integration, a network policy
+# engine (Azure, Calico or Cilium), and the External Secrets Operator.
+
+cloud:
+  provider: aks
+  # The workload identity webhook projects a token file (AZURE_FEDERATED_TOKEN_FILE) that the engine
+  # exchanges at Entra ID on 443. Nothing in link-local is opened: IMDS stays blocked. The engine
+  # pods are labelled azure.workload.identity/use: "true" so the webhook injects the token.
+  identity: workload-identity
+
+# Flexible Server presents a publicly trusted certificate: verify it against the image's CA bundle.
+database:
+  type: postgresql
+  url: postgresql://farrier@<SERVER>.postgres.database.azure.com:5432/farrier?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca-certificates.crt
+
+# External Secrets Operator reads Key Vault through its own federated identity (authType
+# WorkloadIdentity, never a client secret): from `terraform output kubernetes_manifests`, or
+# deploy/kubernetes/external-secrets/azure.yaml (apply its ServiceAccount and SecretStore only).
+secrets:
+  mode: externalSecrets
+  externalSecrets:
+    secretStoreRef:
+      name: farrier-azure
+      kind: SecretStore
+    remoteRefs:
+      apiToken: { key: api-token }
+      apiReadToken: { key: api-read-token }
+      # The wrapped master key (seed it once, see deploy/terraform/aks/README.md).
+      masterKey: { key: master-key }
+      databasePassword: { key: db-password }
+      dashboardPassword: { key: dashboard-password }
+
+engine:
+  replicaCount: 2
+  masterKey:
+    kms: azure-kv:https://<VAULT>.vault.azure.net/keys/master-wrap
+  secretBackend:
+    type: azure
+    azure:
+      vaultUrl: https://<VAULT>.vault.azure.net
+  storage:
+    url: azblob://<STORAGE_ACCOUNT>/objects/farrier
+  serviceAccount:
+    name: farrier-engine
+    cloudIdentity:
+      # Client ID of the user-assigned identity whose federated credential trusts
+      # system:serviceaccount:farrier:farrier-engine.
+      azureClientId: 00000000-0000-0000-0000-000000000000
+  # Only used with database.type=sqlite (one replica): an Azure managed disk. Never Azure Files.
+  persistence:
+    storageClass: managed-csi
+  networkPolicy:
+    database:
+      cidrs: [10.40.1.0/24]                 # <POSTGRES_DELEGATED_SUBNET_CIDR>
+    managementNetworks:
+      - cidr: 10.100.0.0/16                 # <DEVICE_MANAGEMENT_CIDR>, over VPN Gateway or ExpressRoute
+        ports: [443, 22]
+    # Entra ID, Key Vault and Blob Storage are reached on 443 through the internet rule. With
+    # private endpoints for the vault or the storage account, allow their subnet here:
+    # extraEgress:
+    #   - to: [{ ipBlock: { cidr: 10.40.2.0/24 } }]
+    #     ports: [{ port: 443, protocol: TCP }]
+
+web:
+  replicaCount: 2
+  # The add-on's NGINX appends the client address it sees to X-Forwarded-For; the Azure load
+  # balancer in front of it is layer 4 and adds nothing: one hop. With Front Door or Application
+  # Gateway in front, make it 2.
+  trustedProxyHops: 1
+  auth:
+    mode: basic
+    # mode: oidc
+    # oidc: { issuer: "https://login.microsoftonline.com/<TENANT_ID>/v2.0", clientId: <APP_ID>, scopes: openid profile email, roleClaim: roles }
+  ingress:
+    enabled: true
+    className: webapprouting.kubernetes.azure.com
+    annotations:
+      # The add-on syncs this certificate into the Secret keyvault-farrier-web.
+      kubernetes.azure.com/tls-cert-keyvault-uri: https://<VAULT>.vault.azure.net/certificates/<CERT_NAME>
+    hosts:
+      - host: farrier.example.com           # <DASHBOARD_HOST>
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: keyvault-farrier-web
+        hosts: [farrier.example.com]
+  networkPolicy:
+    # Only the add-on's NGINX pods may reach the dashboard.
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: app-routing-system

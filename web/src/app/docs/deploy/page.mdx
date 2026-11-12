@@ -56,6 +56,30 @@ kubectl apply -f my-ingress.yaml   # from ingress.example.yaml
 
 Set the storage class on the volume claim to your cluster's block storage. OpenShift assigns its own UID range: remove `runAsUser` and `fsGroup` from `farrier.yaml` and the restricted-v2 SCC will run it as is.
 
+## Managed Kubernetes (EKS, GKE, AKS)
+
+The Helm chart ships a complete values file per cloud (`deploy/helm/farrier/examples/values-<cloud>.yaml`), and `deploy/terraform/{eks,gke,aks}` create the cloud side next to an existing cluster: the workload identity, KMS key, secrets, bucket and, optionally, the database. Use the managed database: the engine then runs two or more replicas with one elected leader.
+
+| | EKS | GKE | AKS |
+| --- | --- | --- | --- |
+| Identity | IRSA or EKS Pod Identity | Workload Identity Federation | Microsoft Entra Workload ID |
+| Ingress | AWS Load Balancer Controller (ALB) | GCE Ingress + managed certificate | Application routing add-on |
+| `trustedProxyHops` | 1 | 2 | 1 |
+| Storage class (SQLite only) | `gp3` | `standard-rwo` | `managed-csi` |
+| Database | RDS PostgreSQL | Cloud SQL for PostgreSQL | Azure Database for PostgreSQL |
+| Secrets | Secrets Manager via External Secrets | Secret Manager via External Secrets | Key Vault via External Secrets |
+
+```bash
+terraform -chdir=deploy/terraform/eks apply                  # 1. cloud side
+terraform -chdir=deploy/terraform/eks output -raw kubernetes_manifests | kubectl apply -f -
+terraform -chdir=deploy/terraform/eks output -raw helm_values > cloud-values.yaml
+helm install farrier deploy/helm/farrier -n farrier \
+  -f deploy/helm/farrier/examples/values-eks.yaml -f cloud-values.yaml   # 2. install
+curl -fsS https://<dashboard host>/api/health                           # 3. verify
+```
+
+Set `cloud.provider` (the examples do): the engine's network policy keeps node metadata endpoints blocked and opens only what that cloud's workload identity needs. Every identity is keyless: no access keys, key files or client secrets.
+
 ## AWS
 
 - **Compute.** EKS with the manifests above, or one EC2 instance with Docker Compose. Place the engine in subnets that route to your devices' management VLANs, through Direct Connect or a site-to-site VPN for on-prem appliances.

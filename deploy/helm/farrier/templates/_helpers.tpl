@@ -144,6 +144,21 @@ Input: component values.
 {{- end -}}
 
 {{/*
+Effective workload identity mechanism: cloud.identity, else the provider's default (eks: irsa;
+gke, aks: workload-identity; none: empty). Input: root context.
+*/}}
+{{- define "farrier.cloud.identity" -}}
+{{- $c := .Values.cloud -}}
+{{- if $c.identity -}}
+{{- $c.identity -}}
+{{- else if eq $c.provider "eks" -}}
+irsa
+{{- else if has $c.provider (list "gke" "aks") -}}
+workload-identity
+{{- end -}}
+{{- end -}}
+
+{{/*
 Whether to mount the Kubernetes API token. Off unless asked for, or the engine logs in to
 HashiCorp Vault with Kubernetes auth. Input: component context.
 */}}
@@ -165,7 +180,9 @@ database password, which is mounted as a file). Input: component context.
 {{- $readOptional := not (and (eq .component "engine") $v.engine.metrics.serviceMonitor.enabled) -}}
 {{- $keys := list (dict "id" "apiToken" "env" "FARRIER_API_TOKEN" "optional" false) (dict "id" "apiReadToken" "env" "FARRIER_API_READ_TOKEN" "optional" $readOptional) -}}
 {{- if eq .component "engine" -}}
-{{- if not $v.engine.masterKey.kms -}}
+{{- /* With KMS and several replicas the wrapped key must come from the Secret: each pod's data
+directory is an emptyDir, so a key generated per pod would differ between replicas. */ -}}
+{{- if or (not $v.engine.masterKey.kms) (ne $v.database.type "sqlite") -}}
 {{- $keys = append $keys (dict "id" "masterKey" "env" "FARRIER_MASTER_KEY" "optional" false) -}}
 {{- end -}}
 {{- if ne $v.database.type "sqlite" -}}
@@ -220,7 +237,9 @@ Input: root context.
 {{- with index $previous $key }}{{ $value = b64dec . }}{{ end -}}
 {{- end -}}
 {{- if not $value -}}
-{{- if eq $id "masterKey" -}}
+{{- if and (eq $id "masterKey") $.Values.engine.masterKey.kms -}}
+{{- $value = required "secrets.create.masterKey is required with engine.masterKey.kms and an external database: the KMS-wrapped master key (base64 ciphertext), which cannot be generated here" "" -}}
+{{- else if eq $id "masterKey" -}}
 {{- $value = randBytes 32 | replace "+" "-" | replace "/" "_" -}}
 {{- else if eq $id "sessionSecret" -}}
 {{- $value = randBytes 48 -}}
@@ -542,7 +561,7 @@ Pod template (metadata + spec) shared by every workload. Input: component contex
 metadata:
   labels:
     {{- include "farrier.selectorLabels" . | nindent 4 }}
-    {{- if $v.serviceAccount.cloudIdentity.azureClientId }}
+    {{- if or $v.serviceAccount.cloudIdentity.azureClientId (and (eq .component "engine") (eq .ctx.Values.cloud.provider "aks")) }}
     azure.workload.identity/use: "true"
     {{- end }}
     {{- with $v.podLabels }}
@@ -671,6 +690,17 @@ spec:
 {{- if and (kindIs "invalid" $v.web.autoscaling.targetCPUUtilizationPercentage) (kindIs "invalid" $v.web.autoscaling.targetMemoryUtilizationPercentage) -}}
 {{- fail "web.autoscaling needs targetCPUUtilizationPercentage and/or targetMemoryUtilizationPercentage" -}}
 {{- end -}}
+{{- end -}}
+{{- $identity := include "farrier.cloud.identity" . -}}
+{{- $sa := $v.engine.serviceAccount -}}
+{{- if and (eq $identity "irsa") $sa.create (not $sa.cloudIdentity.awsRoleArn) -}}
+{{- fail "cloud.provider=eks with IRSA: set engine.serviceAccount.cloudIdentity.awsRoleArn (the IAM role trusted for this service account), or cloud.identity=pod-identity with an EKS Pod Identity association" -}}
+{{- end -}}
+{{- if and (eq $identity "pod-identity") $sa.cloudIdentity.awsRoleArn -}}
+{{- fail "cloud.identity=pod-identity: leave engine.serviceAccount.cloudIdentity.awsRoleArn empty (an IRSA annotation would take precedence over the Pod Identity association)" -}}
+{{- end -}}
+{{- if and (eq $v.cloud.provider "aks") $sa.create (not $sa.cloudIdentity.azureClientId) -}}
+{{- fail "cloud.provider=aks: set engine.serviceAccount.cloudIdentity.azureClientId (the client ID of the user-assigned identity with the federated credential)" -}}
 {{- end -}}
 {{- if and $v.web.httpRoute.enabled (not $v.web.httpRoute.parentRefs) -}}
 {{- fail "web.httpRoute.parentRefs is required when web.httpRoute.enabled (the Gateway to attach to)" -}}

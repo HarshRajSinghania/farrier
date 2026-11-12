@@ -26,6 +26,29 @@ commonLabels: {}
 commonAnnotations: {}
 # -- Cluster DNS domain, used to build the engine URL the dashboard calls.
 clusterDomain: cluster.local
+# -- Extra manifests rendered with the release (e.g. a GKE BackendConfig and ManagedCertificate,
+# or a StorageClass). Each item is a complete Kubernetes object.
+extraObjects: []
+
+# ---------------------------------------------------------------------------------------------
+# Managed Kubernetes
+# ---------------------------------------------------------------------------------------------
+# The engine's NetworkPolicy blocks the link-local range (169.254.0.0/16: node metadata services).
+# cloud.provider opens exactly what that provider's workload identity needs, and nothing else:
+#   eks + irsa               nothing: STS is reached on 443 like any AWS API (IMDS stays blocked)
+#   eks + pod-identity       the EKS Pod Identity agent, 169.254.170.23/32 and [fd00:ec2::23]/128, port 80
+#   gke + workload-identity  the GKE metadata server: 169.254.169.254/32 ports 80 and 988, and
+#                            169.254.169.252/32 port 988 (Dataplane V2)
+#   aks + workload-identity  nothing: the token is a projected file exchanged at Entra ID on 443
+#                            (IMDS stays blocked); the engine pods get azure.workload.identity/use: "true"
+# The identity itself comes from engine.serviceAccount.cloudIdentity (or a Pod Identity association).
+# See examples/values-eks.yaml, values-gke.yaml and values-aks.yaml.
+cloud:
+  # -- none | eks | gke | aks.
+  provider: none
+  # -- Workload identity mechanism. eks: irsa (default) or pod-identity; gke and aks:
+  # workload-identity (the default). Must be empty when provider is none.
+  identity: ""
 
 # ---------------------------------------------------------------------------------------------
 # Database
@@ -70,8 +93,8 @@ secrets:
     # -- Engine read-only token (FARRIER_API_READ_TOKEN, engine + web + ServiceMonitor). Optional
     # in existingSecret mode; SSO viewers and Prometheus use it.
     apiReadToken: api-read-token
-    # -- Fernet master key sealing private keys (FARRIER_MASTER_KEY, engine). Not needed when
-    # engine.masterKey.kms is set.
+    # -- Fernet master key sealing private keys (FARRIER_MASTER_KEY, engine). With
+    # engine.masterKey.kms it holds the KMS-wrapped key instead (optional with sqlite).
     masterKey: master-key
     # -- Database password (engine, mounted as a file). Not needed for sqlite.
     databasePassword: database-password
@@ -156,9 +179,11 @@ engine:
   leaderKey: ""
 
   masterKey:
-    # -- FARRIER_MASTER_KEY_KMS: wrap the master key with a cloud KMS instead of reading it
-    # from a Secret: aws-kms:<key arn> | gcp-kms:<key resource name> | azure-kv:<key url>.
-    # When set, the masterKey Secret key is not used. Needs a cloud identity (serviceAccount).
+    # -- FARRIER_MASTER_KEY_KMS: wrap the master key with a cloud KMS: aws-kms:<key arn> |
+    # gcp-kms:<key resource name> | azure-kv:<key url>. Needs a cloud identity (serviceAccount).
+    # With postgresql/mysql the masterKey Secret key must then hold the WRAPPED key (base64 KMS
+    # ciphertext, what deploy/terraform seeds) so every replica unwraps the same key. With sqlite
+    # it may be left out: the engine generates a key and keeps only its wrapped form on the PVC.
     kms: ""
 
   secretBackend:
@@ -218,7 +243,8 @@ engine:
   persistence:
     # -- sqlite only: size of the PVC holding the database, sealed keys and change packs.
     size: 2Gi
-    # -- Storage class. Empty uses the cluster default (EKS gp3, GKE standard-rwo, AKS managed-csi).
+    # -- Storage class (block storage, never NFS/EFS/Azure Files). Empty uses the cluster default.
+    # EKS: gp3 (create it: EKS has no default gp3 class); GKE: standard-rwo; AKS: managed-csi.
     storageClass: ""
     # -- PVC access modes.
     accessModes: [ReadWriteOnce]
@@ -269,8 +295,9 @@ engine:
     name: ""
     # -- Extra ServiceAccount annotations.
     annotations: {}
-    # -- Mount the Kubernetes API token into the pod. IRSA, GKE and Azure Workload Identity do
-    # not need it. Forced on when secretBackend.hashicorp.role is set.
+    # -- Mount the Kubernetes API token into the pod. IRSA, EKS Pod Identity, GKE and Azure
+    # Workload Identity do not need it (their webhooks project their own audience-bound token, or
+    # the GKE metadata server identifies the pod). Forced on when secretBackend.hashicorp.role is set.
     automountToken: false
     cloudIdentity:
       # -- AWS IRSA: IAM role ARN (eks.amazonaws.com/role-arn).
@@ -347,8 +374,9 @@ engine:
       enabled: true
       # -- Destination CIDR for the internet rule.
       cidr: 0.0.0.0/0
-      # -- Excluded ranges: private networks (reach them via managementNetworks) and the cloud
-      # metadata endpoint.
+      # -- Excluded ranges: private networks (reach them via managementNetworks; cloud private
+      # endpoints for STS, KMS or Key Vault via extraEgress) and link-local, which holds the node
+      # metadata services (cloud.provider opens only what workload identity needs).
       except:
         - 10.0.0.0/8
         - 172.16.0.0/12
@@ -356,8 +384,8 @@ engine:
         - 169.254.0.0/16
       # -- Ports allowed to the internet.
       ports: [443]
-    # -- Extra raw egress rules (NetworkPolicyEgressRule), e.g. in-cluster Vault, the GKE
-    # metadata server (169.254.169.254/32 ports 80, 988) or an internal ACME CA.
+    # -- Extra raw egress rules (NetworkPolicyEgressRule), e.g. in-cluster Vault, VPC/private
+    # endpoints of cloud APIs, NodeLocal DNSCache (169.254.20.10/32 port 53) or an internal ACME CA.
     extraEgress: []
 
   metrics:

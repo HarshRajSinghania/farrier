@@ -3,9 +3,10 @@
 
   python deploy/helm/farrier/ci/check.py
 
-1. Every non-template YAML file (Chart.yaml, values.yaml, ci/values-*.yaml) parses.
+1. Every non-template YAML file (Chart.yaml, values.yaml, ci/values-*.yaml, examples/values-*.yaml)
+   parses.
 2. values.schema.json is valid JSON and a valid draft-07 schema (jsonschema when installed).
-3. values.yaml and values.yaml merged with each ci/values-*.yaml validate against the schema
+3. values.yaml and values.yaml merged with each ci/ and examples/ values file validate against the schema
    (jsonschema when installed, else a built-in validator for the keywords the schema uses).
 4. A few must-fail inputs are rejected by the schema.
 5. Every template has balanced {{ }} delimiters and balanced block actions
@@ -144,9 +145,10 @@ def make_validator(schema: dict):
 # ------------------------------------------------------------------ checks
 def check_yaml_files() -> dict:
     docs = {}
-    for path in [CHART / "Chart.yaml", CHART / "values.yaml", *sorted((CHART / "ci").glob("values-*.yaml"))]:
+    values_files = [*sorted((CHART / "ci").glob("values-*.yaml")), *sorted((CHART / "examples").glob("values-*.yaml"))]
+    for path in [CHART / "Chart.yaml", CHART / "values.yaml", *values_files]:
         try:
-            docs[path.name] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            docs[path.relative_to(CHART).as_posix()] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             ok(f"{path.relative_to(CHART)} parses")
         except yaml.YAMLError as exc:
             fail(f"{path.relative_to(CHART)}: {exc}")
@@ -185,8 +187,8 @@ def check_schema(docs: dict) -> None:
 
     expect("values.yaml", defaults, True)
     for name, doc in docs.items():
-        if name.startswith("values-"):
-            expect(f"values.yaml + ci/{name}", deep_merge(defaults, doc), True)
+        if "/values-" in name:
+            expect(f"values.yaml + {name}", deep_merge(defaults, doc), True)
 
     bad = {
         "unknown database type": {"database": {"type": "oracle"}},
@@ -202,6 +204,12 @@ def check_schema(docs: dict) -> None:
         "externalSecrets without store": {"secrets": {"mode": "externalSecrets"}},
         "bad digest": {"engine": {"image": {"digest": "latest"}}},
         "bad CIDR": {"engine": {"networkPolicy": {"database": {"cidrs": ["db.internal"]}}}},
+        "unknown cloud provider": {"cloud": {"provider": "openshift"}},
+        "identity without provider": {"cloud": {"identity": "irsa"}},
+        "gke with irsa": {"cloud": {"provider": "gke", "identity": "irsa"}},
+        "aks with pod-identity": {"cloud": {"provider": "aks", "identity": "pod-identity"}},
+        "eks with workload-identity": {"cloud": {"provider": "eks", "identity": "workload-identity"}},
+        "extraObjects not objects": {"extraObjects": ["kind: ConfigMap"]},
     }
     for name, override in bad.items():
         expect(f"[{name}]", deep_merge(defaults, override), False)

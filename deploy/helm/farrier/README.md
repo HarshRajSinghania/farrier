@@ -115,7 +115,7 @@ Keys each component needs (names configurable under `secrets.keys`):
 |---|---|---|---|
 | `api-token` | yes | yes | Same value in both. |
 | `api-read-token` | optional | optional | Required for the ServiceMonitor. |
-| `master-key` | unless `engine.masterKey.kms` | | Fernet key. |
+| `master-key` | yes; with `engine.masterKey.kms` the wrapped key (optional with sqlite) | | Fernet key. |
 | `database-password` | postgresql/mysql | | Mounted at `/run/secrets/farrier-db/password`. |
 | `dashboard-password` | | `web.auth.mode=basic` | |
 | `oidc-client-secret`, `session-secret` | | `web.auth.mode=oidc` | |
@@ -132,150 +132,55 @@ With `networkPolicy.enabled` (the default) both components are default-deny:
 | | Allowed |
 |---|---|
 | engine ingress | web pods and the `helm test` pod on 8740; Prometheus on 8740 when `engine.networkPolicy.metricsNamespaceSelector` is set. |
-| engine egress | cluster DNS; the database (`engine.networkPolicy.database.cidrs`, required with an external database); device management networks (`managementNetworks`: CIDR + ports); TCP 443 to the internet except private ranges and the metadata endpoint (`internet`); `extraEgress`. |
+| engine egress | cluster DNS; the database (`engine.networkPolicy.database.cidrs`, required with an external database); device management networks (`managementNetworks`: CIDR + ports); TCP 443 to the internet except private ranges and link-local (`internet`); the workload identity endpoint `cloud.provider` needs, and only that; `extraEgress`. |
 | web ingress | TCP 3000, from `web.networkPolicy.ingressFrom` when set (e.g. your ingress controller's namespace). |
 | web egress | cluster DNS; the engine on 8740; the IdP on 443 in OIDC mode (`web.networkPolicy.idp`); `extraEgress`. |
 
 Cluster-specific additions go in `extraEgress`:
 
-- **GKE Workload Identity** (Dataplane V2): `{to: [{ipBlock: {cidr: 169.254.169.254/32}}], ports: [{port: 80}, {port: 988}]}`.
+- **Cloud private endpoints** for STS, KMS, Secret Manager, Key Vault or object storage: their subnet on 443.
 - **NodeLocal DNSCache**: allow `169.254.20.10/32` on 53 UDP/TCP.
 - **In-cluster PostgreSQL or Vault**: a `podSelector`/`namespaceSelector` peer and its port.
 - **Internal ACME CA, DNS API or webhook targets** on private addresses: their CIDRs and ports.
 
+## Managed Kubernetes (EKS, GKE, AKS)
+
+`examples/values-eks.yaml`, `values-gke.yaml` and `values-aks.yaml` are complete, commented
+installs: managed PostgreSQL with two engine replicas, secrets synced by the External Secrets
+Operator, the master key wrapped by the cloud KMS, object storage, workload identity and the cloud's
+ingress. `deploy/terraform/{eks,gke,aks}` create the cloud side next to an existing cluster and
+print the account-specific values:
+
+```bash
+terraform -chdir=deploy/terraform/eks apply                       # 1. identity, KMS, secrets, bucket, database
+terraform -chdir=deploy/terraform/eks output -raw kubernetes_manifests | kubectl apply -f -
+terraform -chdir=deploy/terraform/eks output -raw helm_values > cloud-values.yaml
+helm install farrier deploy/helm/farrier -n farrier   -f deploy/helm/farrier/examples/values-eks.yaml -f cloud-values.yaml   # 2. install
+curl -fsS https://<dashboard host>/api/health                           # 3. verify
+```
+
+| | EKS | GKE | AKS |
+|---|---|---|---|
+| `cloud.provider` / `identity` | `eks` / `irsa` or `pod-identity` | `gke` / `workload-identity` | `aks` / `workload-identity` |
+| Identity | role ARN annotation (IRSA), or a Pod Identity association | `iam.gke.io/gcp-service-account` annotation, metadata server | `azure.workload.identity/client-id` annotation + pod label, token exchanged at Entra ID |
+| Link-local egress opened | none (IRSA); `169.254.170.23`, `fd00:ec2::23` port 80 (Pod Identity) | `169.254.169.254` 80/988, `169.254.169.252` 988 | none |
+| Ingress | ALB, IP targets, health check `/api/health` | GCE Ingress + BackendConfig `/api/health` + ManagedCertificate | application routing (`webapprouting.kubernetes.azure.com`) |
+| `web.trustedProxyHops` | 1 (the ALB appends one entry) | 2 (Google's load balancer appends two) | 1 (the add-on's NGINX; the Azure LB is layer 4) |
+| SQLite storage class | `gp3` (create it) | `standard-rwo` | `managed-csi` |
+| Database | RDS PostgreSQL | Cloud SQL (private IP) | Flexible Server |
+| Secrets | Secrets Manager via ESO (IRSA) | Secret Manager via ESO (Workload Identity) | Key Vault via ESO (Workload ID) |
+
+- `cloud.provider` keeps every other link-local address (IMDS included) blocked, and rendering
+  fails when the identity it needs is missing (an IRSA role ARN, an AKS client ID) or contradicts it.
+- `automountServiceAccountToken` stays false: the IRSA, Pod Identity and Workload ID webhooks add
+  their own projected, audience-bound token volume, and GKE identifies the pod at its metadata server.
+- IRSA, Entra ID and every cloud API are reached on 443 through `engine.networkPolicy.internet`.
+  Private endpoints (VPC interface endpoints, Private Service Connect, Key Vault private endpoints)
+  have private addresses: allow them in `engine.networkPolicy.extraEgress`.
+- With `engine.masterKey.kms` and an external database, the engine Secret's `master-key` holds the
+  KMS-wrapped key, so every replica unwraps the same one.
+
 ## Examples
-
-### AWS (EKS)
-
-RDS PostgreSQL, secrets from AWS Secrets Manager through External Secrets Operator, master key
-wrapped by KMS, IRSA, internal ALB.
-
-```yaml
-database:
-  type: postgresql
-  url: postgresql://farrier@farrier.cluster-abc.eu-west-1.rds.amazonaws.com:5432/farrier?sslmode=verify-full
-secrets:
-  mode: externalSecrets
-  externalSecrets:
-    secretStoreRef: { name: aws-secrets-manager, kind: ClusterSecretStore }
-    remoteRefs:
-      apiToken: { key: prod/farrier, property: api-token }
-      apiReadToken: { key: prod/farrier, property: api-read-token }
-      databasePassword: { key: prod/farrier/rds, property: password }
-      oidcClientSecret: { key: prod/farrier, property: oidc-client-secret }
-      sessionSecret: { key: prod/farrier, property: session-secret }
-engine:
-  masterKey: { kms: "aws-kms:arn:aws:kms:eu-west-1:123456789012:key/..." }
-  secretBackend: { type: aws, aws: { region: eu-west-1, prefix: farrier/prod/ } }
-  storage: { url: s3://acme-farrier-prod/artifacts }
-  serviceAccount:
-    cloudIdentity: { awsRoleArn: arn:aws:iam::123456789012:role/farrier-engine }
-  networkPolicy:
-    database: { cidrs: [10.0.32.0/20] }
-    managementNetworks: [{ cidr: 10.100.0.0/16, ports: [443] }]
-web:
-  auth:
-    mode: oidc
-    oidc: { issuer: https://example.okta.com/oauth2/default, clientId: 0oa1b2c3d4, adminGroups: pki-admins }
-  ingress:
-    enabled: true
-    className: alb
-    annotations:
-      alb.ingress.kubernetes.io/scheme: internal
-      alb.ingress.kubernetes.io/target-type: ip
-      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-1:123456789012:certificate/...
-    hosts: [{ host: farrier.corp.example.com, paths: [{ path: /, pathType: Prefix }] }]
-```
-
-The IAM role needs `kms:Decrypt` on the master key, `secretsmanager:*Secret*` on `farrier/prod/*`
-and S3 access to the bucket. The IRSA webhook injects its own projected token, so
-`automountServiceAccountToken` stays false.
-
-### GCP (GKE)
-
-Cloud SQL for PostgreSQL over private IP, Secret Manager through External Secrets Operator, Cloud
-KMS, Workload Identity, Gateway API.
-
-```yaml
-database:
-  type: postgresql
-  url: postgresql://farrier@10.30.0.5:5432/farrier?sslmode=verify-full&sslrootcert=/etc/farrier/db-tls/ca.crt
-  tls: { existingSecret: cloudsql-server-ca }
-secrets:
-  mode: externalSecrets
-  externalSecrets:
-    secretStoreRef: { name: gcp-secret-manager, kind: ClusterSecretStore }
-    remoteRefs:
-      apiToken: { key: farrier-api-token }
-      apiReadToken: { key: farrier-api-read-token }
-      databasePassword: { key: farrier-db-password }
-      dashboardPassword: { key: farrier-dashboard-password }
-engine:
-  masterKey: { kms: "gcp-kms:projects/acme-prod/locations/europe-west1/keyRings/farrier/cryptoKeys/master" }
-  secretBackend: { type: gcp, gcp: { project: acme-prod } }
-  storage: { url: gs://acme-farrier-prod/artifacts }
-  serviceAccount:
-    cloudIdentity: { gcpServiceAccount: farrier-engine@acme-prod.iam.gserviceaccount.com }
-  networkPolicy:
-    database: { cidrs: [10.30.0.5/32] }
-    extraEgress:
-      - to: [{ ipBlock: { cidr: 169.254.169.254/32 } }]
-        ports: [{ port: 80, protocol: TCP }, { port: 988, protocol: TCP }]
-web:
-  httpRoute:
-    enabled: true
-    parentRefs: [{ name: internal-https, namespace: gateway-system }]
-    hostnames: [farrier.corp.example.com]
-```
-
-Bind the Kubernetes service account to the GCP one with
-`roles/iam.workloadIdentityUser` on `serviceAccount:acme-prod.svc.id.goog[farrier/farrier-engine]`.
-
-### Azure (AKS)
-
-Azure Database for PostgreSQL, Key Vault through External Secrets Operator, Key Vault master key,
-Workload Identity, Application Gateway for Containers or AGIC.
-
-```yaml
-database:
-  type: postgresql
-  url: postgresql://farrier@farrier-prod.postgres.database.azure.com:5432/farrier?sslmode=verify-full
-secrets:
-  mode: externalSecrets
-  externalSecrets:
-    secretStoreRef: { name: azure-key-vault, kind: ClusterSecretStore }
-    remoteRefs:
-      apiToken: { key: farrier-api-token }
-      apiReadToken: { key: farrier-api-read-token }
-      databasePassword: { key: farrier-db-password }
-      oidcClientSecret: { key: farrier-oidc-client-secret }
-      sessionSecret: { key: farrier-session-secret }
-engine:
-  masterKey: { kms: "azure-kv:https://acme-farrier.vault.azure.net/keys/master" }
-  secretBackend: { type: azure, azure: { vaultUrl: https://acme-farrier.vault.azure.net } }
-  storage: { url: azblob://farrier/artifacts }
-  serviceAccount:
-    cloudIdentity: { azureClientId: 00000000-0000-0000-0000-000000000000 }
-  networkPolicy:
-    database: { cidrs: [10.40.1.0/24] }
-web:
-  auth:
-    mode: oidc
-    oidc:
-      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
-      clientId: <app-id>
-      scopes: openid profile email
-      roleClaim: roles
-  ingress:
-    enabled: true
-    className: azure-application-gateway
-    hosts: [{ host: farrier.corp.example.com, paths: [{ path: /, pathType: Prefix }] }]
-    tls: [{ secretName: farrier-web-tls, hosts: [farrier.corp.example.com] }]
-```
-
-Setting `azureClientId` annotates the service account and labels the pods
-`azure.workload.identity/use: "true"`; create the federated credential for
-`system:serviceaccount:farrier:farrier-engine`.
 
 ### On-prem
 
@@ -358,13 +263,16 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `commonLabels` | `{}` | Labels added to every resource the chart renders. |
 | `commonAnnotations` | `{}` | Annotations added to every resource the chart renders. |
 | `clusterDomain` | `"cluster.local"` | Cluster DNS domain, used to build the engine URL the dashboard calls. |
+| `extraObjects` | `[]` | Extra manifests rendered with the release (e.g. a GKE BackendConfig and ManagedCertificate). |
+| `cloud.provider` | `"none"` | none \| eks \| gke \| aks: opens exactly the link-local endpoint that provider's workload identity needs. |
+| `cloud.identity` | `""` | eks: irsa (default) or pod-identity; gke, aks: workload-identity (default). Empty with provider none. |
 | `database.type` | `"sqlite"` | sqlite \| postgresql \| mysql. sqlite: the engine runs as a single-replica StatefulSet with its database on a PVC. postgresql/mysql: the engine runs as a Deployment with several replicas; one leader runs the renewal loop (advisory lock / GET_LOCK), every replica serves the API. |
 | `database.url` | `""` | Connection URL for postgresql/mysql, WITHOUT a password (the engine refuses one in the URL). Use sslmode=verify-full in production, e.g. postgresql://farrier@db.internal:5432/farrier?sslmode=verify-full&sslrootcert=/etc/farrier/db-tls/ca.crt Do not route through PgBouncer in transaction-pooling mode: the leader lock lives on a session. |
 | `database.tls.existingSecret` | `""` | Name of an existing Secret with the database CA (and optional client cert/key), mounted read-only at /etc/farrier/db-tls. Reference the files from the URL (sslrootcert=...). |
 | `secrets.mode` | `"existingSecret"` | Where the Secrets come from: existingSecret   you create the Secrets (recommended for production; e.g. from your CD pipeline, sealed-secrets or the Secrets Store CSI driver). externalSecrets  the chart renders ExternalSecret objects for the External Secrets Operator, which syncs them from AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, HashiCorp Vault, ... create           the chart renders a Secret from the values below. DEVELOPMENT ONLY: the values end up in your values files and in the Helm release secret. |
 | `secrets.keys.apiToken` | `"api-token"` | Engine admin token (FARRIER_API_TOKEN, engine + web). Required. |
 | `secrets.keys.apiReadToken` | `"api-read-token"` | Engine read-only token (FARRIER_API_READ_TOKEN, engine + web + ServiceMonitor). Optional in existingSecret mode; SSO viewers and Prometheus use it. |
-| `secrets.keys.masterKey` | `"master-key"` | Fernet master key sealing private keys (FARRIER_MASTER_KEY, engine). Not needed when engine.masterKey.kms is set. |
+| `secrets.keys.masterKey` | `"master-key"` | Fernet master key sealing private keys (FARRIER_MASTER_KEY, engine). With engine.masterKey.kms it holds the KMS-wrapped key instead (optional with sqlite). |
 | `secrets.keys.databasePassword` | `"database-password"` | Database password (engine, mounted as a file). Not needed for sqlite. |
 | `secrets.keys.dashboardPassword` | `"dashboard-password"` | Dashboard Basic-auth password (FARRIER_DASHBOARD_PASSWORD, web, web.auth.mode=basic). |
 | `secrets.keys.oidcClientSecret` | `"oidc-client-secret"` | OIDC client secret (FARRIER_OIDC_CLIENT_SECRET, web, web.auth.mode=oidc). |
@@ -386,7 +294,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `engine.shutdownGrace` | `20` | Seconds the engine drains requests on SIGTERM (`serve --grace`); the running renewal tick gets as long again. terminationGracePeriodSeconds is max(grace + 25, 2 * grace + 5). |
 | `engine.tickSeconds` | `300` | Seconds between scan/plan/advance cycles (`serve --tick`). |
 | `engine.leaderKey` | `""` | FARRIER_LEADER_KEY: separates two Farrier installs that share one database server. Empty keeps the engine default. |
-| `engine.masterKey.kms` | `""` | FARRIER_MASTER_KEY_KMS: wrap the master key with a cloud KMS instead of reading it from a Secret: aws-kms:<key arn> \| gcp-kms:<key resource name> \| azure-kv:<key url>. When set, the masterKey Secret key is not used. Needs a cloud identity (serviceAccount). |
+| `engine.masterKey.kms` | `""` | FARRIER_MASTER_KEY_KMS: wrap the master key with a cloud KMS instead of reading it from a Secret: aws-kms:<key arn> \| gcp-kms:<key resource name> \| azure-kv:<key url>. Needs a cloud identity (serviceAccount). With postgresql/mysql the masterKey Secret key must hold the wrapped key so every replica unwraps the same one; with sqlite it may be left out (generated and kept wrapped on the PVC). |
 | `engine.secretBackend.type` | `"local"` | Where the engine stores credentials entered in the dashboard: local \| aws \| gcp \| azure \| hashicorp (FARRIER_SECRET_BACKEND). |
 | `engine.secretBackend.aws.region` | `""` | FARRIER_SECRET_AWS_REGION. |
 | `engine.secretBackend.aws.prefix` | `"farrier/"` | FARRIER_SECRET_AWS_PREFIX: name prefix for secrets Farrier creates. |
@@ -406,7 +314,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `engine.extraVolumes` | `[]` | Extra volumes for the engine pod. |
 | `engine.extraVolumeMounts` | `[]` | Extra volume mounts for the engine container. |
 | `engine.persistence.size` | `"2Gi"` | sqlite only: size of the PVC holding the database, sealed keys and change packs. |
-| `engine.persistence.storageClass` | `""` | Storage class. Empty uses the cluster default (EKS gp3, GKE standard-rwo, AKS managed-csi). |
+| `engine.persistence.storageClass` | `""` | Storage class (block storage, never NFS/EFS/Azure Files). Empty uses the cluster default. EKS: gp3 (create it); GKE: standard-rwo; AKS: managed-csi. |
 | `engine.persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
 | `engine.persistence.annotations` | `{}` | Annotations on the PVC template. |
 | `engine.dataSizeLimit` | `"1Gi"` | Size limit of the data emptyDir used with postgresql/mysql. |
@@ -419,7 +327,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `engine.serviceAccount.create` | `true` | Create a ServiceAccount for the engine. |
 | `engine.serviceAccount.name` | `""` | Name of the ServiceAccount (generated when empty and create is true; "default" when create is false and empty). |
 | `engine.serviceAccount.annotations` | `{}` | Extra ServiceAccount annotations. |
-| `engine.serviceAccount.automountToken` | `false` | Mount the Kubernetes API token into the pod. IRSA, GKE and Azure Workload Identity do not need it. Forced on when secretBackend.hashicorp.role is set. |
+| `engine.serviceAccount.automountToken` | `false` | Mount the Kubernetes API token into the pod. IRSA, EKS Pod Identity, GKE and Azure Workload Identity do not need it. Forced on when secretBackend.hashicorp.role is set. |
 | `engine.serviceAccount.cloudIdentity.awsRoleArn` | `""` | AWS IRSA: IAM role ARN (eks.amazonaws.com/role-arn). |
 | `engine.serviceAccount.cloudIdentity.gcpServiceAccount` | `""` | GKE Workload Identity: GCP service account email (iam.gke.io/gcp-service-account). |
 | `engine.serviceAccount.cloudIdentity.azureClientId` | `""` | Azure Workload Identity: managed identity client ID (azure.workload.identity/client-id); also labels the pods azure.workload.identity/use: "true". |
@@ -444,9 +352,9 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `engine.networkPolicy.managementNetworks` | `[]` | Device management networks the engine deploys certificates to: CIDRs and ports, e.g. [{cidr: 10.50.0.0/16, ports: [443, 8443, 22]}]. |
 | `engine.networkPolicy.internet.enabled` | `true` | Allow 443 to the internet (CA ACME directories, DNS-provider APIs, cloud secret stores, notifiers). |
 | `engine.networkPolicy.internet.cidr` | `"0.0.0.0/0"` | Destination CIDR for the internet rule. |
-| `engine.networkPolicy.internet.except` | `["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.25...` | Excluded ranges: private networks (reach them via managementNetworks) and the cloud metadata endpoint. |
+| `engine.networkPolicy.internet.except` | `["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.25...` | Excluded ranges: private networks (reach them via managementNetworks; cloud private endpoints via extraEgress) and link-local, which holds the node metadata services (cloud.provider opens only what workload identity needs). |
 | `engine.networkPolicy.internet.ports` | `[443]` | Ports allowed to the internet. |
-| `engine.networkPolicy.extraEgress` | `[]` | Extra raw egress rules (NetworkPolicyEgressRule), e.g. in-cluster Vault, the GKE metadata server (169.254.169.254/32 ports 80, 988) or an internal ACME CA. |
+| `engine.networkPolicy.extraEgress` | `[]` | Extra raw egress rules (NetworkPolicyEgressRule), e.g. in-cluster Vault, VPC/private endpoints of cloud APIs, NodeLocal DNSCache (169.254.20.10/32 port 53) or an internal ACME CA. |
 | `engine.metrics.serviceMonitor.enabled` | `false` | Render a Prometheus Operator ServiceMonitor for /metrics, authenticated with the read-only token (apiReadToken) from the engine Secret. |
 | `engine.metrics.serviceMonitor.interval` | `"60s"` | Scrape interval. |
 | `engine.metrics.serviceMonitor.scrapeTimeout` | `"10s"` | Scrape timeout. |

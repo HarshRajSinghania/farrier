@@ -363,6 +363,94 @@
     "clusterDomain": {
       "$ref": "#/definitions/nonEmptyString"
     },
+    "extraObjects": {
+      "$ref": "#/definitions/objectList"
+    },
+    "cloud": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "none",
+            "eks",
+            "gke",
+            "aks"
+          ]
+        },
+        "identity": {
+          "enum": [
+            "",
+            "irsa",
+            "pod-identity",
+            "workload-identity"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "provider": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "identity": {
+                "const": ""
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "provider": {
+                "const": "eks"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "identity": {
+                "enum": [
+                  "",
+                  "irsa",
+                  "pod-identity"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "provider": {
+                "enum": [
+                  "gke",
+                  "aks"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "identity": {
+                "enum": [
+                  "",
+                  "workload-identity"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
     "database": {
       "type": "object",
       "additionalProperties": false,

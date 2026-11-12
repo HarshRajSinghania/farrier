@@ -5,8 +5,10 @@ Credentials, first match wins (platform identity first; long-lived keys only whe
   1. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY [+ AWS_SESSION_TOKEN]
   2. IRSA: AWS_WEB_IDENTITY_TOKEN_FILE + AWS_ROLE_ARN -> STS AssumeRoleWithWebIdentity
      (AWS_ROLE_SESSION_NAME optional; the token file is re-read on every refresh, kubelet rotates it)
-  3. ECS task role / EKS Pod Identity: AWS_CONTAINER_CREDENTIALS_RELATIVE_URI or _FULL_URI, with
-     AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE (or _TOKEN) as the Authorization header when set
+  3. ECS task role (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) or EKS Pod Identity (_FULL_URI, e.g.
+     http://169.254.170.23/v1/credentials), with AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE (or _TOKEN) as the
+     Authorization header when set; the token file is re-read on every refresh. As in the AWS SDKs, a
+     plain-http _FULL_URI must name loopback, the ECS agent or the EKS Pod Identity agent
   4. EC2 instance profile through IMDSv2 (AWS_EC2_METADATA_DISABLED=true skips it)
 
 Temporary credentials are cached until 5 minutes before they expire.
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -35,6 +38,9 @@ from farrier.security.cloud_auth.http import (
 STS_NS = {"s": "https://sts.amazonaws.com/doc/2011-06-15/"}
 IMDS = "http://169.254.169.254"
 ECS_HOST = "http://169.254.170.2"
+# Hosts an http:// AWS_CONTAINER_CREDENTIALS_FULL_URI may name besides loopback: the ECS agent and the EKS
+# Pod Identity agent (IPv4 and IPv6). Anything else must be https, so the token never travels in clear text.
+CONTAINER_AGENTS = {"169.254.170.2", "169.254.170.23", "fd00:ec2::23"}
 REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d$")
 
 
@@ -142,7 +148,7 @@ class AwsCredentialProvider:
 
     def _container(self) -> AwsCredentials:
         e = self.env
-        url = e.get("AWS_CONTAINER_CREDENTIALS_FULL_URI") or ECS_HOST + e["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]
+        url = _container_url(e)
         headers = {}
         if e.get("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"):
             try:
@@ -172,6 +178,24 @@ class AwsCredentialProvider:
                               http=self.http, headers=h), what)
         return AwsCredentials(j["AccessKeyId"], j["SecretAccessKey"], j.get("Token"), _epoch(j.get("Expiration")),
                               "imds")
+
+
+def _container_url(e) -> str:
+    """The container credentials endpoint; RELATIVE_URI wins over FULL_URI, as in the AWS SDKs."""
+    if e.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"):
+        return ECS_HOST + e["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]
+    url = e["AWS_CONTAINER_CREDENTIALS_FULL_URI"].strip()
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    try:
+        ip = ipaddress.ip_address(host)
+        allowed = ip.is_loopback or str(ip) in CONTAINER_AGENTS
+    except ValueError:
+        allowed = host == "localhost"
+    if (parts.scheme == "https" and host) or (parts.scheme == "http" and allowed):
+        return url
+    raise CloudConfigError("AWS_CONTAINER_CREDENTIALS_FULL_URI must be https, or http to loopback, the ECS agent "
+                           "(169.254.170.2) or the EKS Pod Identity agent (169.254.170.23, [fd00:ec2::23])")
 
 
 _default: AwsCredentialProvider | None = None

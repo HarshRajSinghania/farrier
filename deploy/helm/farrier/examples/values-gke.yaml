@@ -1,0 +1,133 @@
+# Farrier on Google Kubernetes Engine: Cloud SQL for PostgreSQL over private IP (two engine
+# replicas), secrets from Secret Manager through the External Secrets Operator, master key wrapped by
+# Cloud KMS, GCS for artifacts, Workload Identity Federation for GKE, and a GKE Ingress (external
+# Application Load Balancer) with a Google-managed certificate.
+#
+#   terraform -chdir=deploy/terraform/gke apply                      # GSAs, KMS, secrets, GCS, Cloud SQL
+#   terraform -chdir=deploy/terraform/gke output -raw kubernetes_manifests | kubectl apply -f -
+#   terraform -chdir=deploy/terraform/gke output -raw helm_values > cloud-values.yaml
+#   helm install farrier deploy/helm/farrier -n farrier -f deploy/helm/farrier/examples/values-gke.yaml -f cloud-values.yaml
+#
+# cloud-values.yaml fills every project-specific value below. Without Terraform, replace them
+# yourself: <ANGLE_BRACKETS> take any string; my-project, europe-west1 and 10.x addresses are
+# documentation values where the schema needs a real format.
+# Assumes the release name "farrier" in namespace "farrier" (Service farrier-web, KSA farrier-engine).
+#
+# Cluster prerequisites: Workload Identity Federation for GKE on the cluster and node pools (Autopilot
+# has it), NetworkPolicy enforcement (Dataplane V2 or Calico), External Secrets Operator, a
+# VPC-native cluster (container-native load balancing), and a global static IP named farrier-web.
+
+cloud:
+  provider: gke
+  # The engine NetworkPolicy opens the GKE metadata server only: 169.254.169.254/32 ports 80 and
+  # 988, and 169.254.169.252/32 port 988 (Dataplane V2). Everything else in link-local stays blocked.
+  identity: workload-identity
+
+# Cloud SQL's server certificate names the instance, not its IP, so the URL verifies the CA only.
+# The Terraform module's kubernetes_manifests include the farrier-db-ca Secret with that CA.
+database:
+  type: postgresql
+  url: postgresql://farrier@10.30.0.5:5432/farrier?sslmode=verify-ca&sslrootcert=/etc/farrier/db-tls/ca.crt
+  tls:
+    existingSecret: farrier-db-ca
+
+# External Secrets Operator reads Secret Manager through its own KSA bound to a Google service
+# account (Workload Identity, never a key file): from `terraform output kubernetes_manifests`, or
+# deploy/kubernetes/external-secrets/gcp.yaml (apply its ServiceAccount and SecretStore only).
+secrets:
+  mode: externalSecrets
+  externalSecrets:
+    secretStoreRef:
+      name: farrier-gcp
+      kind: SecretStore
+    remoteRefs:
+      apiToken: { key: farrier-runtime-api-token }
+      apiReadToken: { key: farrier-runtime-api-read-token }
+      # The KMS-wrapped master key (seed it once, see deploy/terraform/gke/README.md).
+      masterKey: { key: farrier-runtime-master-key }
+      databasePassword: { key: farrier-runtime-db-password }
+      dashboardPassword: { key: farrier-runtime-dashboard-password }
+
+engine:
+  replicaCount: 2
+  masterKey:
+    kms: gcp-kms:projects/my-project/locations/europe-west1/keyRings/<KEY_RING>/cryptoKeys/<KEY>
+  secretBackend:
+    type: gcp
+    gcp:
+      project: my-project
+  storage:
+    url: gs://<BUCKET>/farrier
+  serviceAccount:
+    name: farrier-engine
+    cloudIdentity:
+      # Leave empty to grant IAM roles to the KSA principal directly
+      # (principal://iam.googleapis.com/projects/<NUMBER>/locations/global/workloadIdentityPools/my-project.svc.id.goog/subject/ns/farrier/sa/farrier-engine).
+      gcpServiceAccount: farrier-engine@my-project.iam.gserviceaccount.com
+  # Only used with database.type=sqlite (one replica): a zonal Persistent Disk.
+  persistence:
+    storageClass: standard-rwo
+  networkPolicy:
+    database:
+      cidrs: [10.30.0.5/32]                 # <CLOUD_SQL_PRIVATE_IP>/32
+    managementNetworks:
+      - cidr: 10.100.0.0/16                 # <DEVICE_MANAGEMENT_CIDR>, over Cloud VPN or Interconnect
+        ports: [443, 22]
+    # Google APIs are reached on 443 through the internet rule. With Private Service Connect
+    # endpoints for googleapis.com (a private IP), allow it here:
+    # extraEgress:
+    #   - to: [{ ipBlock: { cidr: 10.255.255.254/32 } }]
+    #     ports: [{ port: 443, protocol: TCP }]
+
+web:
+  replicaCount: 2
+  # Google's Application Load Balancer appends two X-Forwarded-For entries itself (the client and
+  # the load balancer's own address), so the client is two from the right.
+  trustedProxyHops: 2
+  auth:
+    mode: basic
+    # mode: oidc
+    # oidc: { issuer: https://accounts.google.com, clientId: <CLIENT_ID>, scopes: openid profile email }
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "farrier-web"}'
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: gce
+      kubernetes.io/ingress.global-static-ip-name: farrier-web
+      kubernetes.io/ingress.allow-http: "false"
+      networking.gke.io/managed-certificates: farrier-web
+    hosts:
+      - host: farrier.example.com           # <DASHBOARD_HOST>, an A record to the static IP
+        paths:
+          - path: /
+            pathType: Prefix
+  networkPolicy:
+    # Google Front Ends and health checkers connect to the pods (NEG backends) from these ranges.
+    ingressFrom:
+      - ipBlock: { cidr: 130.211.0.0/22 }
+      - ipBlock: { cidr: 35.191.0.0/16 }
+
+extraObjects:
+  # Health check on the dashboard's health endpoint (container port 3000, behind the NEG).
+  - apiVersion: cloud.google.com/v1
+    kind: BackendConfig
+    metadata:
+      name: farrier-web
+    spec:
+      healthCheck:
+        type: HTTP
+        requestPath: /api/health
+        port: 3000
+      timeoutSec: 60
+      # Identity-Aware Proxy in front of the dashboard:
+      # iap: { enabled: true, oauthclientCredentials: { secretName: farrier-iap } }
+  - apiVersion: networking.gke.io/v1
+    kind: ManagedCertificate
+    metadata:
+      name: farrier-web
+    spec:
+      domains:
+        - farrier.example.com               # <DASHBOARD_HOST>

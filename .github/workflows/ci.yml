@@ -73,9 +73,9 @@ jobs:
         with:
           terraform_wrapper: false
       - run: terraform fmt -check -recursive deploy/terraform
-      - name: terraform validate (aws, gcp, azure, aws-events)
+      - name: terraform validate (aws, gcp, azure, aws-events, eks, gke, aks)
         run: |
-          for module in aws gcp azure aws-events; do
+          for module in aws gcp azure aws-events eks gke aks; do
             echo "::group::$module"
             terraform -chdir="deploy/terraform/$module" init -backend=false -input=false
             terraform -chdir="deploy/terraform/$module" validate
@@ -101,9 +101,9 @@ jobs:
           python-version: "3.13"
       - run: pip install pyyaml jsonschema
       - run: python deploy/helm/farrier/ci/check.py
-      - name: helm lint and template on every example values file
+      - name: helm lint and template on every CI and example values file
         run: |
-          for f in deploy/helm/farrier/ci/values-*.yaml; do
+          for f in deploy/helm/farrier/ci/values-*.yaml deploy/helm/farrier/examples/values-*.yaml; do
             echo "::group::$f"
             helm lint deploy/helm/farrier --kube-version 1.30.0 -f "$f"
             helm template t deploy/helm/farrier -n farrier --kube-version 1.30.0 -f "$f" >/dev/null
@@ -111,6 +111,29 @@ jobs:
           done
       - name: SQLite with two engine replicas is refused
         run: "! helm template t deploy/helm/farrier --kube-version 1.30.0 --set secrets.mode=create --set engine.replicaCount=2"
+      - name: workload identity opens only its provider's link-local endpoint
+        run: |
+          c=deploy/helm/farrier
+          render() { helm template t "$c" -n farrier --kube-version 1.30.0 "$@"; }
+          fail() { echo "::error::$1"; exit 1; }
+          linklocal='169\.254\.(169|170)\.|fd00:ec2::'
+          out=$(render -f "$c/examples/values-gke.yaml")
+          grep -q '169.254.169.254/32' <<<"$out" && grep -q '169.254.169.252/32' <<<"$out" || fail "gke: metadata server not opened"
+          grep -qE '169\.254\.170\.|fd00:ec2::' <<<"$out" && fail "gke: Pod Identity agent opened"
+          out=$(render -f "$c/examples/values-eks.yaml" --set cloud.identity=pod-identity --set engine.serviceAccount.cloudIdentity.awsRoleArn=)
+          grep -q '169.254.170.23/32' <<<"$out" && grep -q 'fd00:ec2::23/128' <<<"$out" || fail "eks pod-identity: agent not opened"
+          grep -q '169\.254\.169\.' <<<"$out" && fail "eks pod-identity: IMDS opened"
+          for f in values-eks.yaml values-aks.yaml; do
+            out=$(render -f "$c/examples/$f")
+            grep -qE "$linklocal" <<<"$out" && fail "$f: link-local opened"
+          done
+          grep -q 'azure.workload.identity/use: "true"' <<<"$out" || fail "aks: engine pods not labelled for workload identity"
+          out=$(render)
+          grep -qE "$linklocal" <<<"$out" && fail "default: link-local opened"
+          render -f "$c/examples/values-eks.yaml" --set engine.serviceAccount.cloudIdentity.awsRoleArn= >/dev/null 2>&1 && fail "irsa without a role ARN rendered"
+          render -f "$c/examples/values-eks.yaml" --set cloud.identity=pod-identity >/dev/null 2>&1 && fail "pod-identity with an IRSA ARN rendered"
+          render -f "$c/examples/values-aks.yaml" --set engine.serviceAccount.cloudIdentity.azureClientId= >/dev/null 2>&1 && fail "aks without a client ID rendered"
+          echo ok
 
   # Build both images on every change, not only at release (catches a missing wheel or a broken stage).
   images:
