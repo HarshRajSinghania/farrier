@@ -1,0 +1,50 @@
+# farrier-secrets from AWS Secrets Manager, through the External Secrets Operator with IRSA
+# (or EKS Pod Identity: drop the annotation and associate the role with this service account).
+#
+# The IAM role needs secretsmanager:GetSecretValue (and kms:Decrypt on the secrets' key) on
+# arn:aws:secretsmanager:<region>:<account>:secret:farrier-runtime/* only.
+# Secret names match deploy/terraform/aws (<name>-runtime/...).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: farrier-external-secrets
+  namespace: farrier
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/farrier-external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: aws-secrets-manager
+  namespace: farrier
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: eu-west-1
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: farrier-external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: farrier-secrets
+  namespace: farrier
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: aws-secrets-manager
+  target:
+    name: farrier-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: api-token
+      remoteRef: { key: farrier-runtime/api-token }
+    - secretKey: dashboard-password
+      remoteRef: { key: farrier-runtime/dashboard-password }
+    # The KMS-wrapped master key: also set FARRIER_MASTER_KEY_KMS=aws-kms:<key arn> on the engine.
+    - secretKey: master-key
+      remoteRef: { key: farrier-runtime/master-key }

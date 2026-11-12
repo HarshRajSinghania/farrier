@@ -62,3 +62,66 @@ jobs:
           FARRIER_TEST_PEBBLE: "1"
       - if: failure()
         run: docker logs pebble; docker logs challtestsrv
+
+  # Reference deployments: the Terraform modules (format, then init without a backend and validate;
+  # no cloud credentials needed) and the production Compose file.
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive deploy/terraform
+      - name: terraform validate (aws, gcp, azure, aws-events)
+        run: |
+          for module in aws gcp azure aws-events; do
+            echo "::group::$module"
+            terraform -chdir="deploy/terraform/$module" init -backend=false -input=false
+            terraform -chdir="deploy/terraform/$module" validate
+            echo "::endgroup::"
+          done
+      - name: docker compose config
+        run: |
+          # placeholder secret files: config only checks the model, nothing starts
+          mkdir -p deploy/compose/secrets
+          for s in api_token api_read_token dashboard_password master_key db_password \
+                   minio_root_user minio_root_password minio_engine_secret; do
+            echo placeholder > "deploy/compose/secrets/$s"
+          done
+          docker compose -f deploy/compose/production.yml config -q
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml jsonschema
+      - run: python deploy/helm/farrier/ci/check.py
+      - name: helm lint and template on every example values file
+        run: |
+          for f in deploy/helm/farrier/ci/values-*.yaml; do
+            echo "::group::$f"
+            helm lint deploy/helm/farrier --kube-version 1.30.0 -f "$f"
+            helm template t deploy/helm/farrier -n farrier --kube-version 1.30.0 -f "$f" >/dev/null
+            echo "::endgroup::"
+          done
+      - name: SQLite with two engine replicas is refused
+        run: "! helm template t deploy/helm/farrier --kube-version 1.30.0 --set secrets.mode=create --set engine.replicaCount=2"
+
+  # Build both images on every change, not only at release (catches a missing wheel or a broken stage).
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build -t farrier:ci .
+      - run: docker build -t farrier-web:ci web
+      - name: engine image starts and answers /healthz
+        run: |
+          docker run -d --name engine -p 8740:8740 -e FARRIER_API_TOKEN=ci-only-token farrier:ci
+          for i in $(seq 1 30); do curl -sf http://localhost:8740/healthz && exit 0; sleep 1; done
+          docker logs engine; exit 1

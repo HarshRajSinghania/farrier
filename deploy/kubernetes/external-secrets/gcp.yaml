@@ -1,0 +1,54 @@
+# farrier-secrets from Google Secret Manager, through the External Secrets Operator with GKE
+# Workload Identity.
+#
+#   gcloud iam service-accounts add-iam-policy-binding farrier-eso@my-project.iam.gserviceaccount.com \
+#     --role roles/iam.workloadIdentityUser \
+#     --member "serviceAccount:my-project.svc.id.goog[farrier/farrier-external-secrets]"
+#
+# Grant that Google service account roles/secretmanager.secretAccessor on these secrets only.
+# Secret names match deploy/terraform/gcp (<name>-runtime-...).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: farrier-external-secrets
+  namespace: farrier
+  annotations:
+    iam.gke.io/gcp-service-account: farrier-eso@my-project.iam.gserviceaccount.com
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: gcp-secret-manager
+  namespace: farrier
+spec:
+  provider:
+    gcpsm:
+      projectID: my-project
+      auth:
+        workloadIdentity:
+          clusterLocation: europe-west1
+          clusterName: my-cluster
+          serviceAccountRef:
+            name: farrier-external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: farrier-secrets
+  namespace: farrier
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: gcp-secret-manager
+  target:
+    name: farrier-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: api-token
+      remoteRef: { key: farrier-runtime-api-token }
+    - secretKey: dashboard-password
+      remoteRef: { key: farrier-runtime-dashboard-password }
+    # The KMS-wrapped master key: also set FARRIER_MASTER_KEY_KMS=gcp-kms:projects/.../cryptoKeys/master-wrap.
+    - secretKey: master-key
+      remoteRef: { key: farrier-runtime-master-key }

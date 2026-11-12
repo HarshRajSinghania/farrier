@@ -1,0 +1,206 @@
+# Farrier production stack for one Docker host (on-prem or any VM).
+#
+#   engine ×2  (API + renewal loop; leader election through PostgreSQL)
+#   web        (dashboard; published on 127.0.0.1:3000 for your TLS reverse proxy)
+#   postgres   (PostgreSQL 16, data on a named volume)
+#   minio      (S3-compatible object storage for change packs, backups and audit exports)
+#   minio-init (one-shot: bucket, versioning, lifecycle, least-privilege user for the engine)
+#
+# Secrets are Docker secrets read from ./secrets/ (see README.md), never environment literals.
+# Values for env vars the images expect are exported from /run/secrets/<VAR_NAME> by a two-line
+# entrypoint, so they never appear in `docker inspect` or this file.
+#
+#   docker compose -f deploy/compose/production.yml up -d
+#
+# HashiCorp Vault: to keep device credentials in Vault instead of Farrier's database, run Vault
+# separately (never `vault server -dev` beyond a test: it is in-memory and unsealed with a root
+# token), then add to the engine:
+#   FARRIER_SECRET_BACKEND: hashicorp
+#   FARRIER_SECRET_VAULT_ADDR: https://vault.internal:8200
+#   FARRIER_SECRET_VAULT_MOUNT: secret
+# and give it a Vault token or AppRole credentials as a Docker secret (Kubernetes auth with
+# FARRIER_SECRET_VAULT_ROLE applies only on Kubernetes).
+
+name: farrier
+
+x-app-hardening: &app-hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  user: "10001"
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+# Exports every /run/secrets/<UPPERCASE_NAME> as an environment variable, then runs the command.
+x-secret-env-entrypoint: &secret-env-entrypoint
+  - /bin/sh
+  - -c
+  - |
+    for f in /run/secrets/[A-Z]*; do [ -f "$$f" ] && export "$${f##*/}=$$(cat "$$f")"; done
+    exec "$$@"
+  - secret-env
+
+services:
+  engine:
+    <<: *app-hardening
+    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
+    entrypoint: *secret-env-entrypoint
+    command: [farrier, serve, --host, 0.0.0.0, --port, "8740", --grace, "20"]
+    deploy:
+      replicas: 2
+      resources:
+        limits: { memory: 512m }
+    stop_grace_period: 45s
+    environment:
+      FARRIER_DATA: /data
+      FARRIER_DATABASE_URL: postgresql://farrier@postgres:5432/farrier?sslmode=prefer
+      FARRIER_DATABASE_PASSWORD: file:/run/secrets/db_password
+      FARRIER_SECRET_BACKEND: local
+      FARRIER_STORAGE_URL: s3://farrier/farrier
+      FARRIER_STORAGE_S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: farrier-engine
+      AWS_REGION: us-east-1
+      # Device credentials referenced as file:/run/secrets/farrier/<name> in connector configs.
+      FARRIER_SECRET_DIRS: /run/secrets/farrier
+    secrets:
+      - { source: api_token, target: FARRIER_API_TOKEN }
+      - { source: api_read_token, target: FARRIER_API_READ_TOKEN }
+      - { source: master_key, target: FARRIER_MASTER_KEY }
+      - { source: minio_engine_secret, target: AWS_SECRET_ACCESS_KEY }
+      - { source: db_password, target: db_password }
+    tmpfs:
+      - /tmp
+      - /data
+    expose: ["8740"]
+    networks: [backend, egress]
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8740/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  web:
+    <<: *app-hardening
+    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.1.0}
+    entrypoint: *secret-env-entrypoint
+    command: [node, server.js]
+    environment:
+      FARRIER_API_URL: http://engine:8740
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://farrier.example.internal}
+      # SSO instead of the dashboard password: set FARRIER_OIDC_ISSUER, FARRIER_OIDC_CLIENT_ID
+      # here and add oidc_client_secret / session_secret secrets with targets
+      # FARRIER_OIDC_CLIENT_SECRET / FARRIER_SESSION_SECRET.
+    secrets:
+      - { source: api_token, target: FARRIER_API_TOKEN }
+      - { source: api_read_token, target: FARRIER_API_READ_TOKEN }
+      - { source: dashboard_password, target: FARRIER_DASHBOARD_PASSWORD }
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    # Loopback only: terminate TLS in a reverse proxy (Caddy, nginx, Traefik) in front.
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [backend, frontend]
+    depends_on:
+      engine: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      POSTGRES_DB: farrier
+      POSTGRES_USER: farrier
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [db_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    shm_size: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farrier -d farrier"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    command: [server, /data]
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_root_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_root_password
+      MINIO_BROWSER: "off"
+    secrets: [minio_root_user, minio_root_password]
+    volumes:
+      - minio-data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Creates the bucket with versioning and lifecycle rules, and a user that can touch only it.
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
+    security_opt: ["no-new-privileges:true"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$(cat /run/secrets/minio_root_user)" "$$(cat /run/secrets/minio_root_password)" >/dev/null
+        mc mb --ignore-existing local/farrier
+        mc version enable local/farrier
+        mc ilm rule ls local/farrier 2>/dev/null | grep -q change-packs || {
+          mc ilm rule add --prefix farrier/change-packs/ --expire-days 30 local/farrier
+          mc ilm rule add --noncurrent-expire-days 90 local/farrier
+        }
+        mc admin policy create local farrier-engine /etc/farrier/minio-policy.json
+        mc admin user add local farrier-engine "$$(cat /run/secrets/minio_engine_secret)"
+        mc admin policy attach local farrier-engine --user farrier-engine 2>/dev/null || true
+    secrets: [minio_root_user, minio_root_password, minio_engine_secret]
+    volumes:
+      - ./minio-policy.json:/etc/farrier/minio-policy.json:ro
+    networks: [backend]
+    depends_on:
+      minio: { condition: service_healthy }
+
+networks:
+  # Database, object storage and the engine API: no route out.
+  backend:
+    internal: true
+  # Engine egress: ACME CAs, DNS APIs, your devices.
+  egress: {}
+  # Dashboard: published port and OIDC issuer.
+  frontend: {}
+
+volumes:
+  postgres-data:
+  minio-data:
+
+# Create these files first (README.md). Keep the directory out of version control.
+secrets:
+  api_token: { file: ./secrets/api_token }
+  api_read_token: { file: ./secrets/api_read_token }
+  dashboard_password: { file: ./secrets/dashboard_password }
+  master_key: { file: ./secrets/master_key }
+  db_password: { file: ./secrets/db_password }
+  minio_root_user: { file: ./secrets/minio_root_user }
+  minio_root_password: { file: ./secrets/minio_root_password }
+  minio_engine_secret: { file: ./secrets/minio_engine_secret }

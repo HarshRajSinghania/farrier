@@ -1,0 +1,136 @@
+export const metadata = {
+  title: "Enterprise deployment",
+  description: "Reference architectures for AWS, Google Cloud, Azure and on-prem: where keys, secrets, buckets and the CDN live, and the configuration contract every deployment uses.",
+};
+
+# Enterprise deployment
+
+The reference deployments in `deploy/` run Farrier the way a security review expects: the engine has no public address, every credential comes from the platform's secret manager through a workload identity, the master key is wrapped by a cloud KMS key, and data at rest is encrypted with customer-managed keys.
+
+| Where | Module | Engine | Web | Database | Objects | Secrets and keys | Edge |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| AWS | `deploy/terraform/aws` | ECS Fargate ×2, internal ALB | ECS Fargate, internal ALB | RDS PostgreSQL (Multi-AZ, CMK) | S3 (SSE-KMS) | Secrets Manager, KMS CMK | CloudFront (VPC origin), optional WAF |
+| Google Cloud | `deploy/terraform/gcp` | Cloud Run, internal ingress, min 1 | Cloud Run, load-balancer ingress | Cloud SQL (private IP, HA) | GCS (CMEK) | Secret Manager, Cloud KMS | External ALB, Cloud CDN, Cloud Armor |
+| Azure | `deploy/terraform/azure` | Container Apps, environment-only ingress ×2 | Container Apps | PostgreSQL Flexible Server (private access, HA) | Blob storage (CMK) | Key Vault (RBAC) | Front Door Standard |
+| On-prem, any VM | `deploy/compose/production.yml` | Compose ×2 | Compose, loopback | PostgreSQL 16 | MinIO or any S3 | Docker secrets, optional Vault | your reverse proxy |
+| Kubernetes | `deploy/kubernetes` | StatefulSet | Deployment | your PostgreSQL | your bucket | External Secrets + IRSA / Workload Identity | your ingress |
+
+Each Terraform module has a `README.md` with inputs, outputs, apply steps, a bring-your-own-network section, cost notes and teardown, and an `examples/minimal`.
+
+## Why the engine is never public
+
+The engine holds the keys to your fleet: it can sign certificate requests, push certificates to load balancers and firewalls, and read device credentials. Only the dashboard needs to talk to it, so every reference deployment keeps it off the internet:
+
+- **AWS**: the engine sits behind an internal ALB whose security group admits only the web tasks. Even the web ALB is internal; CloudFront reaches it through a VPC origin.
+- **Google Cloud**: the engine's Cloud Run ingress is `internal`. The web service reaches it through Direct VPC egress.
+- **Azure**: the engine's Container Apps ingress is limited to its environment.
+- **Compose**: the engine is on an `internal` Docker network with no published port.
+
+Its outbound path, to ACME CAs, DNS APIs and your devices' management interfaces, goes through your VPC: NAT for the internet, and VPN, Direct Connect, Interconnect or ExpressRoute to the devices.
+
+## AWS
+
+```
+Internet ─HTTPS─> CloudFront ─VPC origin─> internal ALB ─> web (Fargate)
+                  caches /_next/static/*, /assets/*            │ FARRIER_API_URL
+                                          internal ALB ────────┘ (web security group only)
+                                               │
+                                          engine ×2 ─> RDS · S3 · Secrets Manager · KMS · devices
+```
+
+| What | Where | Why |
+| --- | --- | --- |
+| Master key | Secrets Manager `<name>-runtime/master-key`, **wrapped** by the KMS CMK | Plaintext never touches Terraform state; unwrapping needs the engine's role |
+| API tokens, session secret | Secrets Manager `<name>-runtime/*` | Injected at task start by a per-service execution role |
+| Device credentials | Secrets Manager `farrier/*` | The engine's role can read and write only this prefix |
+| Database password | Generated and rotated by RDS in Secrets Manager | Never in state |
+| Change packs, backups, audit exports | S3, SSE-KMS, versioned, TLS-only, Block Public Access | Change packs expire after 30 days, old versions after 90 |
+| Cache | CloudFront, static paths only | Dashboard, `/api/*` and `/auth/*` are never cached and get cookies and headers |
+
+## Google Cloud
+
+```
+Internet ─HTTPS─> external ALB + Cloud Armor ─┬─ static paths ─> backend with Cloud CDN ─┐
+                                               └─ everything else ─> backend, no CDN ──────┴─> Cloud Run web
+Cloud Run web ─VPC─> Cloud Run engine (internal) ─VPC─> Cloud SQL private IP · Cloud NAT · devices
+```
+
+| What | Where |
+| --- | --- |
+| Master key | Secret Manager `<name>-runtime-master-key`, wrapped by Cloud KMS `master-wrap` |
+| Device credentials | Secret Manager, names under `farrier-`; the engine's service account can read and add versions there only, by IAM condition |
+| Objects | GCS with uniform access, public access prevention, CMEK, versioning and lifecycle |
+| Identity | One service account per service; no keys |
+
+Cloud Run cannot pull from `ghcr.io`, so the module creates an Artifact Registry remote repository that proxies it. On GKE, use the Kubernetes manifests with Workload Identity and keep the data tier from the module.
+
+## Azure
+
+```
+Internet ─HTTPS─> Front Door Standard ─(static paths cached)─> web app
+Container Apps environment (VNet): web app ─> engine app (environment-only ingress)
+engine ─> PostgreSQL (delegated subnet) · Blob and Key Vault (private endpoints) · devices
+```
+
+| What | Where |
+| --- | --- |
+| Master key | Key Vault secret `master-key`, wrapped by Key Vault key `master-wrap` |
+| App secrets | Runtime Key Vault; each managed identity may read only its own secrets |
+| Device credentials | A separate store Key Vault (`FARRIER_SECRET_AZURE_VAULT_URL`), where the engine is Secrets Officer |
+| Objects | Storage account: HTTPS only, TLS 1.2, no public or shared-key access, private endpoint, CMK, versioning, lifecycle |
+
+## On-prem
+
+`deploy/compose/production.yml` runs two engine replicas, the web app, PostgreSQL 16 and MinIO on one host, with Docker secrets instead of environment literals, read-only root filesystems, all capabilities dropped and `no-new-privileges`. Keep device credentials in HashiCorp Vault with `FARRIER_SECRET_BACKEND=hashicorp`. See `deploy/compose/README.md`.
+
+## Configuration contract
+
+Every deployment configures the same variables.
+
+### Engine
+
+| Variable | Value |
+| --- | --- |
+| `FARRIER_DATABASE_URL` | `postgresql://farrier@db.internal:5432/farrier?sslmode=verify-full&sslrootcert=/path/ca.pem`. No password in the URL. |
+| `FARRIER_DATABASE_PASSWORD` | `env:NAME`, `file:/path` or the literal value |
+| `FARRIER_MASTER_KEY` | The master key, or the KMS-wrapped master key when `FARRIER_MASTER_KEY_KMS` is set. In the cloud it always comes from the secret manager, never from a plain variable in Terraform. |
+| `FARRIER_MASTER_KEY_KMS` | `aws-kms:arn:aws:kms:…:key/…`, `gcp-kms:projects/…/locations/…/keyRings/…/cryptoKeys/…` or `azure-kv:https://<vault>.vault.azure.net/keys/<name>`. The engine unwraps the master key with it at boot. |
+| `FARRIER_API_TOKEN`, `FARRIER_API_READ_TOKEN` | Admin and read-only API tokens |
+| `FARRIER_SECRET_BACKEND` | `local` (default), `aws`, `gcp`, `azure` or `hashicorp` |
+| `FARRIER_SECRET_AWS_REGION`, `FARRIER_SECRET_AWS_PREFIX` | Region, and name prefix (default `farrier/`) |
+| `FARRIER_SECRET_GCP_PROJECT` | Project holding the secrets |
+| `FARRIER_SECRET_AZURE_VAULT_URL` | `https://<vault>.vault.azure.net/` |
+| `FARRIER_SECRET_VAULT_ADDR`, `FARRIER_SECRET_VAULT_MOUNT`, `FARRIER_SECRET_VAULT_ROLE` | Vault address, KV v2 mount (default `secret`), Kubernetes auth role |
+| `FARRIER_STORAGE_URL` | `file:///var/lib/farrier/objects` (default), `s3://bucket/prefix`, `gs://bucket/prefix` or `azblob://account/container/prefix` |
+| `FARRIER_STORAGE_S3_ENDPOINT` | MinIO or another S3-compatible endpoint |
+| `FARRIER_STORAGE_KMS_KEY` | KMS key for S3 server-side encryption |
+
+Cloud backends always authenticate with the platform identity: an ECS task role, a Cloud Run or GKE service account through Workload Identity, an Azure managed identity, or Vault's Kubernetes auth. Never give the engine static cloud keys.
+
+### Web app
+
+| Variable | Value |
+| --- | --- |
+| `FARRIER_API_URL` | The engine's private URL |
+| `FARRIER_API_TOKEN`, `FARRIER_API_READ_TOKEN` | Same values as the engine |
+| `FARRIER_OIDC_ISSUER`, `FARRIER_OIDC_CLIENT_ID`, `FARRIER_OIDC_CLIENT_SECRET`, `FARRIER_SESSION_SECRET` | Single sign-on ([guide](/docs/sso)) |
+| `FARRIER_DASHBOARD_PASSWORD` | Basic-auth fallback when SSO is off |
+| `NEXT_PUBLIC_SITE_URL` | The dashboard's public URL |
+
+## Deploy with a module
+
+```bash
+cd deploy/terraform/aws/examples/minimal   # or gcp, azure
+terraform init
+terraform apply                            # infrastructure and empty secrets
+# wrap the master key with the module's KMS key and store it (see the module README)
+terraform apply -var secrets_seeded=true   # start the services
+```
+
+The two-step apply keeps the master key out of Terraform: you generate it, wrap it with the module's key, and store only the ciphertext. Generated API tokens and the session secret do pass through state, so keep state in an encrypted, access-controlled backend.
+
+<Callout type="warning" title="The key outlives the backups">
+Sealed private keys and database backups are useless without the master key, and the wrapped master key is useless without the KMS key. Keep both for at least as long as your backups, and test a restore.
+</Callout>
+
+After deploying, work through the [hosting checklist](/docs/security#hosting-checklist), and see [Databases and HA](/docs/databases) for replicas and migrating from SQLite.

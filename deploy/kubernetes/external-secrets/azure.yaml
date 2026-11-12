@@ -1,0 +1,49 @@
+# farrier-secrets from Azure Key Vault, through the External Secrets Operator with Microsoft Entra
+# Workload ID. Create a user-assigned managed identity, a federated credential for
+#   issuer  = <AKS OIDC issuer URL>
+#   subject = system:serviceaccount:farrier:farrier-external-secrets
+# and grant it "Key Vault Secrets User" on these secrets (or the vault) only.
+# Secret names match deploy/terraform/azure (runtime vault).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: farrier-external-secrets
+  namespace: farrier
+  annotations:
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+    azure.workload.identity/tenant-id: 00000000-0000-0000-0000-000000000000
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: azure-key-vault
+  namespace: farrier
+spec:
+  provider:
+    azurekv:
+      authType: WorkloadIdentity
+      vaultUrl: https://kv-farrier-abc123.vault.azure.net
+      serviceAccountRef:
+        name: farrier-external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: farrier-secrets
+  namespace: farrier
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: azure-key-vault
+  target:
+    name: farrier-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: api-token
+      remoteRef: { key: api-token }
+    - secretKey: dashboard-password
+      remoteRef: { key: dashboard-password }
+    # The wrapped master key: also set FARRIER_MASTER_KEY_KMS=azure-kv:https://<vault>.vault.azure.net/keys/master-wrap.
+    - secretKey: master-key
+      remoteRef: { key: master-key }

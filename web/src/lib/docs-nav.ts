@@ -16,6 +16,7 @@ export const DOCS_NAV: DocsGroup[] = [
       { href: "/docs/self-hosting", label: "Self-hosting" },
       { href: "/docs/deploy", label: "Deploy anywhere" },
       { href: "/docs/databases", label: "Databases and HA" },
+      { href: "/docs/enterprise", label: "Enterprise deployment" },
     ],
   },
   {
