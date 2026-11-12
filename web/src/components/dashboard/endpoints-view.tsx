@@ -174,11 +174,11 @@ export function EndpointsView() {
                     <ExpiryBadge daysLeft={e.days_left} />
                     {e.not_after && <p className="mt-1 text-xs text-muted-foreground">{fmtDate(e.not_after)}</p>}
                   </TD>
-                  <TD className="hidden max-w-48 truncate text-[13px] text-muted-foreground md:table-cell" title={e.cert_issuer ?? ""}>
+                  <TD className="hidden max-w-48 truncate text-sm text-muted-foreground md:table-cell" title={e.cert_issuer ?? ""}>
                     {e.scan_error ? <span className="text-critical-fg">{e.scan_error}</span> : (e.cert_issuer?.match(/CN=([^,]+)/)?.[1] ?? e.cert_issuer ?? "—")}
                   </TD>
                   <TD className="hidden font-mono text-xs text-muted-foreground lg:table-cell">{shortFp(e.fingerprint)}</TD>
-                  <TD className="hidden text-[13px] text-muted-foreground xl:table-cell">{e.owner ?? "—"}</TD>
+                  <TD className="hidden text-sm text-muted-foreground xl:table-cell">{e.owner ?? "—"}</TD>
                   <TD className="hidden text-xs text-muted-foreground md:table-cell">{relativeTime(e.observed_at)}</TD>
                   <TD>
                     <Dropdown>

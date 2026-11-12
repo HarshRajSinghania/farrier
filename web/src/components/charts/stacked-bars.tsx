@@ -62,6 +62,8 @@ export function StackedBars<K extends string, D extends { [P in K]: number }>({
   const totals = useMemo(() => data.map((d) => series.reduce((s, x) => s + (d[x.key] as number), 0)), [data, series]);
   const max = niceMax(Math.max(1, ...totals));
   const slot = data.length ? innerW / data.length : 0;
+  // whole multiples of tickEvery (weeks), widened until labels have 48px each: no overlap on phones
+  const every = tickEvery * Math.max(1, Math.ceil(48 / Math.max(1, slot * tickEvery)));
   const barW = Math.max(2, Math.min(18, slot - 2));
   const y = (v: number) => (v / max) * innerH;
   const ticks = [0, max / 2, max];
@@ -74,7 +76,7 @@ export function StackedBars<K extends string, D extends { [P in K]: number }>({
             {ticks.map((t) => (
               <g key={t} transform={`translate(0,${innerH - y(t)})`}>
                 <line x2={innerW} stroke={t === 0 ? "var(--chart-axis)" : "var(--chart-grid)"} />
-                <text x={-8} dy="0.32em" textAnchor="end" className="tabular fill-muted-foreground text-[10px]">
+                <text x={-8} dy="0.32em" textAnchor="end" className="tabular fill-muted-foreground text-xs">
                   {Number.isInteger(t) ? t : t.toFixed(1)}
                 </text>
               </g>
@@ -116,12 +118,12 @@ export function StackedBars<K extends string, D extends { [P in K]: number }>({
                       );
                     })}
                   </g>
-                  {i % tickEvery === 0 && (
+                  {i % every === 0 && (
                     <text
                       x={x + barW / 2}
                       y={innerH + 15}
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[10px]"
+                      className="fill-muted-foreground text-xs"
                     >
                       {d.sub ?? d.label}
                     </text>

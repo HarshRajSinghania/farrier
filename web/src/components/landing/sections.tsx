@@ -42,9 +42,9 @@ export function Hero() {
       <div className={cn(wrap, "text-center")}>
         <a
           href="#lifetimes"
-          className="enter inline-flex items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-4 text-[13px] text-white/80 ring-1 ring-white/12 ring-inset transition-colors hover:bg-white/10"
+          className="enter inline-flex items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-4 text-sm text-white/80 ring-1 ring-white/12 ring-inset transition-colors hover:bg-white/10"
         >
-          <span className="rounded-full bg-[#c5f04a] px-2 py-1 text-[11.5px] font-semibold text-[#141414]">2029</span>
+          <span className="rounded-full bg-[#c5f04a] px-2 py-1 text-xs font-semibold text-[#141414]">2029</span>
           47-day certificates are coming <ArrowRight className="size-3.5" />
         </a>
         <h1 className="enter [--d:80ms] mx-auto mt-8 max-w-4xl text-4xl font-semibold tracking-[-0.03em] text-balance">
@@ -103,7 +103,7 @@ export function DeviceStrip() {
         <p className="text-center text-sm text-muted-foreground">Works with</p>
         <ul className="mt-8 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 lg:grid-cols-8">
           {DEVICES.map(([f, n]) => (
-            <li key={n} className="flex items-center justify-center gap-2 text-[15px] font-medium">
+            <li key={n} className="flex items-center justify-center gap-2 text-base font-medium">
               <img src={icon(f)} alt="" className="size-7 object-contain" />
               {n}
             </li>
@@ -143,8 +143,8 @@ export function How() {
                 {s.n}
               </span>
               <h3 className="mt-6 text-xl font-semibold tracking-tight">{s.t}</h3>
-              <p className="mt-2 text-[15px] text-muted-foreground">{s.d}</p>
-              <p className="mt-4 rounded-lg bg-muted px-4 py-2 font-mono text-[12px] text-foreground/80">{s.code}</p>
+              <p className="mt-2 text-base text-muted-foreground">{s.d}</p>
+              <p className="mt-4 rounded-lg bg-muted px-4 py-2 font-mono text-xs text-foreground/80">{s.code}</p>
             </li>
           ))}
         </ol>
@@ -165,7 +165,7 @@ function Cell({ className, title, desc, children, dark }: { className?: string; 
       )}
     >
       <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-      <p className={cn("mt-2 text-[15px]", dark ? "text-white/60" : "text-muted-foreground")}>{desc}</p>
+      <p className={cn("mt-2 text-base", dark ? "text-white/60" : "text-muted-foreground")}>{desc}</p>
       <div className="mt-6 flex flex-1 flex-col justify-end">{children}</div>
     </article>
   );
@@ -182,29 +182,29 @@ export function Features() {
           {/* agents */}
           <Cell dark className="md:col-span-4 md:row-span-2" title="Ask your agent what expires next" desc="Claude, Gemini and Codex query Farrier over MCP. Read-only by default.">
             <div className="space-y-4 rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/10 sm:p-6">
-              <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-[14px]">What expires before the 20 December change freeze?</div>
+              <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">What expires before the 20 December change freeze?</div>
               <div className="flex gap-4">
                 <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#c5f04a] text-[#141414]">
                   <Bot className="size-4" />
                 </span>
-                <div className="text-[14px] leading-relaxed text-white/85">
+                <div className="text-sm leading-relaxed text-white/85">
                   Three certificates. <b className="text-white">www-lb</b> on F5 renews tonight at 02:00. <b className="text-white">vpn-fgt</b> is planned for 3
                   December. <b className="text-white">jira&#8209;app</b> needs a change pack, due 9 December.
                   <div className="mt-4 flex flex-wrap gap-2">
                     {["expiring_certificates", "renewal_status"].map((t) => (
-                      <span key={t} className="rounded-full bg-white/[0.06] px-2 py-1 font-mono text-[11.5px] text-white/70 ring-1 ring-white/10">
+                      <span key={t} className="rounded-full bg-white/[0.06] px-2 py-1 font-mono text-xs text-white/70 ring-1 ring-white/10">
                         {t}
                       </span>
                     ))}
                   </div>
                 </div>
               </div>
-              <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-[14px]">Check jira-app&rsquo;s chain too.</div>
+              <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">Check jira-app&rsquo;s chain too.</div>
               <div className="flex gap-4">
                 <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#c5f04a] text-[#141414]">
                   <Bot className="size-4" />
                 </span>
-                <p className="text-[14px] leading-relaxed text-white/85">
+                <p className="text-sm leading-relaxed text-white/85">
                   Grade <b className="text-[#c5f04a]">C</b>. The server doesn&rsquo;t send the R11 intermediate, so older Java clients will fail.
                 </p>
               </div>
@@ -215,7 +215,7 @@ export function Features() {
           <Cell className="md:col-span-2" title="Domain health" desc="An A–F grade for every endpoint.">
             <div className="flex items-center gap-4">
               <span className="flex size-16 items-center justify-center rounded-2xl bg-[#c5f04a] text-3xl font-semibold text-[#141414]">A</span>
-              <ul className="space-y-1 text-[13px]">
+              <ul className="space-y-1 text-sm">
                 {["Chain complete", "Names covered", "TLS 1.2+ only", "OCSP stapled"].map((c) => (
                   <li key={c} className="flex items-center gap-2">
                     <Check className="size-3.5 text-[var(--status-good-fg)]" /> {c}
@@ -227,7 +227,7 @@ export function Features() {
 
           {/* zombies */}
           <Cell className="md:col-span-2" title="Zombie scanner" desc="Certificates alive that shouldn't be.">
-            <ul className="space-y-2 text-[13px]">
+            <ul className="space-y-2 text-sm">
               {[
                 ["Expired, still served", "asa-dc2:443"],
                 ["Not issued by Farrier", "mail.corp"],
@@ -236,7 +236,7 @@ export function Features() {
                 <li key={k} className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2">
                   <Skull className="size-3.5 shrink-0 text-[var(--status-critical-fg)]" />
                   <span className="font-medium">{k}</span>
-                  <span className="ml-auto font-mono text-[11.5px] text-muted-foreground">{v}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">{v}</span>
                 </li>
               ))}
             </ul>
@@ -249,18 +249,18 @@ export function Features() {
                 <div key={r} className="flex flex-col items-center gap-2">
                   <span
                     className={cn(
-                      "rounded-full px-2 py-1 text-[11px] font-medium",
+                      "rounded-full px-2 py-1 text-xs font-medium",
                       k === 0 ? "bg-[#c5f04a] text-[#141414]" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {k === 0 ? "leader" : "follower"}
                   </span>
-                  <span className="flex h-14 w-24 items-center justify-center rounded-xl font-mono text-[11.5px] ring-1 ring-border">{r}</span>
+                  <span className="flex h-14 w-24 items-center justify-center rounded-xl font-mono text-xs ring-1 ring-border">{r}</span>
                   <span className="h-6 w-px bg-border" />
                 </div>
               ))}
             </div>
-            <div className="mx-auto flex w-fit items-center gap-2 rounded-xl bg-muted px-4 py-2 text-[13px] font-medium">
+            <div className="mx-auto flex w-fit items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium">
               <DatabaseZap className="size-4" /> PostgreSQL · advisory lock
             </div>
           </Cell>
@@ -275,12 +275,12 @@ export function Features() {
                 ["idp-keycloak.svg", "Keycloak"],
                 ["idp-auth0.svg", "Auth0"],
               ].map(([f, n]) => (
-                <span key={n} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium ring-1 ring-border">
+                <span key={n} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium ring-1 ring-border">
                   <img src={icon(f)} alt="" className="size-4" /> {n}
                 </span>
               ))}
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-[12.5px]">
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
               {[
                 [Users, "Viewer", "Read"],
                 [UserCheck, "Operator", "Renew"],
@@ -309,7 +309,7 @@ export function Features() {
               <article key={t as string} className="reveal rounded-3xl bg-card p-6 ring-1 ring-border md:col-span-2">
                 <Ico className="size-5" />
                 <h3 className="mt-4 font-semibold tracking-tight">{t as string}</h3>
-                <p className="mt-2 text-[15px] text-muted-foreground">{d as string}</p>
+                <p className="mt-2 text-base text-muted-foreground">{d as string}</p>
               </article>
             );
           })}
@@ -386,7 +386,7 @@ export function Integrations() {
                       <Lock className="size-4" />
                     </span>
                   )}
-                  <span className="text-[13px] font-medium leading-tight">{n}</span>
+                  <span className="text-sm font-medium leading-tight">{n}</span>
                 </li>
               ))}
               {g.title === "DNS providers" && (
@@ -396,7 +396,7 @@ export function Integrations() {
                     className="flex h-full min-h-28 flex-col justify-center rounded-2xl bg-[#141414] p-6 text-[#f5f5f3] transition-transform hover:-translate-y-0.5"
                   >
                     <span className="text-lg font-semibold">+15 more</span>
-                    <span className="mt-1 text-[13px] text-white/60">PowerDNS, NS1, deSEC, Gandi, RFC 2136&hellip;</span>
+                    <span className="mt-1 text-sm text-white/60">PowerDNS, NS1, deSEC, Gandi, RFC 2136&hellip;</span>
                   </Link>
                 </li>
               )}
@@ -442,7 +442,7 @@ export function Lifetimes() {
               </li>
             ))}
           </ul>
-          <figcaption className="mt-6 text-[13px] text-white/45">Maximum lifetime of a publicly trusted TLS certificate (CA/B Forum ballot SC-081), and renewals a year when each one renews at two-thirds of its life.</figcaption>
+          <figcaption className="mt-6 text-sm text-white/45">Maximum lifetime of a publicly trusted TLS certificate (CA/B Forum ballot SC-081), and renewals a year when each one renews at two-thirds of its life.</figcaption>
         </figure>
       </div>
     </section>
@@ -472,16 +472,16 @@ export function Deploy() {
             <article key={p.t} className="reveal flex flex-col rounded-3xl bg-card p-6 ring-1 ring-border">
               <img src={icon(p.logo)} alt="" className="size-9 object-contain" />
               <h3 className="mt-6 text-lg font-semibold tracking-tight">{p.t}</h3>
-              <p className="mt-2 flex-1 text-[15px] text-muted-foreground">{p.d}</p>
-              <pre className="mt-6 rounded-xl bg-muted px-4 py-4 font-mono text-[12px] leading-relaxed">{p.code.join("\n")}</pre>
+              <p className="mt-2 flex-1 text-base text-muted-foreground">{p.d}</p>
+              <pre className="mt-6 rounded-xl bg-muted px-4 py-4 font-mono text-xs leading-relaxed">{p.code.join("\n")}</pre>
             </article>
           ))}
         </div>
         <div className="mt-6 overflow-hidden rounded-3xl bg-[#0b0b0b] text-[#f5f5f3] ring-1 ring-black/5">
-          <div className="flex items-center gap-2 border-b border-white/10 px-6 py-4 font-mono text-[12px] text-white/50">
+          <div className="flex items-center gap-2 border-b border-white/10 px-6 py-4 font-mono text-xs text-white/50">
             <ScrollText className="size-3.5" /> terminal
           </div>
-          <pre className="overflow-x-auto px-6 py-6 font-mono text-[13px] leading-7">
+          <pre className="overflow-x-auto px-6 py-6 font-mono text-sm leading-7">
             <span className="text-white/40">$</span> docker compose up -d{"\n"}
             <span className="text-white/50"> ✔ farrier-engine   started   :8740</span>
             {"\n"}
@@ -524,7 +524,7 @@ export function Security() {
                   <Ico className="size-5" />
                 </span>
                 <h3 className="mt-6 font-semibold tracking-tight">{t as string}</h3>
-                <p className="mt-2 text-[15px] text-muted-foreground">{d as string}</p>
+                <p className="mt-2 text-base text-muted-foreground">{d as string}</p>
               </li>
             );
           })}

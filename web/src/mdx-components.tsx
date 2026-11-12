@@ -13,7 +13,7 @@ const CALLOUT = {
 function Callout({ type = "info", title, children }: { type?: keyof typeof CALLOUT; title?: string; children: React.ReactNode }) {
   const { icon: Icon, className } = CALLOUT[type] ?? CALLOUT.info;
   return (
-    <div role="note" className={cn("not-prose my-6 flex gap-4 rounded-lg border px-4 py-4 text-[14px] leading-relaxed", className)}>
+    <div role="note" className={cn("not-prose my-6 flex gap-4 rounded-lg border px-4 py-4 text-sm leading-relaxed", className)}>
       <Icon className="mt-1 size-4 shrink-0" aria-hidden />
       <div className="min-w-0 [&_a]:font-medium [&_a]:text-brand-ink [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.85em] [&_p]:my-0 [&_p+p]:mt-2">
         {title && <p className="font-semibold">{title}</p>}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   BookOpen,
@@ -10,6 +10,8 @@ import {
   Gauge,
 
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plug,
   Radar,
   Server,
@@ -17,7 +19,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { GithubIcon, Logo, ThemeToggle } from "@/components/brand";
+import { GithubIcon, Logo, LogoMark, ThemeToggle } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Topbar } from "@/components/dashboard/topbar";
 import { useStatus, useSummary } from "@/lib/api";
@@ -52,7 +54,7 @@ const NAV = [
   },
 ];
 
-function Nav({ onNavigate }: { onNavigate?: () => void }) {
+function Nav({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const path = usePathname();
   const { data } = useSummary();
   const pending = (data?.awaiting_manual ?? 0) + (data?.attention ?? 0);
@@ -60,7 +62,11 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex flex-col gap-4" aria-label="Dashboard">
       {NAV.map(({ group, items }) => (
         <div key={group}>
-          <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">{group}</p>
+          {collapsed ? (
+            <div className="mx-2 mb-2 border-t" aria-hidden />
+          ) : (
+            <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/80">{group}</p>
+          )}
           <div className="flex flex-col gap-1">
             {items.map(({ href, label, icon: Icon, badge }) => {
               const active = href === "/dashboard" ? path === href : path.startsWith(href);
@@ -70,16 +76,22 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
                   href={href}
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
+                  title={collapsed ? label : undefined}
+                  aria-label={collapsed ? label : undefined}
                   className={cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:h-8",
+                    "flex h-9 items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:h-8",
                     active && "bg-muted text-foreground",
+                    collapsed && "relative justify-center px-0",
                   )}
                 >
-                  <Icon className="size-4" />
-                  {label}
-                  {badge && pending > 0 && (
+                  <Icon className="size-4 shrink-0" />
+                  {!collapsed && label}
+                  {badge && pending > 0 && collapsed && (
+                    <span className="absolute right-2 top-1 size-2 rounded-full bg-warning" aria-hidden />
+                  )}
+                  {badge && pending > 0 && !collapsed && (
                     <span
-                      className="tabular ml-auto rounded-full bg-warning/20 px-2 text-[11px] text-warning-fg"
+                      className="tabular ml-auto rounded-full bg-warning/20 px-2 text-xs text-warning-fg"
                       aria-label={`${pending} need attention`}
                     >
                       {pending}
@@ -95,12 +107,23 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function SidebarFooter() {
+function SidebarFooter({ collapsed = false }: { collapsed?: boolean }) {
+  if (collapsed)
+    return (
+      <div className="mt-auto flex flex-col items-center gap-1 border-t pt-4">
+        <Link href="/docs" title="Documentation" aria-label="Documentation" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+          <BookOpen className="size-4" />
+        </Link>
+        <a href={site.github} target="_blank" rel="noreferrer" title="GitHub" aria-label="GitHub" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+          <GithubIcon className="size-4" />
+        </a>
+      </div>
+    );
   return (
     <div className="mt-auto space-y-1 border-t pt-4">
       <Link
         href="/docs"
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
       >
         <BookOpen className="size-4" /> Documentation
       </Link>
@@ -108,27 +131,57 @@ function SidebarFooter() {
         href={site.github}
         target="_blank"
         rel="noreferrer"
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
       >
         <GithubIcon className="size-4" /> GitHub
       </a>
       <div className="flex items-center justify-between px-2 pt-2">
-        <span className="font-mono text-[11px] text-muted-foreground">v{site.version}</span>
+        <span className="font-mono text-xs text-muted-foreground">v{site.version}</span>
         <ThemeToggle />
       </div>
     </div>
   );
 }
 
+const COLLAPSE_KEY = "farrier.sidebar.collapsed";
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a per-browser preference, only readable after mount
+    setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+  }, []);
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+    } catch {}
+  };
   const { data: status } = useStatus();
   return (
     <div className="flex min-h-dvh bg-plane">
-      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col gap-6 border-r bg-background px-4 py-4 lg:flex">
-        <Logo href="/" className="px-2" />
-        <Nav />
-        <SidebarFooter />
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-dvh shrink-0 flex-col gap-6 overflow-y-auto border-r bg-background py-4 transition-[width] duration-200 lg:flex",
+          collapsed ? "w-16 px-2" : "w-60 px-4",
+        )}
+      >
+        <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "justify-between px-2")}>
+          {collapsed ? (
+            <Link href="/" aria-label="Farrier home" className="flex size-8 items-center justify-center">
+              <LogoMark />
+            </Link>
+          ) : (
+            <Logo href="/" />
+          )}
+          <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </Button>
+        </div>
+        <Nav collapsed={collapsed} />
+        <SidebarFooter collapsed={collapsed} />
       </aside>
 
       {open && (
@@ -173,10 +226,10 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="text-4xl font-semibold tracking-tight">{title}</h1>
+        {description && <p className="mt-2 max-w-[65ch] text-base text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
@@ -186,7 +239,7 @@ export function PageHeader({
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
   return (
-    <div role="alert" className="mb-4 rounded-lg border border-critical/30 bg-critical/5 px-4 py-4 text-[13px] text-critical-fg">
+    <div role="alert" className="mb-4 rounded-lg border border-critical/30 bg-critical/5 px-4 py-4 text-sm text-critical-fg">
       {(error as Error).message || "Something went wrong talking to the Farrier API."}
     </div>
   );

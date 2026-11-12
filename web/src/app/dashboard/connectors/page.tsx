@@ -47,10 +47,10 @@ export default function ConnectorsPage() {
                     </Badge>
                   )}
                 </div>
-                <p className="mt-4 line-clamp-4 text-[13px] text-muted-foreground">{c.doc.split("\n\n")[0]}</p>
+                <p className="mt-4 line-clamp-4 text-sm text-muted-foreground">{c.doc.split("\n\n")[0]}</p>
                 <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
                   {c.required.map((r) => (
-                    <code key={r} className="rounded border bg-muted px-2 py-1 font-mono text-[11px]">
+                    <code key={r} className="rounded border bg-muted px-2 py-1 font-mono text-xs">
                       {r}
                     </code>
                   ))}

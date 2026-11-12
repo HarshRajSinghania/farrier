@@ -150,7 +150,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               type="button"
               aria-expanded={isOpen}
               onClick={() => setClosed((c) => ({ ...c, [g.title]: isOpen }))}
-              className="flex w-full items-center justify-between rounded-md px-2 py-2 text-[13px] font-semibold hover:bg-muted"
+              className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm font-semibold hover:bg-muted"
             >
               {g.title}
               {isOpen ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
@@ -166,7 +166,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                         onClick={onNavigate}
                         aria-current={active ? "page" : undefined}
                         className={cn(
-                          "-ml-px block border-l-2 border-transparent py-2 pl-4 text-[13.5px] text-muted-foreground transition-colors hover:text-foreground",
+                          "-ml-px block border-l-2 border-transparent py-2 pl-4 text-sm text-muted-foreground transition-colors hover:text-foreground",
                           active && "border-foreground font-medium text-foreground",
                         )}
                       >
@@ -203,7 +203,7 @@ export function DocsSidebar({ index }: { index: SearchEntry[] }) {
         <SearchTrigger onOpen={() => setSearch(true)} />
         <NavList />
         <div className="mt-auto flex items-center justify-between border-t pt-4">
-          <span className="rounded-full border px-2 py-1 font-mono text-[11px] text-muted-foreground">v{site.version}</span>
+          <span className="rounded-full border px-2 py-1 font-mono text-xs text-muted-foreground">v{site.version}</span>
           <ThemeToggle />
         </div>
       </aside>
@@ -240,7 +240,7 @@ export function DocsBreadcrumbs() {
   const page = DOCS_FLAT.find((d) => d.href === path);
   if (!page) return null;
   return (
-    <nav aria-label="Breadcrumb" className="mb-6 flex items-center gap-2 text-[13px] text-muted-foreground">
+    <nav aria-label="Breadcrumb" className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
       <Link href="/docs" className="hover:text-foreground">
         Docs
       </Link>
@@ -280,7 +280,7 @@ export function DocsToc() {
   return (
     <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-52 shrink-0 overflow-y-auto py-8 xl:block">
       <p className="mb-4 text-xs font-semibold">On this page</p>
-      <ul className="space-y-2 border-l text-[13px]">
+      <ul className="space-y-2 border-l text-sm">
         {items.map((i) => (
           <li key={i.id}>
             <a

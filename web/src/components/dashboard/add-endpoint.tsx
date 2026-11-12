@@ -114,13 +114,13 @@ export function AddEndpointDialog({ children }: { children: React.ReactNode }) {
           </div>
 
           <details className="group rounded-lg border">
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2 text-[13px] font-medium">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm font-medium">
               <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
               Change window, issuer and lead time
             </summary>
             <div className="space-y-4 border-t p-4">
               <fieldset className="space-y-2">
-                <legend className="text-[13px] font-medium">Maintenance days (UTC)</legend>
+                <legend className="text-sm font-medium">Maintenance days (UTC)</legend>
                 <div className="flex flex-wrap gap-2">
                   {DAYS.map((d) => {
                     const on = days.includes(d);
@@ -168,7 +168,7 @@ export function AddEndpointDialog({ children }: { children: React.ReactNode }) {
           </details>
 
           {error && (
-            <p role="alert" className="rounded-md bg-critical/8 px-4 py-2 text-[13px] text-critical-fg">
+            <p role="alert" className="rounded-md bg-critical/8 px-4 py-2 text-sm text-critical-fg">
               {error}
             </p>
           )}

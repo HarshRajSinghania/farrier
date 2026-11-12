@@ -5,7 +5,7 @@ import { site } from "@/lib/site";
 import { FOOTER_COLUMNS } from "./nav-data";
 
 function FLink({ href, children }: { href: string; children: React.ReactNode }) {
-  const cls = "inline-flex min-h-8 items-center text-[15px] text-white/75 transition-colors hover:text-[#c5f04a]";
+  const cls = "inline-flex min-h-8 items-center text-base text-white/75 transition-colors hover:text-[#c5f04a]";
   return href.startsWith("http") ? (
     <a href={href} target="_blank" rel="noreferrer" className={cls}>
       {children}
@@ -48,7 +48,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
               </div>
             </div>
             <div className="flex min-w-0 items-end pl-8 pt-2 sm:pl-12 lg:pt-16">
-              <pre className="w-full overflow-x-auto rounded-tl-2xl bg-[#0b0b0b] p-6 font-mono text-[13px] leading-7 text-white/70">
+              <pre className="w-full overflow-x-auto rounded-tl-2xl bg-[#0b0b0b] p-6 font-mono text-sm leading-7 text-white/70">
                 <span className="text-white/40">$</span> <span className="text-white">pip install farrier-tls</span>
                 {"\n"}
                 <span className="text-white/40">$</span> <span className="text-white">farrier demo</span>
@@ -77,7 +77,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
           <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-8">
             {FOOTER_COLUMNS.map((c) => (
               <div key={c.title}>
-                <h3 className="mb-4 text-[13px] font-medium text-white/45">{c.title}</h3>
+                <h3 className="mb-4 text-sm font-medium text-white/45">{c.title}</h3>
                 <ul>
                   {c.links.map((l) => (
                     <li key={l.label}>
@@ -90,7 +90,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
           </nav>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-6 text-[13px] text-white/45">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45">
           <span>© 2026 Farrier contributors</span>
           <nav aria-label="Legal" className="flex gap-6">
             <Link href="/privacy" className="inline-flex min-h-6 items-center hover:text-white">

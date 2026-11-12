@@ -37,7 +37,7 @@ export function StatTile({
   const alert = tone !== "default" && tone !== "good";
   const body = (
     <Card className={cn("h-full p-4 transition-colors", href && "hover:bg-muted/40")}>
-      <p className="text-[13px] text-muted-foreground">{label}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       {loading ? (
         <Skeleton className="mt-2 h-9 w-16" />
       ) : (

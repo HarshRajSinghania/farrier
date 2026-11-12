@@ -147,7 +147,7 @@ function Notifications() {
         <Button variant="ghost" size="icon" className="relative shrink-0" aria-label={count ? `${count} renewals need attention` : "Notifications"}>
           <Bell />
           {count > 0 && (
-            <span className="tabular absolute right-1 top-1 flex min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold leading-4 text-background">
+            <span className="tabular absolute right-1 top-1 flex min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-xs font-semibold leading-4 text-background">
               {count}
             </span>
           )}
@@ -155,11 +155,11 @@ function Notifications() {
       </DropdownTrigger>
       <DropdownContent className="w-80 p-0">
         <div className="flex items-center justify-between border-b px-4 py-2">
-          <p className="text-[13px] font-semibold">Needs attention</p>
+          <p className="text-sm font-semibold">Needs attention</p>
           <span className="tabular text-xs text-muted-foreground">{count}</span>
         </div>
         {items.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Nothing is waiting on you.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing is waiting on you.</p>
         ) : (
           <div className="max-h-80 overflow-y-auto p-1">
             {items.map((r) => {
@@ -221,21 +221,21 @@ function UserMenu() {
         <button
           type="button"
           aria-label={`Account menu for ${user}`}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-[12px] font-semibold text-background ring-offset-2 ring-offset-background transition hover:ring-2 hover:ring-border"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background ring-offset-2 ring-offset-background transition hover:ring-2 hover:ring-border"
         >
           {initials(user)}
         </button>
       </DropdownTrigger>
       <DropdownContent className="w-64">
         <div className="flex items-center gap-4 px-2 py-2">
-          <span className="flex size-9 items-center justify-center rounded-full bg-foreground text-[12px] font-semibold text-background">
+          <span className="flex size-9 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
             {initials(user)}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="truncate text-[13px] font-semibold">{user}</p>
+              <p className="truncate text-sm font-semibold">{user}</p>
               {data && protectedDash && (
-                <Badge tone={role === "admin" ? "brand" : "neutral"} className="shrink-0 px-2 text-[11px]">
+                <Badge tone={role === "admin" ? "brand" : "neutral"} className="shrink-0 px-2 text-xs">
                   {ROLE_LABEL[role]}
                 </Badge>
               )}

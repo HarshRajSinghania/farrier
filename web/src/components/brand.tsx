@@ -39,7 +39,7 @@ export function LogoMark({ className }: { className?: string }) {
 
 export function Logo({ href = "/", className }: { href?: string; className?: string }) {
   return (
-    <Link href={href} className={cn("inline-flex items-center gap-2 text-[17px] font-semibold tracking-tight", className)}>
+    <Link href={href} className={cn("inline-flex items-center gap-2 text-base font-semibold tracking-tight", className)}>
       <LogoMark />
       <span>Farrier</span>
     </Link>

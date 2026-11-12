@@ -87,7 +87,7 @@ export const CONNECTOR_LABEL: Record<string, string> = {
 
 export function ConnectorTag({ kind, automated }: { kind: string; automated: boolean }) {
   return (
-    <span className="inline-flex items-center gap-2 text-[13px]">
+    <span className="inline-flex items-center gap-2 text-sm">
       <span
         aria-hidden
         className="size-2 rounded-[2px]"

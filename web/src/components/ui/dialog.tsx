@@ -28,7 +28,7 @@ export function DialogContent({
         <div className="mb-6 pr-8">
           <D.Title className="text-base font-semibold tracking-tight">{title}</D.Title>
           {description ? (
-            <D.Description className="mt-1 text-[13px] text-muted-foreground">{description}</D.Description>
+            <D.Description className="mt-1 text-sm text-muted-foreground">{description}</D.Description>
           ) : (
             <D.Description className="sr-only">{title}</D.Description>
           )}

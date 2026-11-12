@@ -9,7 +9,7 @@ export function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
   return (
     <kbd
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 font-mono text-[11px] text-muted-foreground",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 font-mono text-xs text-muted-foreground",
         className,
       )}
       {...props}
@@ -68,7 +68,7 @@ export function EmptyState({
         <div className="mb-1 rounded-lg border bg-muted p-2 text-muted-foreground [&_svg]:size-5">{icon}</div>
       )}
       <p className="text-sm font-medium">{title}</p>
-      {children && <div className="max-w-sm text-[13px] text-muted-foreground">{children}</div>}
+      {children && <div className="max-w-sm text-sm text-muted-foreground">{children}</div>}
     </div>
   );
 }

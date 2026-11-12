@@ -66,7 +66,7 @@ export default function DiscoveryPage() {
                     key={x}
                     type="button"
                     onClick={() => setTargets(x)}
-                    className="rounded-md border bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground hover:text-foreground"
+                    className="rounded-md border bg-muted px-2 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
                   >
                     {x}
                   </button>
@@ -82,7 +82,7 @@ export default function DiscoveryPage() {
             </form>
 
             {error && (
-              <p role="alert" className="mt-4 rounded-md bg-critical/8 px-4 py-2 text-[13px] text-critical-fg">
+              <p role="alert" className="mt-4 rounded-md bg-critical/8 px-4 py-2 text-sm text-critical-fg">
                 {error}
               </p>
             )}
@@ -119,14 +119,14 @@ export default function DiscoveryPage() {
             <CardTitle>What happens next</CardTitle>
           </CardHeader>
           <CardContent>
-            <ol className="space-y-4 text-[13px]">
+            <ol className="space-y-4 text-sm">
               {[
                 ["Registered as manual", "New listeners start on the manual connector, so nothing is pushed to a device you haven't configured."],
                 ["Assign a connector", "Switch F5, FortiGate, PAN-OS, keystore or SSH hosts to their connector to automate them."],
                 ["Planned at one third of life", "Renewals land in each device's change window, capped per day so your team isn't flooded."],
               ].map(([t, d], i) => (
                 <li key={t} className="flex gap-4">
-                  <span className="tabular flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand-ink">
+                  <span className="tabular flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand-ink">
                     {i + 1}
                   </span>
                   <div>

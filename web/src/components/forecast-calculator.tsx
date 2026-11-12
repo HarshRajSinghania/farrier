@@ -28,7 +28,7 @@ function Slider({
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <label htmlFor={id} className="text-[13px] font-medium">
+        <label htmlFor={id} className="text-sm font-medium">
           {label}
         </label>
         <output htmlFor={id} className="tabular text-sm font-semibold">

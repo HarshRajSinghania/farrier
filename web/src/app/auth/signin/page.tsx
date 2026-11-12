@@ -19,7 +19,7 @@ export default function SignInPage() {
         <Card>
           <CardContent className="p-6 sm:p-8">
             <h1 className="text-xl font-semibold tracking-tight">Sign in to the dashboard</h1>
-            <p className="mt-2 text-[13px] text-muted-foreground">
+            <p className="mt-2 text-sm text-muted-foreground">
               Use your organization account. Your access level comes from your groups in the identity provider.
             </p>
             <Suspense fallback={<div className="mt-6 h-11 rounded-md bg-muted" />}>

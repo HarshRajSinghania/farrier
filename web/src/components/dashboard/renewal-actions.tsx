@@ -99,7 +99,7 @@ export function RenewalActions({ renewal: r, compact }: { renewal: Renewal; comp
       )}
       <Dialog open={runbook !== null} onOpenChange={(o) => !o && setRunbook(null)}>
         <DialogContent title={`Runbook: ${r.name}`} description="Generated for this device. Follow it in your change window." className="max-w-2xl">
-          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted p-4 font-mono text-[12.5px] leading-relaxed">
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted p-4 font-mono text-xs leading-relaxed">
             {runbook}
           </pre>
         </DialogContent>

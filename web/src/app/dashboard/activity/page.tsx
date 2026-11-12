@@ -56,7 +56,7 @@ export default function ActivityPage() {
               const m = LEVEL[e.level as keyof typeof LEVEL] ?? LEVEL.info;
               const Icon = m.icon;
               return (
-                <li key={e.id} className="flex items-start gap-4 px-6 py-4 text-[13px]">
+                <li key={e.id} className="flex items-start gap-4 px-6 py-4 text-sm">
                   <Icon className={cn("mt-1 size-4 shrink-0", m.className)} aria-label={m.label} />
                   <div className="min-w-0 flex-1">
                     <p className="break-words">

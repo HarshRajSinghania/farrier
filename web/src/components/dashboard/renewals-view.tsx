@@ -120,12 +120,12 @@ export function RenewalsView() {
                   <TD>
                     <StateBadge state={r.state} />
                   </TD>
-                  <TD className="text-[13px]">
+                  <TD className="text-sm">
                     {fmtDate(r.scheduled_for)}
                     <p className="text-xs text-muted-foreground">{relativeTime(r.scheduled_for)}</p>
                   </TD>
-                  <TD className="hidden text-[13px] text-muted-foreground md:table-cell">{fmtDate(r.deadline)}</TD>
-                  <TD className={cn("hidden max-w-72 truncate text-[13px] lg:table-cell", r.error ? "text-critical-fg" : "text-muted-foreground")} title={r.error ?? r.reason ?? ""}>
+                  <TD className="hidden text-sm text-muted-foreground md:table-cell">{fmtDate(r.deadline)}</TD>
+                  <TD className={cn("hidden max-w-72 truncate text-sm lg:table-cell", r.error ? "text-critical-fg" : "text-muted-foreground")} title={r.error ?? r.reason ?? ""}>
                     {r.error ?? (r.ticket_ref ? `Ticket ${r.ticket_ref}` : r.reason) ?? "—"}
                     {r.attempts > 0 && !r.error && <span className="ml-1">· attempt {r.attempts}</span>}
                   </TD>

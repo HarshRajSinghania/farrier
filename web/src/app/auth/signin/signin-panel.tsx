@@ -32,7 +32,7 @@ export function SignInPanel() {
         <p
           role={msg.tone === "error" ? "alert" : "status"}
           className={cn(
-            "mt-6 flex items-start gap-2 rounded-md px-4 py-2 text-[13px]",
+            "mt-6 flex items-start gap-2 rounded-md px-4 py-2 text-sm",
             msg.tone === "error" ? "bg-critical/10 text-critical-fg" : "bg-muted text-foreground",
           )}
         >

@@ -14,7 +14,7 @@ export function ForecastChart({ rows, current }: { rows: ForecastRow[]; current?
         return (
           <li key={r.on} className="grid grid-cols-[5.5rem_1fr] items-center gap-4 sm:grid-cols-[7rem_1fr]">
             <div className="leading-tight">
-              <p className="tabular text-[13px] font-medium">{r.lifetime_days}-day certs</p>
+              <p className="tabular text-sm font-medium">{r.lifetime_days}-day certs</p>
               <p className="tabular text-xs text-muted-foreground">
                 from {new Date(r.on).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })}
               </p>
@@ -28,12 +28,12 @@ export function ForecastChart({ rows, current }: { rows: ForecastRow[]; current?
                   opacity: !current || active ? 1 : 0.55,
                 }}
               />
-              <span className="tabular whitespace-nowrap text-[13px] font-medium">
+              <span className="tabular whitespace-nowrap text-sm font-medium">
                 {r.per_working_day}
                 <span className="font-normal text-muted-foreground">/day</span>
               </span>
               {active && (
-                <span className="rounded-full bg-brand-soft px-2 py-px text-[10px] font-medium text-brand-ink">now</span>
+                <span className="rounded-full bg-brand-soft px-2 py-px text-xs font-medium text-brand-ink">now</span>
               )}
             </div>
           </li>
@@ -46,7 +46,7 @@ export function ForecastChart({ rows, current }: { rows: ForecastRow[]; current?
 export function ForecastTable({ rows }: { rows: ForecastRow[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="tabular w-full text-[13px]">
+      <table className="tabular w-full text-sm">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="py-2 pr-4 font-medium">From</th>

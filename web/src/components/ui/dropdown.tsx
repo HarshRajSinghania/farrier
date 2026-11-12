@@ -30,7 +30,7 @@ export function DropdownItem({
   return (
     <M.Item
       className={cn(
-        "flex cursor-default select-none items-center gap-2 rounded-md px-2 py-2 text-[13px] outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-muted data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-muted-foreground",
+        "flex cursor-default select-none items-center gap-2 rounded-md px-2 py-2 text-sm outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-muted data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-muted-foreground",
         danger && "text-critical-fg [&_svg]:text-critical-fg",
         className,
       )}

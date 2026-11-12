@@ -163,7 +163,7 @@ export default function OverviewPage() {
               <ul className="divide-y border-t">
                 {queue.slice(0, 6).map((r) => (
                   <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-4">
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 max-sm:basis-full">
                       <p className="truncate text-sm font-medium">{r.name}</p>
                       <p className="truncate text-xs text-muted-foreground">
                         {r.error ?? (r.ticket_ref ? `Ticket ${r.ticket_ref}` : r.host)} · {CONNECTOR_LABEL[r.connector] ?? r.connector}
@@ -190,7 +190,7 @@ export default function OverviewPage() {
               {s ? (
                 <>
                   <SplitBar a={s.automated} b={s.manual} labelA="Automated" labelB="Manual" />
-                  <ul className="space-y-2 text-[13px]">
+                  <ul className="space-y-2 text-sm">
                     {Object.entries(s.by_connector)
                       .sort((a, b) => b[1] - a[1])
                       .map(([k, v]) => (
@@ -236,7 +236,7 @@ export default function OverviewPage() {
           </CardHeader>
           <ul className="mt-4 divide-y border-t">
             {(events ?? []).map((e) => (
-              <li key={e.id} className="flex items-start gap-4 px-6 py-2 text-[13px]">
+              <li key={e.id} className="flex items-start gap-4 px-6 py-2 text-sm">
                 <span
                   aria-hidden
                   className={cn(

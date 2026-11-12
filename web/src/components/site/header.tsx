@@ -74,7 +74,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
                 onClick={() => setOpen(open === m.label ? null : m.label)}
                 onFocus={() => enter(m.label)}
                 className={cn(
-                  "flex h-9 items-center gap-1 rounded-full px-4 text-[14.5px] font-medium transition-colors",
+                  "flex h-9 items-center gap-1 rounded-full px-4 text-base font-medium transition-colors",
                   dark ? "text-white/80 hover:bg-white/10 hover:text-white" : "text-foreground/75 hover:bg-muted hover:text-foreground",
                   open === m.label && "bg-muted text-foreground",
                 )}
@@ -88,7 +88,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
             href="/#deploy"
             onMouseEnter={leave}
             className={cn(
-              "flex h-9 items-center rounded-full px-4 text-[14.5px] font-medium transition-colors",
+              "flex h-9 items-center rounded-full px-4 text-base font-medium transition-colors",
               dark ? "text-white/80 hover:bg-white/10 hover:text-white" : "text-foreground/75 hover:bg-muted hover:text-foreground",
             )}
           >
@@ -102,7 +102,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
             target="_blank"
             rel="noreferrer"
             className={cn(
-              "flex h-9 items-center gap-2 rounded-full px-4 text-[14.5px] font-medium transition-colors",
+              "flex h-9 items-center gap-2 rounded-full px-4 text-base font-medium transition-colors",
               dark ? "text-white/80 hover:bg-white/10 hover:text-white" : "text-foreground/75 hover:bg-muted hover:text-foreground",
             )}
           >
@@ -110,7 +110,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
           </a>
           <Link
             href="/docs/quickstart"
-            className="flex h-10 items-center gap-2 rounded-full bg-[#c5f04a] px-6 text-[14.5px] font-semibold text-[#141414] transition-colors hover:bg-[#d4f76e]"
+            className="flex h-10 items-center gap-2 rounded-full bg-[#c5f04a] px-6 text-base font-semibold text-[#141414] transition-colors hover:bg-[#d4f76e]"
           >
             Install Farrier <ArrowRight className="size-4" />
           </Link>
@@ -144,8 +144,8 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
                   {g.links.map((l) => (
                     <li key={l.label}>
                       <Link href={l.href} onClick={() => setOpen(null)} className="group -mx-4 block rounded-xl px-4 py-2 hover:bg-muted">
-                        <span className="block text-[15px] font-medium">{l.label}</span>
-                        {l.desc && <span className="block text-[13px] text-muted-foreground">{l.desc}</span>}
+                        <span className="block text-base font-medium">{l.label}</span>
+                        {l.desc && <span className="block text-sm text-muted-foreground">{l.desc}</span>}
                       </Link>
                     </li>
                   ))}
@@ -157,7 +157,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
               onClick={() => setOpen(null)}
               className="col-span-4 flex flex-col justify-between rounded-2xl bg-[#141414] p-6 text-[#f5f5f3] transition-transform hover:-translate-y-0.5"
             >
-              <span className="font-mono text-[11px] uppercase tracking-widest text-[#c5f04a]">Live demo</span>
+              <span className="font-mono text-xs uppercase tracking-widest text-[#c5f04a]">Live demo</span>
               <span>
                 <span className="block text-xl font-semibold tracking-tight">Watch 41 endpoints renew</span>
                 <span className="mt-1 block text-sm text-white/65">The real dashboard on demo data. Nothing to install.</span>
@@ -182,7 +182,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
               <ul className="pb-4">
                 {m.groups.flatMap((g) => g.links).map((l) => (
                   <li key={l.label}>
-                    <Link href={l.href} onClick={() => setMobile(false)} className="block py-2 text-[15px] text-muted-foreground hover:text-foreground">
+                    <Link href={l.href} onClick={() => setMobile(false)} className="block py-2 text-base text-muted-foreground hover:text-foreground">
                       {l.label}
                     </Link>
                   </li>
