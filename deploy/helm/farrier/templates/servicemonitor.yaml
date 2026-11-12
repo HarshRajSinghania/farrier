@@ -1,0 +1,31 @@
+{{- /* Prometheus Operator scrape of the engine's /metrics with the read-only token. */}}
+{{- $sm := .Values.engine.metrics.serviceMonitor }}
+{{- if $sm.enabled }}
+{{- $ctx := dict "ctx" . "component" "engine" }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  {{- include "farrier.metadata" (merge (dict "labels" $sm.labels) $ctx) | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "farrier.selectorLabels" $ctx | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: {{ $sm.interval | quote }}
+      scrapeTimeout: {{ $sm.scrapeTimeout | quote }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "farrier.secretName" $ctx | quote }}
+          key: {{ .Values.secrets.keys.apiReadToken | quote }}
+      {{- with $sm.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

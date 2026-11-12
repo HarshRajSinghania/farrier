@@ -1,0 +1,21 @@
+{{- /* Engine: ClusterIP only, never exposed. Web: ClusterIP by default, behind an Ingress or Gateway. */}}
+{{- range $component := list "engine" "web" }}
+{{- if or (eq $component "engine") $.Values.web.enabled }}
+{{- $ctx := dict "ctx" $ "component" $component }}
+{{- $svc := (index $.Values $component).service }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  {{- include "farrier.metadata" (merge (dict "annotations" $svc.annotations) $ctx) | nindent 2 }}
+spec:
+  type: {{ ternary "ClusterIP" (get $svc "type" | default "ClusterIP") (eq $component "engine") }}
+  selector:
+    {{- include "farrier.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
+{{- end }}

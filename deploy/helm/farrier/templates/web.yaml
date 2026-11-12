@@ -1,0 +1,37 @@
+{{- /* Web dashboard: stateless Deployment, scaled by replicaCount or the HPA. */}}
+{{- if .Values.web.enabled }}
+{{- $ctx := dict "ctx" . "component" "web" }}
+{{- $w := .Values.web }}
+{{- $volumeMounts := list
+  (dict "name" "tmp" "mountPath" "/tmp")
+  (dict "name" "next-cache" "mountPath" "/app/.next/cache") }}
+{{- $volumes := list
+  (dict "name" "tmp" "emptyDir" (dict "sizeLimit" "128Mi"))
+  (dict "name" "next-cache" "emptyDir" (dict "sizeLimit" "512Mi")) }}
+{{- $container := include "farrier.container" (merge (dict
+  "port" 3000
+  "healthPath" "/api/health"
+  "volumeMounts" (toYaml $volumeMounts)) $ctx) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  {{- include "farrier.metadata" $ctx | nindent 2 }}
+spec:
+  {{- if not $w.autoscaling.enabled }}
+  replicas: {{ $w.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ $w.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "farrier.selectorLabels" $ctx | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    {{- include "farrier.podTemplate" (merge (dict
+      "containers" $container
+      "volumes" (toYaml $volumes)
+      "terminationGracePeriodSeconds" $w.terminationGracePeriodSeconds) $ctx) | nindent 4 }}
+{{- end }}

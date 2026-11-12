@@ -1,0 +1,26 @@
+{{- if and .Values.web.enabled .Values.web.autoscaling.enabled }}
+{{- $ctx := dict "ctx" . "component" "web" }}
+{{- $a := .Values.web.autoscaling }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  {{- include "farrier.metadata" $ctx | nindent 2 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "farrier.componentName" $ctx }}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  metrics:
+    {{- range $resource, $target := dict "cpu" $a.targetCPUUtilizationPercentage "memory" $a.targetMemoryUtilizationPercentage }}
+    {{- if not (kindIs "invalid" $target) }}
+    - type: Resource
+      resource:
+        name: {{ $resource }}
+        target:
+          type: Utilization
+          averageUtilization: {{ $target }}
+    {{- end }}
+    {{- end }}
+{{- end }}

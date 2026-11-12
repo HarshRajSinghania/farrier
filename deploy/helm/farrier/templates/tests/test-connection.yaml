@@ -1,0 +1,52 @@
+{{- /* `helm test`: the dashboard answers / and the engine answers /healthz. Restricted pod. */}}
+{{- if .Values.tests.enabled }}
+{{- $ctx := dict "ctx" . "component" "test" }}
+{{- $engine := dict "ctx" . "component" "engine" }}
+{{- $web := dict "ctx" . "component" "web" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  {{- include "farrier.metadata" (merge (dict
+    "name" (printf "%s-test-connection" (include "farrier.fullname" .))
+    "annotations" (dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded")) $ctx) | nindent 2 }}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  {{- with .Values.global.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: curl
+      image: {{ include "farrier.image" (dict "ctx" . "image" .Values.tests.image) | quote }}
+      imagePullPolicy: {{ .Values.tests.image.pullPolicy }}
+      command: ["sh", "-ec"]
+      args:
+        - |
+          {{- if .Values.web.enabled }}
+          echo "dashboard: GET /"
+          curl -fsS -o /dev/null --max-time 10 --retry 5 --retry-connrefused --retry-delay 3 \
+            "http://{{ include "farrier.componentName" $web }}:{{ .Values.web.service.port }}/"
+          {{- end }}
+          echo "engine: GET /healthz"
+          curl -fsS --max-time 10 --retry 5 --retry-connrefused --retry-delay 3 \
+            "http://{{ include "farrier.componentName" $engine }}:{{ .Values.engine.service.port }}/healthz"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+{{- end }}

@@ -1,0 +1,134 @@
+{{- /*
+Default-deny NetworkPolicies with explicit allowances.
+  engine ingress: web pods (and the helm test pod) on 8740; optionally Prometheus on 8740.
+  engine egress:  DNS, the database, device management networks, 443 to the internet.
+  web ingress:    port 3000 (from web.networkPolicy.ingressFrom when set).
+  web egress:     DNS, the engine on 8740, the identity provider on 443.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $engine := dict "ctx" . "component" "engine" }}
+{{- $web := dict "ctx" . "component" "web" }}
+{{- $test := dict "ctx" . "component" "test" }}
+{{- $np := .Values.engine.networkPolicy }}
+{{- $engineIngressPeers := list }}
+{{- if .Values.web.enabled }}
+{{- $engineIngressPeers = append $engineIngressPeers (dict "podSelector" (dict "matchLabels" (include "farrier.selectorLabels" $web | fromYaml))) }}
+{{- end }}
+{{- if .Values.tests.enabled }}
+{{- $engineIngressPeers = append $engineIngressPeers (dict "podSelector" (dict "matchLabels" (include "farrier.selectorLabels" $test | fromYaml))) }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  {{- include "farrier.metadata" $engine | nindent 2 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "farrier.selectorLabels" $engine | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    {{- if $engineIngressPeers }}
+    - from:
+        {{- toYaml $engineIngressPeers | nindent 8 }}
+      ports:
+        - { port: 8740, protocol: TCP }
+    {{- end }}
+    {{- if $np.metricsNamespaceSelector }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.metricsNamespaceSelector | nindent 14 }}
+          {{- with $np.metricsPodSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - { port: 8740, protocol: TCP }
+    {{- end }}
+  egress:
+    {{- include "farrier.netpol.dnsEgress" . | nindent 4 }}
+    {{- if and (ne .Values.database.type "sqlite") $np.database.cidrs }}
+    - to:
+        {{- range $np.database.cidrs }}
+        - ipBlock: { cidr: {{ . | quote }} }
+        {{- end }}
+      ports:
+        - port: {{ $np.database.port | default (ternary 5432 3306 (eq .Values.database.type "postgresql")) }}
+          protocol: TCP
+    {{- end }}
+    {{- range $np.managementNetworks }}
+    - to:
+        - ipBlock: { cidr: {{ .cidr | quote }} }
+      ports:
+        {{- range .ports }}
+        - { port: {{ . }}, protocol: TCP }
+        {{- end }}
+    {{- end }}
+    {{- if $np.internet.enabled }}
+    - to:
+        - ipBlock:
+            cidr: {{ $np.internet.cidr | quote }}
+            {{- with $np.internet.except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range $np.internet.ports }}
+        - { port: {{ . }}, protocol: TCP }
+        {{- end }}
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if .Values.web.enabled }}
+{{- $wnp := .Values.web.networkPolicy }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  {{- include "farrier.metadata" $web | nindent 2 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "farrier.selectorLabels" $web | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 3000, protocol: TCP }
+      {{- with $wnp.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+        {{- if $.Values.tests.enabled }}
+        - podSelector:
+            matchLabels:
+              {{- include "farrier.selectorLabels" $test | nindent 14 }}
+        {{- end }}
+      {{- end }}
+  egress:
+    {{- include "farrier.netpol.dnsEgress" . | nindent 4 }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "farrier.selectorLabels" $engine | nindent 14 }}
+      ports:
+        - { port: 8740, protocol: TCP }
+    {{- if and (eq .Values.web.auth.mode "oidc") $wnp.idp.enabled }}
+    - to:
+        {{- range $wnp.idp.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+            {{- if and (eq . "0.0.0.0/0") $wnp.idp.except }}
+            except:
+              {{- toYaml $wnp.idp.except | nindent 14 }}
+            {{- end }}
+        {{- end }}
+      ports:
+        - { port: 443, protocol: TCP }
+    {{- end }}
+    {{- with $wnp.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}

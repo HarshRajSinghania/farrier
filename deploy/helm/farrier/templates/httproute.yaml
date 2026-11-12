@@ -1,0 +1,26 @@
+{{- /* Dashboard Gateway API route (alternative to the Ingress; rendering fails if both are on). */}}
+{{- if and .Values.web.enabled .Values.web.httpRoute.enabled }}
+{{- $ctx := dict "ctx" . "component" "web" }}
+{{- $r := .Values.web.httpRoute }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  {{- include "farrier.metadata" (merge (dict "annotations" $r.annotations "labels" $r.labels) $ctx) | nindent 2 }}
+spec:
+  parentRefs:
+    {{- toYaml $r.parentRefs | nindent 4 }}
+  {{- with $r.hostnames }}
+  hostnames:
+    {{- range . }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $r.pathPrefix | default "/" | quote }}
+      backendRefs:
+        - name: {{ include "farrier.componentName" $ctx }}
+          port: {{ .Values.web.service.port }}
+{{- end }}

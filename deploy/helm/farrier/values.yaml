@@ -1,0 +1,634 @@
+# Default values for the Farrier chart.
+#
+# Farrier has two components:
+#   engine  the API and renewal loop (Python, port 8740). Cluster-internal only, never exposed.
+#   web     the dashboard, docs and landing page (Next.js, port 3000). The one way in.
+#
+# The defaults are secure, not zero-config: you must choose where secrets come from
+# (secrets.mode) and, for more than one engine replica, an external database.
+# See README.md for complete examples on AWS, GCP, Azure and on-prem.
+
+global:
+  # -- Registry prepended to every image repository, overriding each image's own registry
+  # (for a pull-through cache or an air-gapped mirror). Empty keeps the per-image registry.
+  imageRegistry: ""
+  # -- Pull secrets for every pod in the chart, e.g. [{name: regcred}].
+  imagePullSecrets: []
+
+# -- Override the chart name used in resource names and the app.kubernetes.io/name label.
+nameOverride: ""
+# -- Override the full release-qualified name (default: <release>-farrier, or <release> if it
+# already contains "farrier").
+fullnameOverride: ""
+# -- Labels added to every resource the chart renders.
+commonLabels: {}
+# -- Annotations added to every resource the chart renders.
+commonAnnotations: {}
+# -- Cluster DNS domain, used to build the engine URL the dashboard calls.
+clusterDomain: cluster.local
+
+# ---------------------------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------------------------
+database:
+  # -- sqlite | postgresql | mysql.
+  # sqlite: the engine runs as a single-replica StatefulSet with its database on a PVC.
+  # postgresql/mysql: the engine runs as a Deployment with several replicas; one leader runs
+  # the renewal loop (advisory lock / GET_LOCK), every replica serves the API.
+  type: sqlite
+  # -- Connection URL for postgresql/mysql, WITHOUT a password (the engine refuses one in the
+  # URL). Use sslmode=verify-full in production, e.g.
+  # postgresql://farrier@db.internal:5432/farrier?sslmode=verify-full&sslrootcert=/etc/farrier/db-tls/ca.crt
+  # Do not route through PgBouncer in transaction-pooling mode: the leader lock lives on a session.
+  url: ""
+  tls:
+    # -- Name of an existing Secret with the database CA (and optional client cert/key), mounted
+    # read-only at /etc/farrier/db-tls. Reference the files from the URL (sslrootcert=...).
+    existingSecret: ""
+
+# ---------------------------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------------------------
+# Secret values are only ever read from Kubernetes Secrets (secretKeyRef or a mounted file),
+# never from ConfigMaps or env literals. The database password is mounted as a file and passed
+# as FARRIER_DATABASE_PASSWORD=file:/run/secrets/farrier-db/password.
+secrets:
+  # -- Where the Secrets come from:
+  #   existingSecret   you create the Secrets (recommended for production; e.g. from your CD
+  #                    pipeline, sealed-secrets or the Secrets Store CSI driver).
+  #   externalSecrets  the chart renders ExternalSecret objects for the External Secrets Operator,
+  #                    which syncs them from AWS Secrets Manager, GCP Secret Manager, Azure Key
+  #                    Vault, HashiCorp Vault, ...
+  #   create           the chart renders a Secret from the values below. DEVELOPMENT ONLY: the
+  #                    values end up in your values files and in the Helm release secret.
+  mode: existingSecret
+
+  # -- Key names inside the Secret(s). Change them to match Secrets you already have.
+  keys:
+    # -- Engine admin token (FARRIER_API_TOKEN, engine + web). Required.
+    apiToken: api-token
+    # -- Engine read-only token (FARRIER_API_READ_TOKEN, engine + web + ServiceMonitor). Optional
+    # in existingSecret mode; SSO viewers and Prometheus use it.
+    apiReadToken: api-read-token
+    # -- Fernet master key sealing private keys (FARRIER_MASTER_KEY, engine). Not needed when
+    # engine.masterKey.kms is set.
+    masterKey: master-key
+    # -- Database password (engine, mounted as a file). Not needed for sqlite.
+    databasePassword: database-password
+    # -- Dashboard Basic-auth password (FARRIER_DASHBOARD_PASSWORD, web, web.auth.mode=basic).
+    dashboardPassword: dashboard-password
+    # -- OIDC client secret (FARRIER_OIDC_CLIENT_SECRET, web, web.auth.mode=oidc).
+    oidcClientSecret: oidc-client-secret
+    # -- Session cookie encryption key, 32+ random bytes (FARRIER_SESSION_SECRET, web, oidc).
+    sessionSecret: session-secret
+
+  existingSecret:
+    # -- Secret holding the engine keys (apiToken, apiReadToken, masterKey, databasePassword).
+    # Required when mode=existingSecret.
+    engine: ""
+    # -- Secret holding the web keys (apiToken, apiReadToken, and dashboardPassword or
+    # oidcClientSecret + sessionSecret). May be the same Secret as the engine's, but a separate
+    # one keeps the master key and database password out of the web pods' reach.
+    web: ""
+
+  externalSecrets:
+    # -- ExternalSecret API version. external-secrets.io/v1 needs ESO >= 0.17; use
+    # external-secrets.io/v1beta1 for older operators.
+    apiVersion: external-secrets.io/v1
+    # -- How often ESO re-reads the remote secrets.
+    refreshInterval: 1h
+    secretStoreRef:
+      # -- Name of the SecretStore / ClusterSecretStore to read from. Required in this mode.
+      name: ""
+      # -- SecretStore (namespaced) or ClusterSecretStore.
+      kind: ClusterSecretStore
+    # -- Remote references per logical key: {key, property, version}. `key` is the secret's
+    # name/path in the remote store; `property` selects a JSON field inside it. Only the keys
+    # the current configuration needs are rendered, and those must have a `key`.
+    remoteRefs:
+      apiToken: { key: "", property: "" }
+      apiReadToken: { key: "", property: "" }
+      masterKey: { key: "", property: "" }
+      databasePassword: { key: "", property: "" }
+      dashboardPassword: { key: "", property: "" }
+      oidcClientSecret: { key: "", property: "" }
+      sessionSecret: { key: "", property: "" }
+
+  # -- Values for mode=create (DEVELOPMENT ONLY). Empty tokens, master key, dashboard password
+  # and session secret are generated once and kept across upgrades (looked up from the live
+  # Secret). databasePassword and oidcClientSecret must be given when they are needed.
+  create:
+    apiToken: ""
+    apiReadToken: ""
+    masterKey: ""
+    databasePassword: ""
+    dashboardPassword: ""
+    oidcClientSecret: ""
+    sessionSecret: ""
+
+# ---------------------------------------------------------------------------------------------
+# Engine (API + renewal loop)
+# ---------------------------------------------------------------------------------------------
+engine:
+  # -- Engine replicas. Empty means 2 with postgresql/mysql and 1 with sqlite. With sqlite it
+  # must be 1: rendering fails otherwise (SQLite has exactly one writer).
+  replicaCount: null
+
+  image:
+    # -- Image registry (overridden by global.imageRegistry).
+    registry: ghcr.io
+    # -- Image repository.
+    repository: gagankarthik/farrier
+    # -- Image tag. Empty uses the chart's appVersion.
+    tag: ""
+    # -- Image digest (sha256:...). When set the image is pinned as repository:tag@digest.
+    digest: ""
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+
+  # -- Seconds the engine drains requests on SIGTERM (`serve --grace`); the running renewal
+  # tick gets as long again. terminationGracePeriodSeconds is max(grace + 25, 2 * grace + 5).
+  shutdownGrace: 20
+  # -- Seconds between scan/plan/advance cycles (`serve --tick`).
+  tickSeconds: 300
+  # -- FARRIER_LEADER_KEY: separates two Farrier installs that share one database server.
+  # Empty keeps the engine default.
+  leaderKey: ""
+
+  masterKey:
+    # -- FARRIER_MASTER_KEY_KMS: wrap the master key with a cloud KMS instead of reading it
+    # from a Secret: aws-kms:<key arn> | gcp-kms:<key resource name> | azure-kv:<key url>.
+    # When set, the masterKey Secret key is not used. Needs a cloud identity (serviceAccount).
+    kms: ""
+
+  secretBackend:
+    # -- Where the engine stores credentials entered in the dashboard:
+    # local | aws | gcp | azure | hashicorp (FARRIER_SECRET_BACKEND).
+    type: local
+    aws:
+      # -- FARRIER_SECRET_AWS_REGION.
+      region: ""
+      # -- FARRIER_SECRET_AWS_PREFIX: name prefix for secrets Farrier creates.
+      prefix: farrier/
+    gcp:
+      # -- FARRIER_SECRET_GCP_PROJECT.
+      project: ""
+    azure:
+      # -- FARRIER_SECRET_AZURE_VAULT_URL, e.g. https://my-vault.vault.azure.net.
+      vaultUrl: ""
+    hashicorp:
+      # -- FARRIER_SECRET_VAULT_ADDR, e.g. https://vault.vault.svc:8200.
+      addr: ""
+      # -- FARRIER_SECRET_VAULT_MOUNT: KV v2 mount.
+      mount: secret
+      # -- FARRIER_SECRET_VAULT_ROLE: Kubernetes-auth role. When set, the engine's service
+      # account token is mounted so the engine can log in to Vault.
+      role: ""
+
+  storage:
+    # -- FARRIER_STORAGE_URL: where change packs and artifacts live: file:///... | s3://bucket/prefix
+    # | gs://bucket/prefix | azblob://container/prefix. Empty keeps them in the data directory,
+    # which with several replicas is per-pod (emptyDir): use object storage there.
+    url: ""
+    # -- FARRIER_STORAGE_S3_ENDPOINT: S3-compatible endpoint (MinIO, Ceph) for s3:// URLs.
+    s3Endpoint: ""
+    # -- FARRIER_STORAGE_KMS_KEY: KMS key for server-side encryption of stored objects.
+    kmsKey: ""
+
+  deviceSecrets:
+    # -- Existing Secret with device/DNS/notifier credentials, mounted read-only at
+    # /run/secrets/farrier. Reference them from connector configs as
+    # file:/run/secrets/farrier/<key>. FARRIER_SECRET_DIRS is set to that directory.
+    existingSecret: ""
+  # -- FARRIER_SECRET_ENV_PREFIX: connector configs may only read env vars with this prefix.
+  secretEnvPrefix: FARRIER_SECRET_
+
+  # -- Extra non-secret settings rendered into the engine ConfigMap as env vars
+  # (e.g. FARRIER_TRUST_BUNDLE). Never put secrets here: use extraEnv with secretKeyRef.
+  config: {}
+  # -- Extra env vars (full EnvVar objects, valueFrom allowed).
+  extraEnv: []
+  # -- Extra envFrom sources, e.g. [{secretRef: {name: farrier-device-env}}].
+  extraEnvFrom: []
+  # -- Extra volumes for the engine pod.
+  extraVolumes: []
+  # -- Extra volume mounts for the engine container.
+  extraVolumeMounts: []
+
+  persistence:
+    # -- sqlite only: size of the PVC holding the database, sealed keys and change packs.
+    size: 2Gi
+    # -- Storage class. Empty uses the cluster default (EKS gp3, GKE standard-rwo, AKS managed-csi).
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: [ReadWriteOnce]
+    # -- Annotations on the PVC template.
+    annotations: {}
+  # -- Size limit of the data emptyDir used with postgresql/mysql.
+  dataSizeLimit: 1Gi
+
+  # -- Requests and limits. No CPU limit by default (avoids throttling a latency-sensitive API).
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+  probes:
+    # -- Startup probe: allows up to failureThreshold * periodSeconds for migrations on first start.
+    startup:
+      enabled: true
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 60
+    # -- Liveness probe on /healthz (which also checks the database).
+    liveness:
+      enabled: true
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 6
+    # -- Readiness probe on /healthz.
+    readiness:
+      enabled: true
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  service:
+    # -- Engine Service port (ClusterIP only; the engine is never exposed outside the cluster).
+    port: 8740
+    # -- Service annotations.
+    annotations: {}
+
+  serviceAccount:
+    # -- Create a ServiceAccount for the engine.
+    create: true
+    # -- Name of the ServiceAccount (generated when empty and create is true; "default" when
+    # create is false and empty).
+    name: ""
+    # -- Extra ServiceAccount annotations.
+    annotations: {}
+    # -- Mount the Kubernetes API token into the pod. IRSA, GKE and Azure Workload Identity do
+    # not need it. Forced on when secretBackend.hashicorp.role is set.
+    automountToken: false
+    cloudIdentity:
+      # -- AWS IRSA: IAM role ARN (eks.amazonaws.com/role-arn).
+      awsRoleArn: ""
+      # -- GKE Workload Identity: GCP service account email (iam.gke.io/gcp-service-account).
+      gcpServiceAccount: ""
+      # -- Azure Workload Identity: managed identity client ID (azure.workload.identity/client-id);
+      # also labels the pods azure.workload.identity/use: "true".
+      azureClientId: ""
+
+  # -- Pod-level security context (restricted Pod Security Standard).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level security context.
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  pdb:
+    # -- Render a PodDisruptionBudget (only when more than one replica runs).
+    enabled: true
+    # -- minAvailable (ignored when maxUnavailable is set).
+    minAvailable: 1
+    # -- maxUnavailable; overrides minAvailable when set.
+    maxUnavailable: null
+
+  # -- Spread replicas across zones and nodes (ScheduleAnyway) when topologySpreadConstraints
+  # is empty.
+  defaultTopologySpread: true
+  # -- Explicit topologySpreadConstraints; replaces the default spread.
+  topologySpreadConstraints: []
+  # -- Pod annotations.
+  podAnnotations: {}
+  # -- Pod labels.
+  podLabels: {}
+  # -- Node selector.
+  nodeSelector: {}
+  # -- Tolerations.
+  tolerations: []
+  # -- Affinity.
+  affinity: {}
+  # -- PriorityClass name.
+  priorityClassName: ""
+  # -- Old ReplicaSets/revisions to keep.
+  revisionHistoryLimit: 5
+
+  networkPolicy:
+    # -- Namespace labels allowed to scrape /metrics on 8740 (e.g. {kubernetes.io/metadata.name: monitoring}).
+    # Empty disables the rule (ServiceMonitor scrapes then need it).
+    metricsNamespaceSelector: {}
+    # -- Pod labels (within metricsNamespaceSelector) allowed to scrape, e.g. {app.kubernetes.io/name: prometheus}.
+    metricsPodSelector: {}
+    database:
+      # -- CIDRs of the database (postgresql/mysql). Required when networkPolicy is enabled
+      # with an external database, e.g. ["10.20.0.0/24"].
+      cidrs: []
+      # -- Database port (5432 PostgreSQL, 3306 MySQL). Empty picks by database.type.
+      port: null
+    # -- Device management networks the engine deploys certificates to: CIDRs and ports, e.g.
+    # [{cidr: 10.50.0.0/16, ports: [443, 8443, 22]}].
+    managementNetworks: []
+    internet:
+      # -- Allow 443 to the internet (CA ACME directories, DNS-provider APIs, cloud secret
+      # stores, notifiers).
+      enabled: true
+      # -- Destination CIDR for the internet rule.
+      cidr: 0.0.0.0/0
+      # -- Excluded ranges: private networks (reach them via managementNetworks) and the cloud
+      # metadata endpoint.
+      except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+      # -- Ports allowed to the internet.
+      ports: [443]
+    # -- Extra raw egress rules (NetworkPolicyEgressRule), e.g. in-cluster Vault, the GKE
+    # metadata server (169.254.169.254/32 ports 80, 988) or an internal ACME CA.
+    extraEgress: []
+
+  metrics:
+    serviceMonitor:
+      # -- Render a Prometheus Operator ServiceMonitor for /metrics, authenticated with the
+      # read-only token (apiReadToken) from the engine Secret.
+      enabled: false
+      # -- Scrape interval.
+      interval: 60s
+      # -- Scrape timeout.
+      scrapeTimeout: 10s
+      # -- Extra labels (e.g. the release label your Prometheus selects on).
+      labels: {}
+      # -- Metric relabelings.
+      metricRelabelings: []
+
+# ---------------------------------------------------------------------------------------------
+# Web (dashboard)
+# ---------------------------------------------------------------------------------------------
+web:
+  # -- Deploy the dashboard.
+  enabled: true
+  # -- Replicas (ignored when autoscaling is enabled).
+  replicaCount: 2
+
+  image:
+    # -- Image registry (overridden by global.imageRegistry).
+    registry: ghcr.io
+    # -- Image repository.
+    repository: gagankarthik/farrier-web
+    # -- Image tag. Empty uses the chart's appVersion.
+    tag: ""
+    # -- Image digest (sha256:...).
+    digest: ""
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+
+  # -- Public URL of the dashboard (NEXT_PUBLIC_SITE_URL). Empty derives https://<first host>
+  # from the Ingress or HTTPRoute. Use https:// to turn on HSTS and __Host- cookies.
+  siteUrl: ""
+  # -- FARRIER_API_URL override. Empty uses the engine Service:
+  # http://<engine>.<namespace>.svc.<clusterDomain>:<port>.
+  apiUrl: ""
+
+  auth:
+    # -- basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login) or oidc (single sign-on
+    # with viewer/operator/admin roles). A production dashboard refuses to run with neither.
+    mode: basic
+    basic:
+      # -- FARRIER_DASHBOARD_USER.
+      user: admin
+    oidc:
+      # -- FARRIER_OIDC_ISSUER, e.g. https://example.okta.com/oauth2/default. Required for oidc.
+      issuer: ""
+      # -- FARRIER_OIDC_CLIENT_ID. Required for oidc.
+      clientId: ""
+      # -- FARRIER_OIDC_SCOPES. Google and Entra ID reject "groups": use "openid profile email".
+      scopes: openid profile email groups
+      # -- FARRIER_OIDC_ROLE_CLAIM (dotted paths work; Entra app roles: roles).
+      roleClaim: groups
+      # -- FARRIER_OIDC_ADMIN_GROUPS, comma-separated.
+      adminGroups: ""
+      # -- FARRIER_OIDC_OPERATOR_GROUPS, comma-separated.
+      operatorGroups: ""
+      # -- FARRIER_OIDC_ALLOWED_GROUPS: refuse anyone outside these (and admin/operator) groups.
+      allowedGroups: ""
+      # -- FARRIER_OIDC_REDIRECT_URI. Empty derives it from the request.
+      redirectUri: ""
+      # -- FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI. Empty derives it from the request.
+      postLogoutRedirectUri: ""
+      # -- FARRIER_SESSION_IDLE_MINUTES.
+      sessionIdleMinutes: 60
+      # -- FARRIER_SESSION_MAX_HOURS.
+      sessionMaxHours: 12
+
+  # -- Extra non-secret settings rendered into the web ConfigMap as env vars.
+  config: {}
+  # -- Extra env vars (full EnvVar objects, valueFrom allowed).
+  extraEnv: []
+  # -- Extra envFrom sources.
+  extraEnvFrom: []
+  # -- Extra volumes for the web pod.
+  extraVolumes: []
+  # -- Extra volume mounts for the web container.
+  extraVolumeMounts: []
+
+  # -- Requests and limits.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+  probes:
+    # -- Startup probe on /api/health.
+    startup:
+      enabled: true
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 24
+    # -- Liveness probe on /api/health.
+    liveness:
+      enabled: true
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+    # -- Readiness probe on /api/health.
+    readiness:
+      enabled: true
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  service:
+    # -- Service type. Prefer ClusterIP behind an Ingress or Gateway.
+    type: ClusterIP
+    # -- Service port.
+    port: 80
+    # -- Service annotations (e.g. cloud LB settings when type is LoadBalancer).
+    annotations: {}
+
+  ingress:
+    # -- Render an Ingress. Mutually exclusive with httpRoute.
+    enabled: false
+    # -- IngressClass name (nginx, alb, gce, azure-application-gateway, ...).
+    className: ""
+    # -- Ingress annotations (TLS redirect, source-range allowlists, SSO, ...).
+    annotations: {}
+    # -- Hosts and paths.
+    hosts:
+      - host: farrier.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    # -- TLS, e.g. [{secretName: farrier-web-tls, hosts: [farrier.example.com]}].
+    tls: []
+
+  httpRoute:
+    # -- Render a Gateway API HTTPRoute. Mutually exclusive with ingress.
+    enabled: false
+    # -- HTTPRoute annotations.
+    annotations: {}
+    # -- HTTPRoute labels.
+    labels: {}
+    # -- Gateways to attach to, e.g. [{name: public, namespace: gateway, sectionName: https}].
+    parentRefs: []
+    # -- Hostnames.
+    hostnames:
+      - farrier.example.com
+    # -- Path prefix routed to the dashboard.
+    pathPrefix: /
+
+  autoscaling:
+    # -- Render a HorizontalPodAutoscaler (autoscaling/v2).
+    enabled: false
+    # -- Minimum replicas.
+    minReplicas: 2
+    # -- Maximum replicas.
+    maxReplicas: 6
+    # -- Target average CPU utilization (% of requests). null disables the metric.
+    targetCPUUtilizationPercentage: 75
+    # -- Target average memory utilization (% of requests). null disables the metric.
+    targetMemoryUtilizationPercentage: 80
+
+  serviceAccount:
+    # -- Create a ServiceAccount for the dashboard.
+    create: true
+    # -- Name of the ServiceAccount.
+    name: ""
+    # -- Extra ServiceAccount annotations.
+    annotations: {}
+    # -- Mount the Kubernetes API token. The dashboard never calls the Kubernetes API.
+    automountToken: false
+    cloudIdentity:
+      # -- AWS IRSA role ARN.
+      awsRoleArn: ""
+      # -- GKE Workload Identity service account.
+      gcpServiceAccount: ""
+      # -- Azure Workload Identity client ID.
+      azureClientId: ""
+
+  # -- Pod-level security context (the web image runs as UID/GID 10001).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level security context.
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  pdb:
+    # -- Render a PodDisruptionBudget (only when more than one replica can run).
+    enabled: true
+    # -- minAvailable (ignored when maxUnavailable is set).
+    minAvailable: 1
+    # -- maxUnavailable; overrides minAvailable when set.
+    maxUnavailable: null
+
+  # -- Spread replicas across zones and nodes (ScheduleAnyway) when topologySpreadConstraints is empty.
+  defaultTopologySpread: true
+  # -- Explicit topologySpreadConstraints; replaces the default spread.
+  topologySpreadConstraints: []
+  # -- Pod annotations.
+  podAnnotations: {}
+  # -- Pod labels.
+  podLabels: {}
+  # -- Node selector.
+  nodeSelector: {}
+  # -- Tolerations.
+  tolerations: []
+  # -- Affinity.
+  affinity: {}
+  # -- PriorityClass name.
+  priorityClassName: ""
+  # -- Old ReplicaSets to keep.
+  revisionHistoryLimit: 5
+  # -- Seconds the dashboard gets to finish requests on shutdown.
+  terminationGracePeriodSeconds: 30
+
+  networkPolicy:
+    # -- Peers allowed to reach the dashboard on 3000 (NetworkPolicyPeer list), e.g. your
+    # ingress controller's namespace. Empty allows any source on port 3000 only.
+    ingressFrom: []
+    idp:
+      # -- Allow 443 egress to the identity provider (oidc mode).
+      enabled: true
+      # -- IdP CIDRs. The default is the internet without private ranges; narrow it, or add
+      # your internal IdP's range.
+      cidrs: [0.0.0.0/0]
+      # -- Ranges excluded from each IdP CIDR.
+      except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+    # -- Extra raw egress rules (NetworkPolicyEgressRule).
+    extraEgress: []
+
+# ---------------------------------------------------------------------------------------------
+# Shared
+# ---------------------------------------------------------------------------------------------
+networkPolicy:
+  # -- Render NetworkPolicies for engine and web (default-deny with the allowances above).
+  enabled: true
+  dns:
+    # -- Namespace labels of the cluster DNS.
+    namespaceSelector:
+      kubernetes.io/metadata.name: kube-system
+    # -- Pod labels of the cluster DNS (CoreDNS/kube-dns use k8s-app: kube-dns on EKS, GKE, AKS).
+    podSelector:
+      k8s-app: kube-dns
+
+tests:
+  # -- Render the `helm test` pod (curls the dashboard / and the engine /healthz).
+  enabled: true
+  image:
+    # -- Test image registry.
+    registry: docker.io
+    # -- Test image repository (needs curl, runs as non-root UID 100).
+    repository: curlimages/curl
+    # -- Test image tag.
+    tag: "8.11.1"
+    # -- Test image digest.
+    digest: ""
+    # -- Pull policy.
+    pullPolicy: IfNotPresent

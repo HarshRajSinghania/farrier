@@ -1,0 +1,13 @@
+{{- /* PodDisruptionBudgets, only where more than one replica always runs. */}}
+{{- with include "farrier.pdb" (dict "ctx" . "component" "engine" "replicas" (include "farrier.engine.replicas" .)) | trim }}
+---
+{{ . }}
+{{- end }}
+{{- if .Values.web.enabled }}
+{{- $w := .Values.web }}
+{{- $replicas := ternary $w.autoscaling.minReplicas $w.replicaCount $w.autoscaling.enabled }}
+{{- with include "farrier.pdb" (dict "ctx" . "component" "web" "replicas" $replicas) | trim }}
+---
+{{ . }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,88 @@
+{{- /*
+Engine: a Deployment with an external database (several replicas; one elected leader runs the
+renewal loop), or a single-replica StatefulSet with its SQLite database on a PVC.
+*/}}
+{{- $ctx := dict "ctx" . "component" "engine" }}
+{{- $e := .Values.engine }}
+{{- $sqlite := eq .Values.database.type "sqlite" }}
+
+{{- $volumeMounts := list
+  (dict "name" "tmp" "mountPath" "/tmp")
+  (dict "name" "data" "mountPath" "/var/lib/farrier") }}
+{{- $volumes := list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" "256Mi")) }}
+{{- if not $sqlite }}
+{{- $volumes = append $volumes (dict "name" "data" "emptyDir" (dict "sizeLimit" $e.dataSizeLimit)) }}
+{{- /* The password is a file, never an env literal: FARRIER_DATABASE_PASSWORD=file:/run/secrets/farrier-db/password */}}
+{{- $volumeMounts = append $volumeMounts (dict "name" "database-password" "mountPath" "/run/secrets/farrier-db" "readOnly" true) }}
+{{- $volumes = append $volumes (dict "name" "database-password" "secret" (dict
+  "secretName" (include "farrier.secretName" $ctx)
+  "defaultMode" 288
+  "items" (list (dict "key" .Values.secrets.keys.databasePassword "path" "password")))) }}
+{{- end }}
+{{- with .Values.database.tls.existingSecret }}
+{{- $volumeMounts = append $volumeMounts (dict "name" "database-tls" "mountPath" "/etc/farrier/db-tls" "readOnly" true) }}
+{{- $volumes = append $volumes (dict "name" "database-tls" "secret" (dict "secretName" . "defaultMode" 288)) }}
+{{- end }}
+{{- with $e.deviceSecrets.existingSecret }}
+{{- $volumeMounts = append $volumeMounts (dict "name" "device-secrets" "mountPath" "/run/secrets/farrier" "readOnly" true) }}
+{{- $volumes = append $volumes (dict "name" "device-secrets" "secret" (dict "secretName" . "defaultMode" 288)) }}
+{{- end }}
+
+{{- /* defaultMode 288 = 0440: readable by the fsGroup (10001) only. */}}
+{{- $container := include "farrier.container" (merge (dict
+  "port" 8740
+  "healthPath" "/healthz"
+  "command" (list "farrier")
+  "args" (list "serve" "--host" "0.0.0.0" "--port" "8740" "--grace" ($e.shutdownGrace | toString) "--tick" ($e.tickSeconds | toString))
+  "fieldEnv" (dict "FARRIER_REPLICA_ID" "metadata.name")
+  "volumeMounts" (toYaml $volumeMounts)) $ctx) }}
+apiVersion: apps/v1
+kind: {{ ternary "StatefulSet" "Deployment" $sqlite }}
+metadata:
+  {{- include "farrier.metadata" $ctx | nindent 2 }}
+spec:
+  replicas: {{ include "farrier.engine.replicas" . }}
+  revisionHistoryLimit: {{ $e.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "farrier.selectorLabels" $ctx | nindent 6 }}
+  {{- if $sqlite }}
+  serviceName: {{ include "farrier.componentName" $ctx }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  {{- end }}
+  template:
+    {{- include "farrier.podTemplate" (merge (dict
+      "containers" $container
+      "volumes" (toYaml $volumes)
+      "terminationGracePeriodSeconds" (include "farrier.engine.terminationGrace" .)) $ctx) | nindent 4 }}
+  {{- if $sqlite }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "farrier.selectorLabels" $ctx | nindent 10 }}
+        {{- with $e.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml $e.persistence.accessModes | nindent 10 }}
+        {{- with $e.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $e.persistence.size | quote }}
+  {{- end }}

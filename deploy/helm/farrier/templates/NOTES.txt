@@ -1,0 +1,65 @@
+{{- $engine := dict "ctx" . "component" "engine" -}}
+{{- $web := dict "ctx" . "component" "web" -}}
+{{- $engineName := include "farrier.componentName" $engine -}}
+{{- $webName := include "farrier.componentName" $web -}}
+{{- $replicas := include "farrier.engine.replicas" . | int -}}
+Farrier {{ .Chart.AppVersion }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Engine: {{ ternary "StatefulSet" "Deployment" (eq .Values.database.type "sqlite") }} {{ $engineName }}, {{ $replicas }} replica(s), database: {{ .Values.database.type }}.
+        Cluster-internal only: {{ include "farrier.engine.url" . }}
+{{- if .Values.web.enabled }}
+Web:    Deployment {{ $webName }} ({{ .Values.web.auth.mode }} sign-in).
+{{- with include "farrier.web.siteUrl" . }}
+        Open {{ . }}
+{{- else }}
+        Reach it with:
+          kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $webName }} 3000:{{ .Values.web.service.port }}
+        and open http://127.0.0.1:3000
+{{- end }}
+{{- end }}
+
+Check the install:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+{{- if eq .Values.secrets.mode "create" }}
+
+##############################################################################################
+WARNING: secrets.mode=create is for DEVELOPMENT ONLY.
+  The tokens, master key and passwords live in Secret {{ include "farrier.fullname" . }} and in
+  Helm's release history. Generated values are kept across upgrades, but losing the master key
+  makes every sealed private key unreadable: back it up now:
+    kubectl -n {{ .Release.Namespace }} get secret {{ include "farrier.fullname" . }} -o jsonpath='{.data.{{ .Values.secrets.keys.masterKey }}}' | base64 -d
+{{- if and .Values.web.enabled (eq .Values.web.auth.mode "basic") }}
+  Dashboard login ({{ .Values.web.auth.basic.user }}):
+    kubectl -n {{ .Release.Namespace }} get secret {{ include "farrier.fullname" . }} -o jsonpath='{.data.{{ .Values.secrets.keys.dashboardPassword }}}' | base64 -d
+{{- end }}
+  In production use secrets.mode=existingSecret or secrets.mode=externalSecrets.
+##############################################################################################
+{{- end }}
+{{- if eq .Values.database.type "sqlite" }}
+
+NOTE: SQLite runs exactly one engine replica, so engine upgrades and node drains cause a short
+      API outage (the dashboard stays up). For zero-downtime upgrades move to PostgreSQL or MySQL:
+        farrier db migrate --to "postgresql://farrier@db/farrier?sslmode=verify-full"
+      then set database.type and database.url. Back up the {{ .Values.engine.persistence.size }} PVC data-{{ $engineName }}-0 daily.
+{{- else if and (gt $replicas 1) (not .Values.engine.storage.url) }}
+
+NOTE: engine.storage.url is empty, so each of the {{ $replicas }} engine replicas keeps change packs and
+      other files in its own emptyDir, lost on restart. Set engine.storage.url (s3://, gs://,
+      azblob://) so every replica shares them.
+{{- end }}
+{{- if and .Values.engine.metrics.serviceMonitor.enabled .Values.networkPolicy.enabled (not .Values.engine.networkPolicy.metricsNamespaceSelector) }}
+
+NOTE: the ServiceMonitor is on but the engine NetworkPolicy admits no scraper. Set
+      engine.networkPolicy.metricsNamespaceSelector to your Prometheus namespace's labels.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+NOTE: networkPolicy.enabled=false: any pod in the cluster can call the engine API (it still
+      requires a token). Keep NetworkPolicies on in production.
+{{- end }}
+{{- if and .Values.web.enabled (eq .Values.web.service.type "LoadBalancer") }}
+
+NOTE: the dashboard Service is a LoadBalancer. Make sure it is internal, sits behind TLS, and is
+      restricted to your admin networks (loadBalancerSourceRanges or an SSO proxy).
+{{- end }}

@@ -1,0 +1,8 @@
+{{- /* Non-secret env per component. Cross-field validation runs here so every render checks it. */}}
+{{- include "farrier.validate" . }}
+{{- range $component := list "engine" "web" }}
+{{- if or (eq $component "engine") $.Values.web.enabled }}
+---
+{{ include "farrier.configMap" (dict "ctx" $ "component" $component) }}
+{{- end }}
+{{- end }}

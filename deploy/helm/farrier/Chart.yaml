@@ -1,0 +1,23 @@
+apiVersion: v2
+name: farrier
+description: >-
+  Farrier renews TLS certificates on the machines ACME can't reach (firewalls, load balancers,
+  appliances). This chart runs the engine (API + renewal loop) and the web dashboard.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/gagankarthik/farrier
+sources:
+  - https://github.com/gagankarthik/farrier
+keywords:
+  - tls
+  - certificates
+  - pki
+  - acme
+  - renewal
+maintainers:
+  - name: Farrier maintainers
+    url: https://github.com/gagankarthik/farrier
+annotations:
+  artifacthub.io/license: MIT
