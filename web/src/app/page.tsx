@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DeviceStrip, Deploy, Faq, Features, Hero, How, Integrations, Lifetimes, Security } from "@/components/landing/sections";
+import { Deploy, Devices, Faq, Features, Hero, How, Platform } from "@/components/landing/sections";
 import { SiteFooter } from "@/components/site/footer";
 import { SiteHeader } from "@/components/site/header";
 
@@ -11,20 +11,18 @@ export const metadata: Metadata = {
 
 export default function Home() {
   return (
-    <>
-      <SiteHeader overlay />
+    <div data-landing className="flex min-h-full flex-col bg-background">
+      <SiteHeader landing />
       <main id="top">
         <Hero />
-        <DeviceStrip />
         <How />
         <Features />
-        <Integrations />
-        <Lifetimes />
+        <Platform />
+        <Devices />
         <Deploy />
-        <Security />
         <Faq />
       </main>
       <SiteFooter />
-    </>
+    </div>
   );
 }

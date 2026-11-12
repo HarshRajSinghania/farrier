@@ -201,21 +201,53 @@
 .docs-prose code[data-theme] span { color: var(--shiki-light); }
 .dark .docs-prose code[data-theme] span { color: var(--shiki-dark); }
 
-/* ---------------------------------------------------------------- landing motion
-   Hero: a staged entrance on load. Below it: each card rises as it scrolls in, and the
-   lifetime bars grow. Scroll-driven, so no JS; browsers without view timelines and
-   reduced-motion users get the finished page. */
-@media (prefers-reduced-motion: no-preference) {
-  .enter, .enter-up { animation: enter 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
-  .enter-up { animation-duration: 1s; --y: 48px; }
-  @keyframes enter { from { opacity: 0; transform: translateY(var(--y, 14px)); filter: blur(4px); } }
+/* ---------------------------------------------------------------- landing
+   A white page, near-black ink, light-grey panels. Colour comes from the product and the logos;
+   the only coloured chrome is the blue Install button. The site chrome (header, footer) uses these
+   greys on every marketing and docs page. The landing sets Geist, like the product UI. */
+:root {
+  --l-panel: #f4f4f4;      /* big rounded panels and cards */
+  --l-pill: #f0f0f0;       /* secondary pill */
+  --l-pill-hover: #e6e6e6;
+  --l-sub: #6b6b6b;        /* body grey, 5.3:1 on white */
+  --l-quiet: #8a8a8a;      /* large statement grey only, 3.4:1 */
+  --l-line: #ebebeb;       /* hairlines */
+  --l-foot: #fafafa;
+  --l-frame: #ffffff;      /* white frames inside panels */
+}
+.dark {
+  --l-panel: #161616;
+  --l-pill: #222222;
+  --l-pill-hover: #2c2c2c;
+  --l-sub: #a3a3a3;
+  --l-quiet: #7c7c7c;
+  --l-line: #262626;
+  --l-foot: #0a0a0a;
+  --l-frame: #0f0f0f;
+}
+body:has([data-landing]) {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-sans);
+}
 
-  @supports (animation-timeline: view()) {
-    .reveal { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 60%; }
-    @keyframes reveal { from { opacity: 0; transform: translateY(28px) scale(0.98); } }
-    .grow-x { animation: grow-x linear both; animation-timeline: view(); animation-range: entry 20% cover 45%; }
-    @keyframes grow-x { from { transform: scaleX(0.04); } }
-  }
+/* hero entrance, once, on load */
+@media (prefers-reduced-motion: no-preference) {
+  .enter { animation: enter 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+  @keyframes enter { from { opacity: 0; transform: translateY(12px); } }
+}
+
+/* a row of cards: scrolls inside itself; with motion allowed it drifts slowly and pauses on hover or focus */
+.l-row { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.l-row::-webkit-scrollbar { display: none; }
+.l-track { display: flex; width: max-content; gap: 16px; }
+.l-dup { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .l-row { overflow: hidden; }
+  .l-dup { display: flex; }
+  .l-track { animation: l-drift 80s linear infinite; }
+  .l-row:hover .l-track, .l-row:focus-within .l-track { animation-play-state: paused; }
+  @keyframes l-drift { to { transform: translateX(calc(-50% - 8px)); } }
 }
 
 /* ---------------------------------------------------------------- dashboard

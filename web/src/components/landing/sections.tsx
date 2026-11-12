@@ -1,93 +1,362 @@
 /* eslint-disable @next/next/no-img-element -- small brand SVGs and icons: next/image adds nothing for these */
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
   Bot,
-  Check,
+  CalendarClock,
   DatabaseZap,
   FileArchive,
-  FileJson,
-  Fingerprint,
-  KeyRound,
   Lock,
   RotateCcw,
-  ScrollText,
   ShieldCheck,
   Skull,
-  Timer,
-  UserCheck,
+  Sparkles,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Image from "next/image";
 
 const icon = (f: string) => `/assets/icons/${f}`;
 const wrap = "mx-auto w-full max-w-7xl px-4 sm:px-6";
-
-function H2({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h2 className={cn("text-3xl font-semibold tracking-[-0.02em] text-balance", className)}>{children}</h2>;
-}
+const panel = "rounded-[24px] bg-[var(--l-panel)] sm:rounded-[32px]";
+const frame = "rounded-2xl bg-[var(--l-frame)] ring-1 ring-black/[0.04] shadow-[0_1px_3px_rgb(0_0_0/0.06)] dark:ring-white/[0.06]";
+const h2 = "text-[30px] font-semibold leading-[1.1] tracking-[-0.03em] text-balance sm:text-[40px]";
+const pill = "inline-flex h-10 items-center gap-1 rounded-full px-4 text-[15px] font-medium transition-colors";
+const primary = cn(pill, "bg-[#2563eb] text-white hover:bg-[#1d4ed8]");
+const secondary = cn(pill, "bg-[var(--l-pill)] hover:bg-[var(--l-pill-hover)]");
+const logo = "transition-transform duration-200 hover:scale-110";  // brand colours, as the vendors ship them
 
 /* ------------------------------------------------------------------ hero */
 
+/** A small app-icon tile that sits inline in the headline, one em tall. */
+function Tile({ src }: { src: string }) {
+  return (
+    <span
+      aria-hidden
+      className="mx-[0.06em] inline-flex size-[0.86em] -translate-y-[0.06em] items-center justify-center rounded-[0.22em] bg-white align-middle shadow-[0_2px_8px_rgb(0_0_0/0.12)] ring-1 ring-black/5"
+    >
+      <img src={icon(src)} alt="" className="size-[58%] object-contain" />
+    </span>
+  );
+}
+
+const WORKS_WITH: [string, string][] = [
+  ["letsencrypt.svg", "Let's Encrypt"],
+  ["dns-google.svg", "Google Trust Services"],
+  ["ca-zerossl.png", "ZeroSSL"],
+  ["ca-digicert.png", "DigiCert"],
+  ["ca-sectigo.png", "Sectigo"],
+  ["ca-ssl.png", "SSL.com"],
+  ["ca-buypass.png", "Buypass"],
+  ["dns-cloudflare.svg", "Cloudflare"],
+  ["dns-amazonroute53.svg", "Amazon Route 53"],
+  ["microsoft-azure.svg", "Azure DNS"],
+  ["google-cloud.svg", "Google Cloud DNS"],
+  ["dns-digitalocean.svg", "DigitalOcean"],
+  ["dns-akamai.svg", "Akamai"],
+  ["dns-hetzner.svg", "Hetzner"],
+  ["dns-ovh.svg", "OVHcloud"],
+  ["dns-godaddy.svg", "GoDaddy"],
+  ["dns-namecheap.svg", "Namecheap"],
+  ["dns-porkbun.svg", "Porkbun"],
+];
+
 export function Hero() {
   return (
-    <section id="hero" className="relative isolate overflow-hidden bg-[#0b0b0b] pt-36 text-[#f5f5f3] sm:pt-44">
-      {/* ground: a blue glow and film grain, edge to edge behind the bar, the words and the product */}
-      <div aria-hidden className="absolute inset-0 -z-10">
-        <div className="absolute left-1/2 top-[-20%] h-[720px] w-[1100px] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(37,99,235,0.28),rgba(37,99,235,0))]" />
-        <div className="absolute bottom-0 right-[-10%] h-[520px] w-[720px] rounded-full bg-[radial-gradient(closest-side,rgba(42,120,214,0.18),rgba(42,120,214,0))]" />
-        <div className="absolute inset-0 opacity-[0.12] mix-blend-overlay [background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22160%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%222%22 stitchTiles=%22stitch%22/></filter><rect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/></svg>')]" />
-      </div>
-
+    <section id="hero" className="pt-14 sm:pt-24">
       <div className={cn(wrap, "text-center")}>
-        <a
-          href="#lifetimes"
-          className="enter inline-flex items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-4 text-sm text-white/80 ring-1 ring-white/12 ring-inset transition-colors hover:bg-white/10"
-        >
-          <span className="rounded-full bg-[#2563eb] px-2 py-1 text-xs font-semibold text-white">2029</span>
-          47-day certificates are coming <ArrowRight className="size-3.5" />
-        </a>
-        <h1 className="enter [--d:80ms] mx-auto mt-8 max-w-4xl text-4xl font-semibold tracking-[-0.03em] text-balance">
-          Every machine identity, managed without agents
+        <h1 className="enter mx-auto max-w-5xl text-[44px] font-semibold leading-[1.05] tracking-[-0.03em] text-balance sm:text-[64px] lg:text-[84px]">
+          Every <Tile src="letsencrypt.svg" /> machine identity,
+          <br className="hidden sm:inline" /> <Tile src="key.svg" /> managed <Tile src="f5.svg" />
+          <br className="hidden sm:inline" /> without agents.
         </h1>
-        <p className="enter [--d:160ms] mx-auto mt-6 max-w-[65ch] text-lg text-white/65">
-          Farrier finds and renews TLS certificates, inventories SSH keys, maps your cryptography and tracks post-quantum readiness. Your team oversees; Farrier handles the rest.
+        <p className="enter [--d:100ms] mx-auto mt-6 max-w-[34rem] text-[17px] leading-[1.5] text-[var(--l-sub)]">
+          Farrier finds and renews TLS certificates, inventories SSH keys, maps your cryptography and tracks post-quantum readiness.
         </p>
-        <p className="enter [--d:200ms] mt-4 text-sm font-medium text-white/80">No agents. No manual renewals. No missed expirations.</p>
-        <div className="enter [--d:240ms] mt-10 flex flex-wrap justify-center gap-4">
-          <Link
-            href="/docs/quickstart"
-            className="inline-flex h-12 items-center gap-2 rounded-full bg-[#2563eb] px-6 font-semibold text-white transition-colors hover:bg-[#1d4ed8]"
-          >
-            Install Farrier <ArrowRight className="size-4" />
+        <p className="enter [--d:140ms] mt-2 text-[15px] font-medium">No agents. No manual renewals. No missed expirations.</p>
+        <div className="enter [--d:200ms] mt-8 flex flex-wrap justify-center gap-2">
+          <Link href="/docs/quickstart" className={primary}>
+            Install Farrier
           </Link>
-          <Link
-            href="/dashboard"
-            className="inline-flex h-12 items-center gap-2 rounded-full bg-white/[0.06] px-6 font-medium text-white ring-1 ring-white/20 ring-inset transition-colors hover:bg-white/10"
-          >
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#2563eb] opacity-60 motion-reduce:hidden" />
-              <span className="relative inline-flex size-2 rounded-full bg-[#2563eb]" />
-            </span>
-            Live demo
+          <Link href="/dashboard" className={secondary}>
+            Live demo <ArrowRight className="size-4" />
           </Link>
         </div>
       </div>
 
-      <div className="enter-up [--d:360ms] mx-auto mt-16 max-w-6xl px-4 sm:mt-20 sm:px-6">
-        <div className="overflow-hidden rounded-t-2xl border border-b-0 border-white/15 bg-white shadow-2xl">
-          {/* a real capture of /dashboard on the demo engine: regenerate when the dashboard changes */}
-          <Image src="/product/dashboard.png" width={2880} height={1800} alt="The Farrier dashboard: 41 endpoints, expiring certificates, a renewal calendar and change packs awaiting a person" priority sizes="(min-width: 1152px) 1104px, 100vw" className="h-auto w-full" />
+      <div className={cn(wrap, "enter [--d:300ms] mt-14 sm:mt-16")}>
+        <div className={cn(panel, "p-2 sm:p-6 lg:p-10")}>
+          <div className={cn(frame, "overflow-hidden rounded-[16px] sm:rounded-[20px]")}>
+            {/* a real capture of /dashboard on the demo engine: regenerate when the dashboard changes */}
+            <Image
+              src="/product/dashboard.png"
+              width={2880}
+              height={1800}
+              alt="The Farrier dashboard: 41 endpoints, expiring certificates, a renewal calendar and change packs awaiting a person"
+              preload
+              sizes="(min-width: 1280px) 1150px, 100vw"
+              className="h-auto w-full"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div id="integrations" className={cn(wrap, "scroll-mt-20 pt-16 sm:pt-20")}>
+        <div className="border-b border-[var(--l-line)] pb-16 sm:pb-20">
+          <p className="text-center text-[13px] text-[var(--l-sub)]">Works with your certificate authorities and DNS providers</p>
+          <div className="l-row mt-8 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
+            <ul className="l-track py-1 [animation-duration:45s]">
+              {[false, true].map((dup) =>
+                WORKS_WITH.map(([f, n]) => (
+                  <li
+                    key={`${n}${dup ? "-dup" : ""}`}
+                    aria-hidden={dup || undefined}
+                    className={cn("shrink-0 items-center gap-2 rounded-full border border-[var(--l-line)] bg-background px-4 py-2", dup ? "l-dup" : "flex")}
+                  >
+                    <img src={icon(f)} alt="" className="size-6 object-contain" />
+                    <span className="text-sm font-medium">{n}</span>
+                  </li>
+                )),
+              )}
+            </ul>
+          </div>
+          <p className="mt-8 text-center text-[13px]">
+            <Link href="/docs/dns" className="text-[var(--l-sub)] underline decoration-[var(--l-line)] underline-offset-4 hover:text-foreground">
+              Any ACME CA, a built-in private CA and 29 DNS providers
+            </Link>
+          </p>
         </div>
       </div>
     </section>
   );
 }
 
-/* ------------------------------------------------------------------ logos */
+/* ------------------------------------------------------------------ how: one statement, one visual */
 
-const DEVICES = [
+const LIFETIMES = [
+  { when: "Today", days: 398 },
+  { when: "Mar 2026", days: 200 },
+  { when: "Mar 2027", days: 100 },
+  { when: "Mar 2029", days: 47 },
+];
+
+export function How() {
+  return (
+    <section id="how" className="scroll-mt-20 py-24 sm:py-32">
+      <div className={wrap}>
+        <div className="max-w-4xl text-[28px] font-semibold leading-[1.15] tracking-[-0.025em] sm:text-[40px]">
+          <h2 className="text-balance">Renewals that check their own work.</h2>
+          <p className="mt-1 text-[var(--l-quiet)]">
+            Farrier scans, orders over DNS-01, installs in your change window and calls it done only when the handshake proves it. Ready for 47-day certificates.
+          </p>
+        </div>
+
+        <figure className={cn(panel, "mt-14 p-2 sm:p-10")}>
+          <div className={cn(frame, "p-5 sm:p-8")}>
+            <ul className="space-y-4" aria-label="Maximum certificate lifetime in days, by date">
+              {LIFETIMES.map((l, k) => (
+                <li key={l.when} className="grid grid-cols-[4.5rem_1fr] items-center gap-3 sm:grid-cols-[6rem_1fr] sm:gap-4">
+                  <span className="text-[13px] text-[var(--l-sub)] sm:text-sm">{l.when}</span>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className={cn("h-7 shrink-0 rounded-md sm:h-8", k === 3 ? "bg-[#2563eb]" : "bg-foreground/85")}
+                      style={{ width: `${(l.days / 398) * 72}%`, minWidth: "1.5rem" }}
+                    />
+                    <span className="whitespace-nowrap text-sm font-medium tabular-nums">{l.days} days</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <figcaption className="px-3 pb-2 pt-4 text-[13px] text-[var(--l-sub)] sm:px-0 sm:pb-0 sm:pt-6">
+            Maximum lifetime of a public TLS certificate, CA/B Forum ballot SC-081.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ features: a drifting row of cards */
+
+type Tone = { bg: string; fg: string };
+const TONES: Record<string, Tone> = {
+  blue: { bg: "bg-[#e8efff] dark:bg-[#14254a]", fg: "text-[#2563eb] dark:text-[#93b4fd]" },
+  green: { bg: "bg-[#e3f6e8] dark:bg-[#12301c]", fg: "text-[#16a34a] dark:text-[#6ee7a0]" },
+  red: { bg: "bg-[#fde8e8] dark:bg-[#3a1515]", fg: "text-[#dc2626] dark:text-[#fca5a5]" },
+  amber: { bg: "bg-[#fdf1dc] dark:bg-[#3a2a0f]", fg: "text-[#d97706] dark:text-[#fcd34d]" },
+  violet: { bg: "bg-[#efe9ff] dark:bg-[#2a1f4a]", fg: "text-[#7c3aed] dark:text-[#c4b5fd]" },
+  teal: { bg: "bg-[#e0f5f3] dark:bg-[#0f302d]", fg: "text-[#0d9488] dark:text-[#5eead4]" },
+};
+
+const FEATURES: { t: string; d: string; Icon: LucideIcon; tone: keyof typeof TONES }[] = [
+  { t: "Ask your agent", d: "Claude, Gemini and Codex over MCP. Read-only by default.", Icon: Bot, tone: "violet" },
+  { t: "Domain health", d: "An A to F grade for every endpoint.", Icon: ShieldCheck, tone: "green" },
+  { t: "Zombie scanner", d: "Certificates still alive that should not be.", Icon: Skull, tone: "red" },
+  { t: "Rolls back by itself", d: "Three failed handshakes and the old certificate is back.", Icon: RotateCcw, tone: "amber" },
+  { t: "Change windows", d: "Each device renews in its own window, with daily caps.", Icon: CalendarClock, tone: "blue" },
+  { t: "Change packs", d: "Files, a runbook and a ticket for devices without an API.", Icon: FileArchive, tone: "teal" },
+  { t: "Single sign-on", d: "OIDC with viewer, operator and admin roles.", Icon: Users, tone: "violet" },
+  { t: "Zero-downtime HA", d: "SQLite to start, your Postgres or MySQL when it matters.", Icon: DatabaseZap, tone: "blue" },
+  { t: "Keys sealed, changes signed", d: "Keys encrypted under your master key; every action attributed.", Icon: Lock, tone: "green" },
+];
+
+function FeatureCard({ f, dup }: { f: (typeof FEATURES)[number]; dup?: boolean }) {
+  const tone = TONES[f.tone];
+  return (
+    <article
+      aria-hidden={dup || undefined}
+      className={cn("w-[260px] shrink-0 flex-col rounded-3xl bg-[var(--l-panel)] p-6 sm:w-[300px]", dup ? "l-dup" : "flex")}
+    >
+      <span className={cn("flex size-12 items-center justify-center rounded-2xl", tone.bg)}>
+        <f.Icon className={cn("size-6", tone.fg)} strokeWidth={1.75} />
+      </span>
+      <h3 className="mt-8 text-[17px] font-semibold">{f.t}</h3>
+      <p className="mt-1 text-sm text-[var(--l-sub)]">{f.d}</p>
+    </article>
+  );
+}
+
+export function Features() {
+  return (
+    <section id="features" className="scroll-mt-20 pb-24 sm:pb-32">
+      <div className={wrap}>
+        <h2 className="flex items-center gap-3 text-[22px] font-semibold tracking-[-0.02em]">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-[var(--l-panel)]">
+            <Sparkles className="size-4" />
+          </span>
+          The parts that usually break
+        </h2>
+        <p className="mt-2 text-[15px] text-[var(--l-sub)]">Handled, so a renewal at 02:00 needs nobody awake.</p>
+      </div>
+      {/* full bleed, like a shelf: scrolls inside itself, never the page */}
+      <div className="l-row mt-8 px-4 sm:px-6" tabIndex={0} role="region" aria-label="Features">
+        <div className="l-track">
+          {FEATURES.map((f) => (
+            <FeatureCard key={f.t} f={f} />
+          ))}
+          {FEATURES.map((f) => (
+            <FeatureCard key={`${f.t}-dup`} f={f} dup />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ platform: three equal cards, one illustration each */
+
+/** Flat illustrations on a 240x160 canvas; fixed colours so they read the same in both themes. */
+function CertArt() {
+  return (
+    <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
+      <circle cx="120" cy="80" r="64" fill="#e8efff" />
+      <rect x="72" y="34" width="96" height="92" rx="10" fill="#fff" stroke="#c7d6fb" strokeWidth="2" />
+      <rect x="86" y="50" width="52" height="7" rx="3.5" fill="#2563eb" />
+      <rect x="86" y="64" width="68" height="5" rx="2.5" fill="#dbe5fd" />
+      <rect x="86" y="75" width="60" height="5" rx="2.5" fill="#dbe5fd" />
+      <rect x="86" y="86" width="40" height="5" rx="2.5" fill="#dbe5fd" />
+      <path d="M142 128l-6 18 10-5 6 9 4-18z" fill="#1d4ed8" />
+      <circle cx="150" cy="112" r="20" fill="#2563eb" />
+      <path d="M140 112l7 7 13-14" stroke="#fff" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M44 92a40 40 0 0 1 14-38" stroke="#93b4fd" strokeWidth="4" fill="none" strokeLinecap="round" />
+      <path d="M52 50l8 4-2 9" stroke="#93b4fd" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M196 68a40 40 0 0 1-14 38" stroke="#93b4fd" strokeWidth="4" fill="none" strokeLinecap="round" />
+      <path d="M188 110l-8-4 2-9" stroke="#93b4fd" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function KeyArt() {
+  return (
+    <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
+      <circle cx="120" cy="80" r="64" fill="#efe9ff" />
+      <rect x="58" y="40" width="112" height="76" rx="10" fill="#1e1b2e" />
+      <circle cx="70" cy="52" r="3" fill="#f87171" />
+      <circle cx="80" cy="52" r="3" fill="#fbbf24" />
+      <circle cx="90" cy="52" r="3" fill="#4ade80" />
+      <path d="M70 72l8 6-8 6" stroke="#c4b5fd" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="84" y="82" width="30" height="4" rx="2" fill="#c4b5fd" />
+      <rect x="70" y="96" width="56" height="4" rx="2" fill="#4c4470" />
+      <path d="M174 118l22 22" stroke="#7c3aed" strokeWidth="10" strokeLinecap="round" />
+      <path d="M186 130l-7 7M194 138l-6 6" stroke="#7c3aed" strokeWidth="7" strokeLinecap="round" />
+      <circle cx="158" cy="104" r="22" fill="#7c3aed" />
+      <circle cx="158" cy="104" r="8" fill="#efe9ff" />
+    </svg>
+  );
+}
+
+function QuantumArt() {
+  return (
+    <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
+      <circle cx="120" cy="80" r="64" fill="#e0f5f3" />
+      <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#5eead4" strokeWidth="3" />
+      <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#2dd4bf" strokeWidth="3" transform="rotate(60 120 80)" />
+      <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#99f6e4" strokeWidth="3" transform="rotate(-60 120 80)" />
+      <circle cx="194" cy="80" r="6" fill="#0d9488" />
+      <circle cx="83" cy="16" r="6" fill="#2dd4bf" />
+      <circle cx="83" cy="144" r="6" fill="#14b8a6" />
+      <path d="M120 50l26 10v20c0 18-12 28-26 34-14-6-26-16-26-34V60z" fill="#0d9488" />
+      <path d="M109 82l8 8 15-17" stroke="#fff" strokeWidth="4.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const PILLARS: { t: string; d: string; Art: () => React.ReactNode }[] = [
+  { t: "TLS certificates", d: "Found, renewed and verified on the wire.", Art: CertArt },
+  { t: "SSH keys", d: "Host keys and authorized_keys, read over SSH.", Art: KeyArt },
+  { t: "Crypto and PQC", d: "Ciphers and key exchange, with post-quantum readiness.", Art: QuantumArt },
+];
+
+const TOOLS: [string | null, string][] = [
+  [null, "ServiceNow"],
+  ["jira.svg", "Jira"],
+  ["datadog.svg", "Datadog"],
+  ["splunk.svg", "Splunk"],
+];
+
+export function Platform() {
+  return (
+    <section id="platform" className="scroll-mt-20 pb-24 sm:pb-32">
+      <div className={wrap}>
+        <h2 className={cn(h2, "text-center")}>One platform for every machine identity</h2>
+        <div className="mt-12 grid gap-4 md:grid-cols-3">
+          {PILLARS.map((p) => (
+            <article key={p.t} className="flex flex-col rounded-3xl bg-[var(--l-panel)] p-3">
+              <div className="px-4 pb-6 pt-6 text-center">
+                <h3 className="text-[19px] font-semibold tracking-[-0.01em]">{p.t}</h3>
+                <p className="mt-1 text-sm text-[var(--l-sub)]">{p.d}</p>
+              </div>
+              <div className={cn(frame, "flex min-h-[200px] flex-1 items-center justify-center p-6")}>
+                <p.Art />
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="mt-12 text-center">
+          <p className="text-[13px] text-[var(--l-sub)]">Tickets and events go to</p>
+          <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-6">
+            {TOOLS.map(([f, n]) => (
+              <li key={n} title={n}>
+                {f ? (
+                  <img src={icon(f)} alt={n} className={cn("object-contain", n === "Splunk" ? "h-auto w-32 -my-6" : "h-10 w-auto", logo)} />
+                ) : (
+                  // no official mark ships in the icon set; the name in ServiceNow green stands in
+                  <span className={cn("block text-[26px] font-bold tracking-[-0.03em] text-[#62d84e]", logo)}>servicenow</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ devices: split */
+
+const DEVICES: [string, string][] = [
   ["f5.svg", "F5 BIG-IP"],
   ["fortinet.svg", "FortiGate"],
   ["paloaltonetworks.svg", "Palo Alto"],
@@ -98,422 +367,47 @@ const DEVICES = [
   ["nginx.svg", "nginx"],
 ];
 
-export function DeviceStrip() {
+export function Devices() {
   return (
-    <section className="border-b bg-background py-12">
-      <div className={wrap}>
-        <p className="text-center text-sm text-muted-foreground">Works with</p>
-        <ul className="mt-8 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 lg:grid-cols-8">
-          {DEVICES.map(([f, n]) => (
-            <li key={n} className="flex items-center justify-center gap-2 text-base font-medium">
-              <img src={icon(f)} alt="" className="size-7 object-contain" />
-              {n}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ how */
-
-const STEPS = [
-  { n: "01", t: "Scan", d: "Reads what every endpoint serves.", code: "443  www-lb   expires 18 Jan" },
-  { n: "02", t: "Issue", d: "Orders over DNS-01. No inbound port.", code: "TXT seen on 4/4 nameservers" },
-  { n: "03", t: "Deploy", d: "Installs in the change window. The old one stays.", code: "repoint clientssl_www → new" },
-  { n: "04", t: "Verify", d: "Done only when the handshake proves it.", code: "serving 3f2a…c91 · chain ok" },
-];
-
-export function How() {
-  return (
-    <section id="how" className="scroll-mt-16 bg-background py-24 sm:py-32">
-      <div className={wrap}>
-        <div className="max-w-2xl">
-          <H2>One renewal, checked against the wire</H2>
-        </div>
-        <ol className="relative mt-16 grid gap-4 md:grid-cols-4">
-          <div aria-hidden className="absolute left-0 right-0 top-6 hidden h-px bg-[repeating-linear-gradient(90deg,var(--border)_0_6px,transparent_6px_12px)] md:block" />
-          {STEPS.map((s, k) => (
-            <li key={s.n} className="reveal relative">
-              <span
-                className={cn(
-                  "relative z-10 flex size-12 items-center justify-center rounded-full font-mono text-sm font-medium ring-1 ring-border",
-                  k === 3 ? "bg-[#2563eb] text-white ring-[#2563eb]" : "bg-background",
-                )}
-              >
-                {s.n}
-              </span>
-              <h3 className="mt-6 text-xl font-semibold tracking-tight">{s.t}</h3>
-              <p className="mt-2 text-base text-muted-foreground">{s.d}</p>
-              <p className="mt-4 rounded-lg bg-muted px-4 py-2 font-mono text-xs text-foreground/80">{s.code}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ bento */
-
-function Cell({ className, title, desc, children, dark }: { className?: string; title: string; desc: string; children: React.ReactNode; dark?: boolean }) {
-  return (
-    <article
-      className={cn(
-        "reveal flex flex-col overflow-hidden rounded-3xl p-6 ring-1 sm:p-8",
-        dark ? "bg-[#0b0b0b] text-[#f5f5f3] ring-white/10" : "bg-card ring-border",
-        className,
-      )}
-    >
-      <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-      <p className={cn("mt-2 text-base", dark ? "text-white/60" : "text-muted-foreground")}>{desc}</p>
-      <div className="mt-6 flex flex-1 flex-col justify-end">{children}</div>
-    </article>
-  );
-}
-
-export function Features() {
-  return (
-    <section id="features" className="scroll-mt-16 bg-[var(--plane)] py-24 sm:py-32">
-      <div className={wrap}>
-        <div className="max-w-2xl">
-          <H2>Certificates, SSH keys and the crypto behind them</H2>
-        </div>
-        <div className="mt-14 grid gap-4 md:grid-cols-6">
-          {/* agents */}
-          <Cell dark className="md:col-span-4 md:row-span-2" title="Ask your agent what expires next" desc="Claude, Gemini and Codex query Farrier over MCP. Read-only by default.">
-            <div className="space-y-4 rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/10 sm:p-6">
-              <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">What expires before the 20 December change freeze?</div>
-              <div className="flex gap-4">
-                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2563eb] text-white">
-                  <Bot className="size-4" />
-                </span>
-                <div className="text-sm leading-relaxed text-white/85">
-                  Three certificates. <b className="text-white">www-lb</b> on F5 renews tonight at 02:00. <b className="text-white">vpn-fgt</b> is planned for 3
-                  December. <b className="text-white">jira&#8209;app</b> needs a change pack, due 9 December.
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {["expiring_certificates", "renewal_status"].map((t) => (
-                      <span key={t} className="rounded-full bg-white/[0.06] px-2 py-1 font-mono text-xs text-white/70 ring-1 ring-white/10">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">Check jira-app&rsquo;s chain too.</div>
-              <div className="flex gap-4">
-                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2563eb] text-white">
-                  <Bot className="size-4" />
-                </span>
-                <p className="text-sm leading-relaxed text-white/85">
-                  Grade <b className="text-[#60a5fa]">C</b>. The server doesn&rsquo;t send the R11 intermediate, so older Java clients will fail.
-                </p>
-              </div>
-            </div>
-          </Cell>
-
-          {/* health */}
-          <Cell className="md:col-span-2" title="Domain health" desc="An A–F grade for every endpoint.">
-            <div className="flex items-center gap-4">
-              <span className="flex size-16 items-center justify-center rounded-2xl bg-[#2563eb] text-3xl font-semibold text-white">A</span>
-              <ul className="space-y-1 text-sm">
-                {["Chain complete", "Names covered", "TLS 1.2+ only", "OCSP stapled"].map((c) => (
-                  <li key={c} className="flex items-center gap-2">
-                    <Check className="size-3.5 text-[var(--status-good-fg)]" /> {c}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Cell>
-
-          {/* zombies */}
-          <Cell className="md:col-span-2" title="Zombie scanner" desc="Certificates alive that shouldn't be.">
-            <ul className="space-y-2 text-sm">
-              {[
-                ["Expired, still served", "asa-dc2:443"],
-                ["Not issued by Farrier", "mail.corp"],
-                ["Change pack never installed", "iis-07"],
-              ].map(([k, v]) => (
-                <li key={k} className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2">
-                  <Skull className="size-3.5 shrink-0 text-[var(--status-critical-fg)]" />
-                  <span className="font-medium">{k}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">{v}</span>
-                </li>
-              ))}
-            </ul>
-          </Cell>
-
-          {/* HA */}
-          <Cell className="md:col-span-3" title="Zero downtime, on your database" desc="SQLite to start, your Postgres or MySQL when it matters.">
-            <div className="flex items-end justify-center gap-4">
-              {["replica-a", "replica-b", "replica-c"].map((r, k) => (
-                <div key={r} className="flex flex-col items-center gap-2">
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-1 text-xs font-medium",
-                      k === 0 ? "bg-[#2563eb] text-white" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {k === 0 ? "leader" : "follower"}
-                  </span>
-                  <span className="flex h-14 w-24 items-center justify-center rounded-xl font-mono text-xs ring-1 ring-border">{r}</span>
-                  <span className="h-6 w-px bg-border" />
-                </div>
-              ))}
-            </div>
-            <div className="mx-auto flex w-fit items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium">
-              <DatabaseZap className="size-4" /> PostgreSQL · advisory lock
-            </div>
-          </Cell>
-
-          {/* SSO */}
-          <Cell className="md:col-span-3" title="Single sign-on and roles" desc="OIDC with three roles.">
-            <div className="flex flex-wrap items-center gap-2">
-              {[
-                ["idp-okta.svg", "Okta"],
-                ["microsoft-azure.svg", "Entra ID"],
-                ["dns-google.svg", "Google"],
-                ["idp-keycloak.svg", "Keycloak"],
-                ["idp-auth0.svg", "Auth0"],
-              ].map(([f, n]) => (
-                <span key={n} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium ring-1 ring-border">
-                  <img src={icon(f)} alt="" className="size-4" /> {n}
-                </span>
-              ))}
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-              {[
-                [Users, "Viewer", "Read"],
-                [UserCheck, "Operator", "Renew"],
-                [KeyRound, "Admin", "Everything"],
-              ].map(([I, r, d]) => {
-                const Ico = I as typeof Users;
-                return (
-                  <div key={r as string} className="rounded-xl bg-muted p-4">
-                    <Ico className="size-4" />
-                    <p className="mt-2 font-semibold">{r as string}</p>
-                    <p className="text-muted-foreground">{d as string}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </Cell>
-
-          {/* SSH keys */}
-          <Cell className="md:col-span-2" title="SSH keys" desc="Host keys and authorized_keys, read over SSH.">
-            <ul className="space-y-2 text-sm">
-              {[
-                ["ssh-rsa 1024", "Weak key", "critical"],
-                ["no comment, unknown owner", "Unknown key", "warning"],
-                ["ssh-ed25519", "OK", "good"],
-              ].map(([k, v, t]) => (
-                <li key={k} className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2">
-                  <KeyRound className={cn("size-3.5 shrink-0", t === "critical" ? "text-[var(--status-critical-fg)]" : t === "warning" ? "text-[var(--status-warning-fg)]" : "text-[var(--status-good-fg)]")} />
-                  <span className="truncate font-mono text-xs">{k}</span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{v}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 text-xs text-muted-foreground">Removal shows a dry run first.</p>
-          </Cell>
-
-          {/* PQC */}
-          <Cell className="md:col-span-2" title="Crypto and PQC readiness" desc="Protocols, ciphers and key exchange for every TLS and SSH service.">
-            {/* an illustration of the readiness bar, not real numbers */}
-            <div className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-              <div className="w-[8%] bg-good" />
-              <div className="w-[17%] bg-series-auto" />
-              <div className="w-[65%] bg-warning" />
-              <div className="w-[10%] bg-[var(--status-neutral)]" />
-            </div>
-            <ul className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-              {[
-                ["Ready", "bg-good"],
-                ["Hybrid", "bg-series-auto"],
-                ["Vulnerable", "bg-warning"],
-                ["Unknown", "bg-[var(--status-neutral)]"],
-              ].map(([l, c]) => (
-                <li key={l} className="flex items-center gap-2">
-                  <span aria-hidden className={cn("size-2 rounded-[2px]", c)} />
-                  {l}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full px-4 py-2 text-xs font-medium ring-1 ring-border">
-              <FileJson className="size-3.5" /> CycloneDX CBOM export
-            </p>
-          </Cell>
-
-          {/* tickets and events */}
-          <Cell className="md:col-span-2" title="Tickets and events" desc="Opens the ticket, comments as it moves, closes it when the change is live.">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                [null, "ServiceNow"],
-                ["jira.svg", "Jira"],
-                ["datadog.svg", "Datadog"],
-                ["splunk.svg", "Splunk"],
-              ].map(([f, n]) => (
-                <span key={n} className="inline-flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium">
-                  {f ? (
-                    <img src={icon(f)} alt="" className="size-4 rounded-sm bg-white object-contain" />
-                  ) : (
-                    <span aria-hidden className="flex size-4 items-center justify-center rounded-sm bg-[#141414] text-[10px] font-semibold text-[#60a5fa]">
-                      S
-                    </span>
-                  )}
-                  {n}
-                </span>
-              ))}
-            </div>
-          </Cell>
-
-          {/* small trio */}
-          {[
-            [RotateCcw, "Rolls back by itself", "Three failed handshakes and it switches back."],
-            [Timer, "Change windows", "Each device renews in its own window."],
-            [FileArchive, "Change packs", "Files, a runbook and a ticket for the rest."],
-          ].map(([I, t, d]) => {
-            const Ico = I as typeof Users;
-            return (
-              <article key={t as string} className="reveal rounded-3xl bg-card p-6 ring-1 ring-border md:col-span-2">
-                <Ico className="size-5" />
-                <h3 className="mt-4 font-semibold tracking-tight">{t as string}</h3>
-                <p className="mt-2 text-base text-muted-foreground">{d as string}</p>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ integrations */
-
-type Tile = [string | null, string];
-const GROUPS: { title: string; note: string; tiles: Tile[] }[] = [
-  {
-    title: "DNS providers",
-    note: "29 providers, several accounts each, CNAME delegation",
-    tiles: [
-      ["dns-cloudflare.svg", "Cloudflare"],
-      ["dns-amazonroute53.svg", "Route 53"],
-      ["microsoft-azure.svg", "Azure DNS"],
-      ["google-cloud.svg", "Cloud DNS"],
-      ["dns-digitalocean.svg", "DigitalOcean"],
-      ["dns-akamai.svg", "Akamai"],
-      ["dns-hetzner.svg", "Hetzner"],
-      ["dns-ovh.svg", "OVHcloud"],
-      ["dns-godaddy.svg", "GoDaddy"],
-      ["dns-namecheap.svg", "Namecheap"],
-      ["dns-porkbun.svg", "Porkbun"],
-      ["dns-scaleway.svg", "Scaleway"],
-      ["dns-vultr.svg", "Vultr"],
-      ["dns-infomaniak.svg", "Infomaniak"],
-    ],
-  },
-  {
-    title: "Certificate authorities",
-    note: "Any ACME CA, with External Account Binding, plus a private CA",
-    tiles: [
-      ["letsencrypt.svg", "Let's Encrypt"],
-      ["dns-google.svg", "Google Trust Services"],
-      ["ca-zerossl.png", "ZeroSSL"],
-      ["ca-digicert.png", "DigiCert"],
-      ["ca-sectigo.png", "Sectigo"],
-      ["ca-ssl.png", "SSL.com"],
-      ["ca-buypass.png", "Buypass"],
-      [null, "Built-in private CA"],
-    ],
-  },
-];
-
-export function Integrations() {
-  return (
-    <section id="integrations" className="scroll-mt-16 bg-background py-24 sm:py-32">
-      <div className={wrap}>
-        <div className="grid gap-6 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-7">
-            <H2>Your DNS, your CA, your accounts</H2>
-          </div>
-        </div>
-        {GROUPS.map((g) => (
-          <div key={g.title} className="mt-14">
-            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="font-semibold">{g.title}</h3>
-            </div>
-            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-8">
-              {g.tiles.map(([f, n]) => (
-                <li
-                  key={n}
-                  className="reveal group flex min-h-28 flex-col items-center justify-center gap-4 rounded-2xl bg-card p-4 text-center ring-1 ring-border transition-all hover:-translate-y-0.5 hover:ring-foreground/40"
-                >
-                  {f ? (
-                    <img src={icon(f)} alt="" className="size-8 object-contain" />
-                  ) : (
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-[#141414] text-[#60a5fa]">
-                      <Lock className="size-4" />
-                    </span>
-                  )}
-                  <span className="text-sm font-medium leading-tight">{n}</span>
-                </li>
-              ))}
-              {g.title === "DNS providers" && (
-                <li className="col-span-1 lg:col-span-2">
-                  <Link
-                    href="/docs/dns"
-                    className="flex h-full min-h-28 flex-col justify-center rounded-2xl bg-[#141414] p-6 text-[#f5f5f3] transition-transform hover:-translate-y-0.5"
-                  >
-                    <span className="text-lg font-semibold">+15 more</span>
-                    <span className="mt-1 text-sm text-white/60">PowerDNS, NS1, deSEC, Gandi, RFC 2136&hellip;</span>
-                  </Link>
-                </li>
-              )}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ lifetimes */
-
-const LIFETIMES = [
-  { when: "Today", days: 398, per: "1.4" },
-  { when: "15 Mar 2026", days: 200, per: "2.7" },
-  { when: "15 Mar 2027", days: 100, per: "5.5" },
-  { when: "15 Mar 2029", days: 47, per: "11.7" },
-];
-
-export function Lifetimes() {
-  return (
-    <section id="lifetimes" className="scroll-mt-16 bg-[#0b0b0b] py-24 text-[#f5f5f3] sm:py-32">
-      <div className={cn(wrap, "grid gap-14 lg:grid-cols-12")}>
-        <div className="lg:col-span-5">
-          <H2>Every certificate renews twelve times a year by 2029</H2>
-          <p className="mt-6 text-lg text-white/60">For 1,000 certificates that is 47 renewals every working day.</p>
-        </div>
-        <figure className="lg:col-span-7" aria-label="Maximum certificate lifetime in days, by date">
-          <ul className="space-y-6">
-            {LIFETIMES.map((l, k) => (
-              <li key={l.when} className="grid grid-cols-[7.5rem_1fr] items-center gap-4">
-                <span className="text-sm text-white/60">{l.when}</span>
-                <div className="flex items-center gap-4">
-                  <div
-                    className={cn("grow-x h-10 origin-left rounded-r-md rounded-l-sm", k === 3 ? "bg-[#2563eb]" : "bg-white/85")}
-                    style={{ width: `${(l.days / 398) * 100}%`, minWidth: "3.5rem" }}
-                  />
-                  <span className="whitespace-nowrap text-sm tabular-nums">
-                    <b className="text-base">{l.days} days</b> <span className="text-white/50">· {l.per}× a year</span>
-                  </span>
-                </div>
+    <section className="pb-24 sm:pb-32">
+      <div className={cn(wrap, "grid items-center gap-10 lg:grid-cols-12 lg:gap-12")}>
+        <div className="min-w-0 lg:col-span-5">
+          <h2 className={h2}>Renews the appliances other tools skip</h2>
+          <p className="mt-4 max-w-md text-[17px] text-[var(--l-sub)]">
+            F5, FortiGate and Palo Alto through their own APIs. Everything else gets a change pack and a ticket.
+          </p>
+          <Link href="/docs/connectors" className={cn(secondary, "mt-8")}>
+            See connectors <ArrowRight className="size-4" />
+          </Link>
+          <ul className="mt-10 flex flex-wrap gap-5">
+            {DEVICES.map(([f, n]) => (
+              <li key={n}>
+                <img src={icon(f)} alt={n} title={n} className={cn("size-7 object-contain", logo)} />
               </li>
             ))}
           </ul>
-          <figcaption className="mt-6 text-sm text-white/45">Maximum lifetime of a publicly trusted TLS certificate (CA/B Forum ballot SC-081), and renewals a year when each one renews at two-thirds of its life.</figcaption>
-        </figure>
+        </div>
+        <div className={cn(panel, "min-w-0 p-2 sm:p-10 lg:col-span-7")}>
+          <div className={cn(frame, "overflow-hidden")}>
+            <div className="flex items-center gap-1.5 border-b border-[var(--l-line)] px-4 py-3">
+              <span className="size-2.5 rounded-full bg-[var(--l-line)]" />
+              <span className="size-2.5 rounded-full bg-[var(--l-line)]" />
+              <span className="size-2.5 rounded-full bg-[var(--l-line)]" />
+              <span className="ml-2 font-mono text-xs text-[var(--l-sub)]">farrier</span>
+            </div>
+            <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px] sm:leading-7">
+              <span className="text-[var(--l-sub)]">$</span> farrier discover 10.20.0.0/24{"\n"}
+              <span className="text-[var(--l-sub)]">  41 endpoints, 18 automated, 23 change packs</span>
+              {"\n"}
+              <span className="text-[var(--l-sub)]">$</span> farrier renew --due{"\n"}
+              {"  "}<span className="text-[var(--status-good-fg)]">✔</span> www-lb    F5 BIG-IP   verified live{"\n"}
+              {"  "}<span className="text-[var(--status-good-fg)]">✔</span> vpn-fgt   FortiGate   verified live{"\n"}
+              {"  "}<span className="text-[var(--status-good-fg)]">✔</span> edge-pa   Palo Alto   verified live{"\n"}
+              {"  "}<span className="text-[var(--status-warning-fg)]">●</span> asa-dc1   Cisco ASA   change pack, ticket opened{"\n"}
+              <span className="text-[var(--l-sub)]">$</span> <span className="inline-block h-4 w-2 translate-y-0.5 bg-foreground motion-safe:animate-pulse" />
+            </pre>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -522,83 +416,32 @@ export function Lifetimes() {
 /* ------------------------------------------------------------------ deploy */
 
 const PLATFORMS = [
-  { logo: "aws.svg", t: "AWS", d: "EKS or EC2 with Secrets Manager.", code: ["secretStoreRef: aws-sm", "dns: route53"] },
-  { logo: "google-cloud.svg", t: "Google Cloud", d: "GKE with Cloud SQL.", code: ["replicas: 3", "dns: google"] },
-  { logo: "microsoft-azure.svg", t: "Azure", d: "AKS or a VM with Key Vault.", code: ["keyvaultName: ops-pki", "dns: azure"] },
-  { logo: "kubernetes.svg", t: "On-prem", d: "Compose, Kubernetes or air-gapped.", code: ["docker compose up -d", "dns: rfc2136"] },
+  { logo: "aws.svg", t: "AWS", d: "EKS or EC2 with Secrets Manager." },
+  { logo: "google-cloud.svg", t: "Google Cloud", d: "GKE with Cloud SQL." },
+  { logo: "microsoft-azure.svg", t: "Azure", d: "AKS or a VM with Key Vault." },
+  { logo: "docker.svg", t: "On-prem", d: "Compose, Kubernetes or air-gapped." },
 ];
 
 export function Deploy() {
   return (
-    <section id="deploy" className="scroll-mt-16 bg-background py-24 sm:py-32">
+    <section id="deploy" className="scroll-mt-20 pb-24 sm:pb-32">
       <div className={wrap}>
-        <div className="grid gap-6 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-7">
-            <H2>Runs where your devices are</H2>
-          </div>
-        </div>
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <h2 className={cn(h2, "text-center")}>Runs where your devices are</h2>
+        <p className="mx-auto mt-4 max-w-xl text-center text-[17px] text-[var(--l-sub)]">Self-hosted on your own machines. No account, no hosted service.</p>
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PLATFORMS.map((p) => (
-            <article key={p.t} className="reveal flex flex-col rounded-3xl bg-card p-6 ring-1 ring-border">
-              <img src={icon(p.logo)} alt="" className="size-9 object-contain" />
-              <h3 className="mt-6 text-lg font-semibold tracking-tight">{p.t}</h3>
-              <p className="mt-2 flex-1 text-base text-muted-foreground">{p.d}</p>
-              <pre className="mt-6 rounded-xl bg-muted px-4 py-4 font-mono text-xs leading-relaxed">{p.code.join("\n")}</pre>
+            <article key={p.t} className="flex flex-col rounded-3xl bg-[var(--l-panel)] p-3">
+              <div className="flex-1 px-3 pb-5 pt-4">
+                <img src={icon(p.logo)} alt="" className="size-8 object-contain" />
+                <h3 className="mt-4 text-[17px] font-semibold">{p.t}</h3>
+                <p className="mt-1 text-sm text-[var(--l-sub)]">{p.d}</p>
+              </div>
+              <Link href="/docs/deploy" className={cn(frame, "flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:text-[#2563eb]")}>
+                Deployment guide <ArrowRight className="size-4" />
+              </Link>
             </article>
           ))}
         </div>
-        <div className="mt-6 overflow-hidden rounded-3xl bg-[#0b0b0b] text-[#f5f5f3] ring-1 ring-black/5">
-          <div className="flex items-center gap-2 border-b border-white/10 px-6 py-4 font-mono text-xs text-white/50">
-            <ScrollText className="size-3.5" /> terminal
-          </div>
-          <pre className="overflow-x-auto px-6 py-6 font-mono text-sm leading-7">
-            <span className="text-white/40">$</span> docker compose up -d{"\n"}
-            <span className="text-white/50"> ✔ farrier-engine   started   :8740</span>
-            {"\n"}
-            <span className="text-white/50"> ✔ farrier-web      started   :3000</span>
-            {"\n"}
-            <span className="text-white/40">$</span> farrier discover 10.20.0.0/24 --ports 443,8443{"\n"}
-            <span className="text-[#60a5fa]"> 41 endpoints found, 18 automated, 23 change packs</span>
-          </pre>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ security */
-
-const GUARDS = [
-  [Lock, "Keys sealed at rest", "Private, account and CA keys are encrypted under your master key."],
-  [Fingerprint, "No secrets in configs", "Credentials are env: or file: references. Inline values are refused."],
-  [ShieldCheck, "Scoped tokens", "Read tokens can't change anything. MCP writes are off by default."],
-  [ScrollText, "Every change attributed", "Each action is logged with the signed-in person or agent."],
-];
-
-export function Security() {
-  return (
-    <section className="bg-[var(--plane)] py-24 sm:py-32">
-      <div className={cn(wrap, "grid gap-14 lg:grid-cols-12")}>
-        <div className="lg:col-span-5">
-          <H2>Security</H2>
-          <Link href="/docs/security" className="mt-6 inline-flex items-center gap-2 font-semibold underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
-            Read the security model <ArrowRight className="size-4" />
-          </Link>
-        </div>
-        <ul className="grid gap-4 sm:grid-cols-2 lg:col-span-7">
-          {GUARDS.map(([I, t, d]) => {
-            const Ico = I as typeof Lock;
-            return (
-              <li key={t as string} className="reveal rounded-3xl bg-card p-6 ring-1 ring-border">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-[#141414] text-[#60a5fa]">
-                  <Ico className="size-5" />
-                </span>
-                <h3 className="mt-6 font-semibold tracking-tight">{t as string}</h3>
-                <p className="mt-2 text-base text-muted-foreground">{d as string}</p>
-              </li>
-            );
-          })}
-        </ul>
       </div>
     </section>
   );
@@ -611,36 +454,39 @@ const FAQ = [
   ["Does an F5 or FortiGate need internet access?", "No. Farrier answers DNS-01 through your DNS and deploys over the management interface."],
   ["Which certificate authorities work?", "Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert and Sectigo over ACME, plus a built-in private CA."],
   ["What if a deploy breaks a profile?", "The old certificate stays installed, and Farrier switches back if the new one never goes live."],
-  ["Which database does it need?", "None to start: SQLite is built in. For several replicas, point it at your own PostgreSQL or MySQL."],
   ["What does it cost?", "Nothing. It is MIT licensed and runs on your own machines, with no hosted service and no account."],
   ["Has it run on real F5 hardware?", "Not yet. The appliance connectors pass tests against mock APIs. Start on a lab device."],
 ];
 
 export function Faq() {
   return (
-    <section className="bg-background py-24 sm:py-32">
-      <div className={cn(wrap, "grid gap-12 lg:grid-cols-12")}>
-        <div className="lg:col-span-4">
-          <H2>Questions</H2>
-          <a
-            href="https://github.com/gagankarthik/farrier/issues"
-            className="mt-6 inline-flex items-center gap-2 font-semibold underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
-          >
-            Ask on GitHub <ArrowRight className="size-4" />
-          </a>
-        </div>
-        <div className="divide-y border-y lg:col-span-8">
+    <section className="pb-24 sm:pb-32">
+      <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+        <h2 className={cn(h2, "text-center")}>Questions</h2>
+        <div className="mt-10 divide-y divide-[var(--l-line)] border-y border-[var(--l-line)]">
           {FAQ.map(([q, a]) => (
-            <details key={q} className="group py-1">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-4 text-lg font-medium">
+            <details key={q} className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-[17px] font-medium">
                 {q}
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border transition-transform group-open:rotate-45">+</span>
+                <span
+                  aria-hidden
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--l-pill)] text-lg leading-none transition-transform group-open:rotate-45"
+                >
+                  +
+                </span>
               </summary>
-              <p className="pb-6 pr-14 text-muted-foreground">{a}</p>
+              <p className="-mt-1 pb-5 pr-12 text-[15px] text-[var(--l-sub)]">{a}</p>
             </details>
           ))}
         </div>
+        <p className="mt-6 text-center text-sm text-[var(--l-sub)]">
+          Something else?{" "}
+          <a href="https://github.com/gagankarthik/farrier/issues" className="font-medium text-foreground underline decoration-[var(--l-line)] underline-offset-4 hover:decoration-foreground">
+            Ask on GitHub
+          </a>
+        </p>
       </div>
     </section>
   );
 }
+

@@ -5,22 +5,22 @@ export type NavMenu = { label: string; href: string; groups: { title: string; li
 export const MENUS: NavMenu[] = [
   {
     label: "Product",
-    href: "/#how",
+    href: "/#platform",
     groups: [
       {
-        title: "Renewals",
+        title: "Platform",
         links: [
-          { href: "/#how", label: "How a renewal runs", desc: "Scan, issue, deploy, verify" },
-          { href: "/#lifetimes", label: "47-day certificates", desc: "What the new schedule means" },
-          { href: "/#features", label: "Rollback and windows", desc: "Change windows and daily caps" },
+          { href: "/#platform", label: "TLS certificates", desc: "Found, renewed and verified live" },
+          { href: "/#platform", label: "SSH keys", desc: "Host keys and authorized_keys" },
+          { href: "/#platform", label: "Crypto and PQC", desc: "Readiness and a CBOM export" },
         ],
       },
       {
         title: "Operate",
         links: [
+          { href: "/#how", label: "How a renewal runs", desc: "And what 47-day certificates mean" },
           { href: "/#features", label: "AI agents", desc: "Claude, Gemini and Codex over MCP" },
-          { href: "/docs/health", label: "Health and zombie certificates", desc: "Grades, chains, stale certs" },
-          { href: "/docs/databases", label: "Zero-downtime HA", desc: "Postgres, MySQL, replicas" },
+          { href: "/dashboard", label: "Live demo", desc: "The real dashboard on demo data" },
         ],
       },
     ],
@@ -76,8 +76,8 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
     title: "Product",
     links: [
       { href: "/#how", label: "How it works" },
-      { href: "/#features", label: "Features" },
-      { href: "/#lifetimes", label: "47-day certificates" },
+      { href: "/#platform", label: "Platform" },
+      { href: "/#deploy", label: "Deploy" },
       { href: "/dashboard", label: "Live demo" },
     ],
   },

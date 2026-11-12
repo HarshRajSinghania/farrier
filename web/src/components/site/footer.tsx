@@ -1,87 +1,86 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { GithubIcon, LogoMark } from "@/components/brand";
+import { LogoMark } from "@/components/brand";
 import { site } from "@/lib/site";
 import { FOOTER_COLUMNS } from "./nav-data";
 
-function FLink({ href, children }: { href: string; children: React.ReactNode }) {
-  const cls = "inline-flex min-h-8 items-center text-base text-white/75 transition-colors hover:text-[#60a5fa]";
-  return href.startsWith("http") ? (
-    <a href={href} target="_blank" rel="noreferrer" className={cls}>
-      {children}
-    </a>
-  ) : (
-    <a href={href} className={cls}>
-      {children}
-    </a>
-  );
-}
+const muted = "text-white/60 transition-colors hover:text-white";
 
-/** The closing call to action and the footer, on every marketing and docs page. */
+/** The closing call to action (landing only) and the footer, on every marketing and docs page. */
 export function SiteFooter({ cta = true }: { cta?: boolean }) {
   return (
-    <footer className="relative overflow-hidden bg-[#0b0b0b] text-[#f5f5f3] [&_:focus-visible]:outline-[#60a5fa]">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        {cta && (
-          // the one blue surface on the page: the pitch on the left, the three commands that prove it on the right
-          <div className="mt-20 grid overflow-hidden rounded-[32px] bg-[#2563eb] text-white lg:grid-cols-2">
-            <div className="min-w-0 p-8 sm:p-12 lg:py-16">
-              <h2 className="max-w-[14ch] text-3xl font-semibold tracking-[-0.02em]">
-                Renew your first appliance tonight
+    <>
+      {cta && (
+        <section className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6">
+          <div className="grid items-center gap-10 overflow-hidden rounded-[32px] bg-[#2563eb] px-6 py-12 text-white sm:px-12 sm:py-16 lg:grid-cols-2">
+            <div className="min-w-0">
+              <h2 className="max-w-[16ch] text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-balance sm:text-[48px]">
+                Renew your first certificate tonight
               </h2>
-              <p className="mt-6 max-w-md text-lg text-white/80">
-                Open source and self-hosted. Running in five minutes.
+              <p className="mt-4 max-w-md text-[17px] text-white/80">
+                Open source and self-hosted. Running in five minutes, with no account.
               </p>
-              <div className="mt-8 flex flex-wrap gap-4">
+              <div className="mt-8 flex flex-wrap gap-2">
                 <Link
                   href="/docs/quickstart"
-                  className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-semibold text-[#2563eb] hover:bg-white/90"
+                  className="inline-flex h-11 items-center rounded-full bg-white px-5 text-[15px] font-semibold text-[#2563eb] transition-colors hover:bg-white/90"
                 >
-                  Install Farrier <ArrowRight className="size-4" />
+                  Install Farrier
                 </Link>
                 <Link
                   href="/dashboard"
-                  className="inline-flex h-12 items-center rounded-full px-6 font-semibold ring-1 ring-white/40 ring-inset hover:ring-white"
+                  className="inline-flex h-11 items-center gap-1 rounded-full px-5 text-[15px] font-semibold ring-1 ring-white/40 ring-inset transition-colors hover:bg-white/10"
                 >
-                  Open the live demo
+                  Live demo <ArrowRight className="size-4" />
                 </Link>
               </div>
             </div>
-            <div className="flex min-w-0 items-end pl-8 pt-2 sm:pl-12 lg:pt-16">
-              <pre className="w-full overflow-x-auto rounded-tl-2xl bg-[#0b0b0b] p-6 font-mono text-sm leading-7 text-white/70">
-                <span className="text-white/40">$</span> <span className="text-white">pip install farrier-tls</span>
-                {"\n"}
-                <span className="text-white/40">$</span> <span className="text-white">farrier demo</span>
-                {"\n"}  41 endpoints on 127.0.0.1, 18 automated{"\n"}  <span className="text-[#60a5fa]">✔</span> nginx-01   renewed   verified live{"\n"}  <span className="text-[#60a5fa]">✔</span> tomcat-03  renewed   verified live{"\n"}  <span className="text-[#60a5fa]">●</span> asa-dc1    change pack, ticket opened{"\n"}
-                <span className="text-white/40">$</span> <span className="text-white">open http://localhost:3000/dashboard</span>
-              </pre>
-            </div>
+            <pre className="min-w-0 overflow-x-auto rounded-2xl bg-[#0b1220] p-6 font-mono text-[13px] leading-7 text-white/70 shadow-[0_24px_48px_-12px_rgba(11,18,32,0.5)]">
+              <span className="text-white/40">$</span> <span className="text-white">pip install farrier-tls</span>
+              {"\n"}
+              <span className="text-white/40">$</span> <span className="text-white">farrier demo</span>
+              {"\n"}  41 endpoints found, 18 automated{"\n"}
+              <span className="text-[#4ade80]">  ✔</span> nginx-01    verified live{"\n"}
+              <span className="text-[#4ade80]">  ✔</span> tomcat-03   verified live{"\n"}
+              <span className="text-[#fbbf24]">  ●</span> asa-dc1     change pack ready{"\n"}
+              <span className="text-white/40">$</span> <span className="text-white">open localhost:3000</span>
+            </pre>
           </div>
-        )}
+        </section>
+      )}
 
-        <div className="grid gap-12 py-16 lg:grid-cols-12">
+      <footer className="bg-[#0b0b0c] text-sm text-white [&_:focus-visible]:outline-[#60a5fa]">
+        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-12">
           <div className="lg:col-span-4">
-            <Link href="/" className="inline-flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <LogoMark className="size-6" /> Farrier
-            </Link>
-            <p className="mt-4 max-w-xs text-white/60">Agentless machine identity automation: TLS certificates, SSH keys and PQC readiness.</p>
-            <a
-              href={site.github}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-6 inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium ring-1 ring-white/20 ring-inset hover:ring-white"
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-[15px] font-semibold tracking-tight"
             >
-              <GithubIcon className="size-4" /> Star on GitHub
-            </a>
+              <LogoMark className="size-5" /> Farrier
+            </Link>
+            <p className="mt-3 max-w-xs text-white/60">
+              Agentless machine identity automation. Open source, MIT licensed.
+            </p>
           </div>
-          <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-8">
+          <nav
+            aria-label="Footer"
+            className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-8"
+          >
             {FOOTER_COLUMNS.map((c) => (
               <div key={c.title}>
-                <h3 className="mb-4 text-sm font-medium text-white/45">{c.title}</h3>
-                <ul>
+                <h3 className="mb-3 font-medium">{c.title}</h3>
+                <ul className="space-y-1">
                   {c.links.map((l) => (
                     <li key={l.label}>
-                      <FLink href={l.href}>{l.label}</FLink>
+                      <a
+                        href={l.href}
+                        {...(l.href.startsWith("http")
+                          ? { target: "_blank", rel: "noreferrer" }
+                          : {})}
+                        className={`inline-flex min-h-7 items-center ${muted}`}
+                      >
+                        {l.label}
+                      </a>
                     </li>
                   ))}
                 </ul>
@@ -89,28 +88,32 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
             ))}
           </nav>
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-6 text-sm text-white/45">
-          <span>© 2026 Farrier contributors</span>
-          <nav aria-label="Legal" className="flex gap-6">
-            <Link href="/privacy" className="inline-flex min-h-6 items-center hover:text-white">
-              Privacy
-            </Link>
-            <Link href="/terms" className="inline-flex min-h-6 items-center hover:text-white">
-              Terms
-            </Link>
-            <a href={`${site.github}/blob/main/LICENSE`} className="inline-flex min-h-6 items-center hover:text-white">
-              MIT licence
-            </a>
-          </nav>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 py-6 text-white/50">
+            <span>© 2026 Farrier contributors</span>
+            <nav aria-label="Legal" className="flex gap-6">
+              <Link
+                href="/privacy"
+                className={`inline-flex min-h-6 items-center ${muted}`}
+              >
+                Privacy
+              </Link>
+              <Link
+                href="/terms"
+                className={`inline-flex min-h-6 items-center ${muted}`}
+              >
+                Terms
+              </Link>
+              <a
+                href={`${site.github}/blob/main/LICENSE`}
+                className={`inline-flex min-h-6 items-center ${muted}`}
+              >
+                MIT licence
+              </a>
+            </nav>
+          </div>
         </div>
-      </div>
-      <p
-        aria-hidden
-        className="pointer-events-none -mb-[0.22em] select-none text-center text-[22vw] font-semibold leading-[0.8] tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_rgba(245,245,243,0.12)]"
-      >
-        Farrier
-      </p>
-    </footer>
+      </footer>
+    </>
   );
 }
