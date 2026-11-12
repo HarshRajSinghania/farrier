@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from ..vault import REF_PREFIXES, SecretRefused, resolve_secret
+from farrier.security.vault import REF_PREFIXES, SecretRefused, resolve_secret
 
 log = logging.getLogger("farrier.dns")
 USER_AGENT = "farrier-dns/0.1"
@@ -180,7 +180,7 @@ class Provider:
     @property
     def resolver(self):
         if self._resolver is None:
-            from .resolver import Resolver
+            from farrier.dns.resolver import Resolver
             self._resolver = Resolver(http=self._http)
         return self._resolver
 

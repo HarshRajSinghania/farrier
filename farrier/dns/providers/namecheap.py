@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from ..base import DnsConfigError, DnsError, Provider, Zone, relative
+from farrier.dns.base import DnsConfigError, DnsError, Provider, Zone, relative
 
 NS = {"n": "http://api.namecheap.com/xml.response"}
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib
 
-from ..base import DnsConfigError, Provider
+from farrier.dns.base import DnsConfigError, Provider
 
 PROVIDERS = {
     "cloudflare": "cloudflare:Cloudflare",

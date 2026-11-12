@@ -6,11 +6,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
-from farrier.api import create_app
-from farrier.engine import Engine
+from farrier.api.app import create_app
+from farrier.core.engine import Engine
 from farrier.issuers.local_ca import LocalCA
-from farrier.notify import send_email
-from farrier.vault import load_private_key, save_private_key
+from farrier.monitoring.notify import send_email
+from farrier.security.vault import load_private_key, save_private_key
 
 
 def test_ca_key_is_encrypted_at_rest(tmp_path):

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import Bundle, Connector, DeployError
-from .f5 import F5Connector
-from .files import FilesConnector
-from .fortigate import FortiGateConnector
-from .keystore import KeystoreConnector
-from .manual import ManualConnector
-from .panos import PanOSConnector
+from farrier.connectors.base import Bundle, Connector, DeployError
+from farrier.connectors.f5 import F5Connector
+from farrier.connectors.files import FilesConnector
+from farrier.connectors.fortigate import FortiGateConnector
+from farrier.connectors.keystore import KeystoreConnector
+from farrier.connectors.manual import ManualConnector
+from farrier.connectors.panos import PanOSConnector
 
 REGISTRY: dict[str, type[Connector]] = {c.kind: c for c in (
     FilesConnector, KeystoreConnector, F5Connector, FortiGateConnector, PanOSConnector, ManualConnector)}

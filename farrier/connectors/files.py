@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .base import Bundle, Connector, DeployError
+from farrier.connectors.base import Bundle, Connector, DeployError
 
 
 class FilesConnector(Connector):

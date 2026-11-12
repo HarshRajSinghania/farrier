@@ -10,7 +10,7 @@ import hashlib
 import json
 import time
 
-from ..base import RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import RecordProvider, Zone, norm, relative, unquote_txt
 
 ENDPOINTS = {"ovh-eu": "https://eu.api.ovh.com/1.0", "ovh-ca": "https://ca.api.ovh.com/1.0",
              "ovh-us": "https://api.us.ovhcloud.com/1.0"}

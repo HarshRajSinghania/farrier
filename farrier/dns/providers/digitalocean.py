@@ -1,7 +1,7 @@
 """DigitalOcean DNS (API v2). credentials: api_token."""
 from __future__ import annotations
 
-from ..base import RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import RecordProvider, Zone, norm, relative, unquote_txt
 
 API = "https://api.digitalocean.com/v2"
 

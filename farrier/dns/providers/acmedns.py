@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from ..base import DnsConfigError, DnsError, Provider, longest_zone, norm
+from farrier.dns.base import DnsConfigError, DnsError, Provider, longest_zone, norm
 
 
 class AcmeDns(Provider):

@@ -14,10 +14,10 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 from fastapi.testclient import TestClient
 
-from farrier import health, zombie
-from farrier.api import create_app
-from farrier.mcp_server import MCPServer, Session, run_stdio, validate
-from farrier.x509util import parse_pem
+from farrier.api.app import create_app
+from farrier.api.mcp import MCPServer, Session, run_stdio, validate
+from farrier.core.x509util import parse_pem
+from farrier.monitoring import health, zombie
 
 NOW = datetime.now(timezone.utc)
 

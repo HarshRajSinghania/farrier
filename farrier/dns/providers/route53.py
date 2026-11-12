@@ -11,8 +11,8 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
-from ...cloud_auth.aws import STS_NS, signing_key, sigv4_headers
-from ..base import DnsError, RRsetProvider, Zone, norm, quote_txt, unquote_txt
+from farrier.dns.base import DnsError, RRsetProvider, Zone, norm, quote_txt, unquote_txt
+from farrier.security.cloud_auth.aws import STS_NS, signing_key, sigv4_headers
 
 ENDPOINT = "https://route53.amazonaws.com"
 NS = {"r": "https://route53.amazonaws.com/doc/2013-04-01/"}

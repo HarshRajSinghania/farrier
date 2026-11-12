@@ -2,7 +2,15 @@
 deSEC enforces a 3600 s minimum TTL and rate-limits writes (429 + Retry-After, retried by the base class)."""
 from __future__ import annotations
 
-from ..base import DnsError, RRsetProvider, Zone, norm, quote_txt, relative, unquote_txt
+from farrier.dns.base import (
+    DnsError,
+    RRsetProvider,
+    Zone,
+    norm,
+    quote_txt,
+    relative,
+    unquote_txt,
+)
 
 API = "https://desec.io/api/v1"
 

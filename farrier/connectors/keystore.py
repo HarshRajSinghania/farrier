@@ -20,8 +20,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-from ..x509util import load_key, split_pem_chain
-from .base import Bundle, Connector, DeployError
+from farrier.connectors.base import Bundle, Connector, DeployError
+from farrier.core.x509util import load_key, split_pem_chain
 
 
 def build_pkcs12(b: Bundle, alias: str, password: str, legacy: bool = False) -> bytes:

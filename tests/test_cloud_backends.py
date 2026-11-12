@@ -17,11 +17,11 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from farrier import cloud_auth, vault
-from farrier.cloud_auth import http as cloud_http
-from farrier.cloud_auth.hashicorp import VaultAuth
-from farrier.secret_backends import external, make_backend
-from farrier.vault import SecretRefused, resolve_secret
+from farrier.security import cloud_auth, vault
+from farrier.security.cloud_auth import http as cloud_http
+from farrier.security.cloud_auth.hashicorp import VaultAuth
+from farrier.security.secret_backends import external, make_backend
+from farrier.security.vault import SecretRefused, resolve_secret
 
 SCHEMA = Path(__file__).resolve().parents[1] / "events" / "schema" / "renewal-event.schema.json"
 ENV_PREFIXES = ("AWS_", "GOOGLE_", "GCE_", "GCLOUD_", "AZURE_", "IDENTITY_", "VAULT_", "FARRIER_SECRET_",
@@ -146,8 +146,8 @@ def test_aws_secrets_manager_through_irsa(cloud, data_dir, monkeypatch, tmp_path
     monkeypatch.setenv("FARRIER_SECRET_AWS_REGION", "eu-west-1")
     monkeypatch.setenv("FARRIER_SECRET_AWS_KMS_KEY", "alias/farrier")
     monkeypatch.setenv("FARRIER_API_TOKEN", "admin-tok")
-    from farrier.api import create_app
-    from farrier.engine import Engine
+    from farrier.api.app import create_app
+    from farrier.core.engine import Engine
     eng = Engine(data_dir)
     c = TestClient(create_app(eng))
     h = {"Authorization": "Bearer admin-tok"}
@@ -186,7 +186,7 @@ def test_aws_secrets_manager_through_irsa(cloud, data_dir, monkeypatch, tmp_path
 
 
 def test_switching_backend_keeps_existing_secrets(cloud, data_dir, monkeypatch, tmp_path):
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
     Engine(data_dir).secrets.put("old", "local-value")
     env_aws_irsa(monkeypatch, tmp_path)
     fake_sts(cloud)
@@ -298,7 +298,7 @@ def test_gcp_workload_identity_federation(cloud, monkeypatch, tmp_path):
                                 "credential_source": {"file": str(subject)}}))
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(cred))
     cloud.on("sts.googleapis.com", lambda req: httpx.Response(200, json={"access_token": "federated", "expires_in": 3600}))
-    from farrier.cloud_auth.google import GoogleTokenProvider
+    from farrier.security.cloud_auth.google import GoogleTokenProvider
     assert GoogleTokenProvider().token() == "federated"
     form = parse_qs(cloud.to("sts.googleapis.com")[0].content.decode())
     assert form["grant_type"] == ["urn:ietf:params:oauth:grant-type:token-exchange"]
@@ -354,7 +354,7 @@ def test_azure_workload_identity_assertion(cloud, monkeypatch, tmp_path):
     monkeypatch.setenv("AZURE_CLIENT_ID", "client-1")
     monkeypatch.setenv("AZURE_TENANT_ID", "tenant-1")
     cloud.on("login.microsoftonline.com", lambda r: httpx.Response(200, json={"access_token": "wi", "expires_in": 3600}))
-    from farrier.cloud_auth.azure import EVENTGRID_SCOPE, AzureTokenProvider
+    from farrier.security.cloud_auth.azure import EVENTGRID_SCOPE, AzureTokenProvider
     assert AzureTokenProvider().token(EVENTGRID_SCOPE) == "wi"
     req = cloud.to("login.microsoftonline.com", "/tenant-1/oauth2/v2.0/token")[0]
     form = parse_qs(req.content.decode())
@@ -472,7 +472,7 @@ def _files_contain(root: Path, needle: bytes) -> list[str]:
 
 @pytest.mark.parametrize("kind", ["aws", "gcp", "azure"])
 def test_master_key_wrapped_by_kms(cloud, data_dir, monkeypatch, kind):
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
     spec = _kms_fakes(cloud, monkeypatch, kind)
     monkeypatch.setenv("FARRIER_MASTER_KEY_KMS", spec)
     eng = Engine(data_dir)
@@ -644,11 +644,11 @@ def test_file_storage_and_bad_urls(tmp_path):
 def test_pack_with_private_key_is_sealed_before_upload(cloud, data_dir, monkeypatch):
     from conftest import issue_initial
 
-    from farrier.api import create_app
+    from farrier.api.app import create_app
     from farrier.connectors import Bundle, make_connector
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
+    from farrier.core.x509util import split_pem_chain
     from farrier.issuers.local_ca import LocalCA
-    from farrier.x509util import split_pem_chain
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minio")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minio-secret")
     monkeypatch.setenv("FARRIER_STORAGE_S3_ENDPOINT", "https://minio.internal:9000")
@@ -684,10 +684,10 @@ def test_pack_with_private_key_is_sealed_before_upload(cloud, data_dir, monkeypa
 
 # ---- backup ----------------------------------------------------------------------------------------
 def test_backup_round_trip_into_a_new_store(cloud, tmp_path, monkeypatch):
-    from farrier.backup import backup, restore, split_object_url
     from farrier.cli import main
-    from farrier.db import Store
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
+    from farrier.db.backup import backup, restore, split_object_url
+    from farrier.db.store import Store
     monkeypatch.setenv("FARRIER_MASTER_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minio")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minio-secret")
@@ -729,8 +729,8 @@ def test_backup_round_trip_into_a_new_store(cloud, tmp_path, monkeypatch):
 def _renewal_and_endpoint(data_dir, state="done"):
     from conftest import issue_initial
 
+    from farrier.core.x509util import parse_pem, split_pem_chain
     from farrier.issuers.local_ca import LocalCA
-    from farrier.x509util import parse_pem, split_pem_chain
     _, full = issue_initial(LocalCA(data_dir), "www.example.test", 30)
     certs = split_pem_chain(full)
     info = parse_pem(certs[0])
@@ -748,7 +748,7 @@ def _check_schema(event: dict):
 
 
 def test_event_publishing_shape_for_each_transport(cloud, data_dir, monkeypatch):
-    from farrier.notify import Notifier
+    from farrier.monitoring.notify import Notifier
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
     monkeypatch.setenv("FARRIER_SECRET_EG_KEY", "eg-sas-key")
@@ -811,7 +811,7 @@ def test_event_publishing_shape_for_each_transport(cloud, data_dir, monkeypatch)
 
 
 def test_event_grid_uses_managed_identity_without_key(cloud, data_dir):
-    from farrier.notify import Notifier
+    from farrier.monitoring.notify import Notifier
     fake_azure_imds(cloud)
     cloud.on("t1.westeurope-1.eventgrid.azure.net", lambda r: httpx.Response(200))
     r, ep = _renewal_and_endpoint(data_dir)
@@ -826,7 +826,7 @@ def test_done_exports_chain_and_private_key_reference(cloud, engine, served, mon
     and the EventBridge event carries both references."""
     from test_engine import _due_now, _endpoint
 
-    from farrier.notify import Notifier
+    from farrier.monitoring.notify import Notifier
     s, srv = served
     env_aws_irsa(monkeypatch, tmp_path)
     fake_sts(cloud)
@@ -837,7 +837,7 @@ def test_done_exports_chain_and_private_key_reference(cloud, engine, served, mon
     monkeypatch.setenv("FARRIER_STORAGE_URL", "s3://farrier-certs/prod")
     monkeypatch.setenv("FARRIER_STORAGE_S3_ENDPOINT", "https://minio.internal:9000")
     cloud.on("events.eu-west-1.amazonaws.com", lambda r: httpx.Response(200, json={"FailedEntryCount": 0}))
-    from farrier.secrets_store import SecretStore
+    from farrier.security.secrets_store import SecretStore
     engine.secrets = SecretStore(engine.store)                  # the fixture engine was built before the env
     engine.items.put("notifier", "bus", {"type": "eventbridge", "bus": "farrier", "region": "eu-west-1",
                                          "events": ["done"]})
@@ -869,8 +869,8 @@ def test_done_exports_chain_and_private_key_reference(cloud, engine, served, mon
 
 
 def test_event_channels_in_the_dashboard(cloud, data_dir, monkeypatch):
-    from farrier.api import create_app
-    from farrier.engine import Engine
+    from farrier.api.app import create_app
+    from farrier.core.engine import Engine
     monkeypatch.setenv("FARRIER_API_TOKEN", "admin-tok")
     eng = Engine(data_dir)
     c = TestClient(create_app(eng))
@@ -897,8 +897,8 @@ def test_event_channels_in_the_dashboard(cloud, data_dir, monkeypatch):
 
 # ---- DNS accounts keep omitted credentials -----------------------------------------------------------
 def test_dns_account_put_keeps_omitted_credentials(cloud, data_dir, monkeypatch):
-    from farrier.api import create_app
-    from farrier.engine import Engine
+    from farrier.api.app import create_app
+    from farrier.core.engine import Engine
     monkeypatch.setenv("FARRIER_API_TOKEN", "admin-tok")
     c = TestClient(create_app(Engine(data_dir)))
     h = {"Authorization": "Bearer admin-tok"}
@@ -944,7 +944,7 @@ def test_database_password_is_reread_on_every_reconnect(tmp_path, monkeypatch):
     import sys
     import types
 
-    from farrier.db_dialects import PostgresDialect, parse_url
+    from farrier.db.dialects import PostgresDialect, parse_url
     seen = []
     fake = types.SimpleNamespace(connect=lambda **kw: seen.append(kw.get("password")) or object())
     monkeypatch.setitem(sys.modules, "psycopg", fake)

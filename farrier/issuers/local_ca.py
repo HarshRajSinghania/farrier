@@ -13,8 +13,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from ..policy import max_lifetime_days
-from ..vault import load_private_key, save_private_key
+from farrier.core.policy import max_lifetime_days
+from farrier.security.vault import load_private_key, save_private_key
 
 
 class LocalCA:

@@ -3,7 +3,7 @@ RRset API with atomic add_records / remove_records actions, so concurrent orders
 credentials: api_token (a Hetzner Cloud project token with read/write)."""
 from __future__ import annotations
 
-from ..base import Provider, Zone, norm, quote_txt, relative
+from farrier.dns.base import Provider, Zone, norm, quote_txt, relative
 
 API = "https://api.hetzner.cloud/v1"
 

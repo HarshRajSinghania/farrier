@@ -11,9 +11,9 @@ import os
 import xml.etree.ElementTree as ET
 from urllib.parse import quote, urlencode
 
-from ..cloud_auth import aws
-from ..cloud_auth.http import CloudConfigError
-from . import ObjectStorage, check_key, join
+from farrier.security.cloud_auth import aws
+from farrier.security.cloud_auth.http import CloudConfigError
+from farrier.storage import ObjectStorage, check_key, join
 
 NS = {"s": "http://s3.amazonaws.com/doc/2006-03-01/"}
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import ObjectStorage, check_key
+from farrier.storage import ObjectStorage, check_key
 
 
 class FileStorage(ObjectStorage):

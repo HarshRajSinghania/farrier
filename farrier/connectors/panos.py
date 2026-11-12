@@ -17,8 +17,8 @@ import xml.etree.ElementTree as ET
 
 from cryptography.hazmat.primitives import serialization
 
-from ..x509util import load_key
-from .base import Bundle, Connector, DeployError, check
+from farrier.connectors.base import Bundle, Connector, DeployError, check
+from farrier.core.x509util import load_key
 
 
 class PanOSConnector(Connector):

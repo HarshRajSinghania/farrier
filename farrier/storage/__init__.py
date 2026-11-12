@@ -63,19 +63,19 @@ def from_url(url: str, data_dir: Path | None = None) -> ObjectStorage:
     """A store for a storage URL. Errors name FARRIER_STORAGE_URL."""
     p = urlsplit(url.strip())
     if p.scheme == "file":
-        from .local import FileStorage
+        from farrier.storage.local import FileStorage
         path = unquote(p.path)
         if re.match(r"^/[A-Za-z]:", path):          # file:///C:/x on Windows
             path = path[1:]
         return FileStorage(Path(p.netloc + path if p.netloc and p.netloc != "localhost" else path))
     if p.scheme == "s3" and p.netloc:
-        from .s3 import S3Storage
+        from farrier.storage.s3 import S3Storage
         return S3Storage(p.netloc, p.path.strip("/"))
     if p.scheme == "gs" and p.netloc:
-        from .gcs import GcsStorage
+        from farrier.storage.gcs import GcsStorage
         return GcsStorage(p.netloc, p.path.strip("/"))
     if p.scheme == "azblob" and p.netloc:
-        from .azblob import AzureBlobStorage
+        from farrier.storage.azblob import AzureBlobStorage
         container, _, prefix = p.path.strip("/").partition("/")
         if not container:
             raise ValueError("FARRIER_STORAGE_URL azblob://<account>/<container>[/prefix] needs a container")
@@ -93,7 +93,7 @@ def configured(data_dir: Path) -> ObjectStorage:
     url = os.environ.get("FARRIER_STORAGE_URL", "").strip()
     if url:
         return from_url(url, data_dir)
-    from .local import FileStorage
+    from farrier.storage.local import FileStorage
     return FileStorage(Path(data_dir) / "objects")
 
 

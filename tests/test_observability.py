@@ -4,9 +4,9 @@ import io
 
 from fastapi.testclient import TestClient
 
-from farrier.api import create_app
+from farrier.api.app import create_app
 from farrier.demo import start
-from farrier.notify import body_for, payload
+from farrier.monitoring.notify import body_for, payload
 
 
 def test_metrics_and_inventory(tmp_path, monkeypatch):
@@ -46,14 +46,14 @@ def test_notifier_shapes_and_delivery(tmp_path, monkeypatch):
         def raise_for_status(self):
             pass
 
-    monkeypatch.setattr("farrier.notify.httpx.post", lambda url, json, headers, timeout: sent.append((url, json, headers)) or Ok())
+    monkeypatch.setattr("farrier.monitoring.notify.httpx.post", lambda url, json, headers, timeout: sent.append((url, json, headers)) or Ok())
     monkeypatch.setenv("FARRIER_SECRET_HOOK", "https://hooks.example.internal/x")
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "settings.json").write_text(
         '{"notifiers": [{"type": "slack", "url": "env:FARRIER_SECRET_HOOK"}, '
         '{"type": "webhook", "url": "https://h.example.internal", "events": ["done"]}]}')
     monkeypatch.delenv("FARRIER_API_TOKEN", raising=False)
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
 
     eng = Engine(tmp_path / "data", issuers={"default": {"kind": "local"}})
     c = TestClient(create_app(eng))

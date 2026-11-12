@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from ..base import DnsConfigError, RRsetProvider, Zone, norm, quote_txt, unquote_txt
+from farrier.dns.base import (
+    DnsConfigError,
+    RRsetProvider,
+    Zone,
+    norm,
+    quote_txt,
+    unquote_txt,
+)
 
 
 class PowerDNS(RRsetProvider):

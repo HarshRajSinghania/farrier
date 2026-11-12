@@ -2,7 +2,7 @@
 credentials: api_key, secret_api_key. API access must be enabled per domain in the Porkbun UI."""
 from __future__ import annotations
 
-from ..base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
 
 API = "https://api.porkbun.com/api/json/v3"
 

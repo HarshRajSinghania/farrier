@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from ..vault import resolve_secret
+from farrier.security.vault import resolve_secret
 
 
 @dataclass

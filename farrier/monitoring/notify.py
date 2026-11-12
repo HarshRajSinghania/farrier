@@ -1,0 +1,245 @@
+"""Notifications on renewal state changes: generic webhook, Slack, Microsoft Teams, email (SMTP, Amazon SES),
+and CloudEvents to Amazon EventBridge, Google Pub/Sub and Azure Event Grid (farrier.publishers).
+
+Configured in <data>/settings.json:
+
+    "notifiers": [
+      {"type": "slack",   "url": "env:FARRIER_SECRET_SLACK_WEBHOOK", "events": ["failed", "rolled_back", "awaiting_manual"]},
+      {"type": "teams",   "url": "file:/run/secrets/teams_webhook"},
+      {"type": "webhook", "url": "https://hooks.example.internal/farrier", "events": ["done", "failed"],
+       "headers": {"Authorization": "env:FARRIER_SECRET_HOOK_TOKEN"}}
+    ]
+
+`url` and header values go through the same secret guardrails as connector configs. `events`
+defaults to failed, rolled_back and awaiting_manual. Delivery runs on a background thread with a
+5 second timeout, so a slow receiver never stalls a renewal; failures are written to the event log.
+"""
+from __future__ import annotations
+
+import threading
+from datetime import UTC, datetime
+
+import httpx
+
+from farrier.events.publishers import EVENT_TYPES
+from farrier.security.vault import resolve_secret
+
+DEFAULT_EVENTS = ("failed", "rolled_back", "awaiting_manual")
+# event buses feed automation, so by default they carry every outcome, not only the ones a person must see
+DEFAULT_BUS_EVENTS = ("issued", "awaiting_manual", "done", "failed", "rolled_back", "cancelled")
+
+
+def default_events(kind: str | None) -> tuple[str, ...]:
+    return DEFAULT_BUS_EVENTS if kind in EVENT_TYPES else DEFAULT_EVENTS
+EVENTS = {"planned", "issued", "verifying", "awaiting_manual", "done", "failed", "rolled_back", "superseded", "cancelled", "test"}
+TITLES = {
+    "done": "renewed and verified",
+    "failed": "renewal failed",
+    "rolled_back": "rolled back: the new certificate never went live",
+    "awaiting_manual": "needs a person: change pack ready",
+    "superseded": "superseded by another certificate",
+    "cancelled": "renewal cancelled",
+    "test": "test notification",
+    "alert": "alert",
+}
+
+
+def payload(event: str, renewal: dict | None, endpoint: dict | None, dashboard_url: str | None = None) -> dict:
+    r, e = renewal or {}, endpoint or {}
+    return {
+        "event": event,
+        "endpoint": e.get("name"),
+        "host": e.get("host"),
+        "port": e.get("port"),
+        "connector": e.get("connector"),
+        "owner": e.get("owner"),
+        "renewal_id": r.get("id"),
+        "error": r.get("error"),
+        "ticket": r.get("ticket_ref"),
+        "new_not_after": r.get("not_after"),
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "dashboard_url": dashboard_url,
+    }
+
+
+def _text(p: dict) -> str:
+    where = f"{p['endpoint']} ({p['host']}:{p['port']})" if p.get("endpoint") else "Farrier"
+    line = f"Farrier · {where}: {p.get('condition') or TITLES.get(p['event'], p['event'])}"
+    if p.get("rule"):
+        line += f"\nAlert rule {p['rule']}"
+    if p.get("error"):
+        line += f"\n{p['error']}"
+    if p.get("ticket"):
+        line += f"\nTicket {p['ticket']}"
+    if p.get("dashboard_url"):
+        line += f"\n{p['dashboard_url']}"
+    return line
+
+
+def body_for(kind: str, p: dict) -> dict:
+    if kind == "slack":
+        return {"text": _text(p)}
+    if kind == "teams":
+        # Teams incoming webhooks and Power Automate "post to a channel" flows both accept text
+        return {"text": _text(p).replace("\n", "  \n")}
+    return p
+
+
+# Email over SMTP works with any provider: Amazon SES, SendGrid, Mailgun, Postmark, Microsoft 365,
+# Google Workspace or an internal relay. "ses" is a shortcut that only needs the AWS region.
+#   {"type": "email", "host": "smtp.sendgrid.net", "port": 587, "username": "apikey",
+#    "password": "env:FARRIER_SECRET_SMTP_PASSWORD", "from": "farrier@example.com", "to": ["pki@example.com"]}
+#   {"type": "ses", "region": "eu-west-1", "username": "env:FARRIER_SECRET_SES_USER",
+#    "password": "env:FARRIER_SECRET_SES_PASSWORD", "from": "farrier@example.com", "to": ["pki@example.com"]}
+# tls: "starttls" (default, port 587), "ssl" (port 465) or "none" (an internal relay on 25; never with a password).
+EMAIL_TYPES = {"email", "ses"}
+
+
+def _email_target(cfg: dict) -> tuple[str, int, str]:
+    if cfg.get("type") == "ses":
+        region = str(cfg.get("region", "")).strip()
+        if not region.replace("-", "").isalnum():
+            raise ValueError("ses notifier needs a region such as eu-west-1")
+        return f"email-smtp.{region}.amazonaws.com", int(cfg.get("port", 587)), "starttls"
+    tls = cfg.get("tls", "starttls")
+    return cfg["host"], int(cfg.get("port", 465 if tls == "ssl" else 587)), tls
+
+
+def send_email(cfg: dict, p: dict) -> None:
+    import smtplib
+    import ssl
+    from email.message import EmailMessage
+
+    host, port, tls = _email_target(cfg)
+    user = resolve_secret(cfg.get("username")) if cfg.get("username") else None
+    password = resolve_secret(cfg.get("password")) if cfg.get("password") else None
+    if password and tls == "none":
+        raise ValueError("refusing to send SMTP credentials without TLS")
+    to = cfg.get("to") or []
+    to = [to] if isinstance(to, str) else to
+    if not to or not cfg.get("from"):
+        raise ValueError("email notifier needs from and to")
+
+    msg = EmailMessage()
+    first = _text(p).splitlines()[0]
+    msg["Subject"] = first.replace("\r", " ").replace("\n", " ")[:200]   # no header injection
+    msg["From"] = cfg["from"]
+    msg["To"] = ", ".join(to)
+    msg.set_content(_text(p) + "\n\n" + "\n".join(f"{k}: {v}" for k, v in p.items() if v is not None))
+
+    ctx = ssl.create_default_context()  # verifies the server's certificate and hostname
+    if tls == "ssl":
+        server = smtplib.SMTP_SSL(host, port, timeout=10, context=ctx)
+    else:
+        server = smtplib.SMTP(host, port, timeout=10)
+    with server:
+        if tls == "starttls":
+            server.starttls(context=ctx)
+        if user and password:
+            server.login(user, password)
+        server.send_message(msg)
+
+
+class Notifier:
+    """Each config may carry a ``name`` (settings.json entries are settings-1, settings-2...; dashboard
+    channels their own name) so alert rules can address a channel."""
+
+    def __init__(self, configs: list[dict] | None, dashboard_url: str | None, log, instance_id: str | None = None):
+        self.configs = [c for c in (configs or []) if isinstance(c, dict)
+                        and (c.get("url") or c.get("type") in EMAIL_TYPES or c.get("type") in EVENT_TYPES)]
+        self.dashboard_url = dashboard_url
+        self.log = log  # store.log(message, endpoint_id, renewal_id, level=...)
+        self.instance_id = instance_id or "farrier"   # CloudEvents source farrier://<instance id>
+
+    def wants(self, cfg: dict, event: str) -> bool:
+        events = cfg.get("events")
+        return event == "test" or event in (default_events(cfg.get("type")) if events is None else events)
+
+    def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False,
+             refs: dict | None = None) -> list[str]:
+        """``refs`` (chain_ref, private_key_ref) go into the CloudEvent for event-bus channels."""
+        targets = [c for c in self.configs if self.wants(c, event)]
+        if not targets:
+            return []
+        p = payload(event, renewal, endpoint, self.dashboard_url)
+        buses = [c for c in targets if c.get("type") in EVENT_TYPES]
+        others = [c for c in targets if c.get("type") not in EVENT_TYPES]
+        if buses:
+            from farrier.events.cloudevents import build
+            ce = build(event, renewal, endpoint, self.instance_id, **(refs or {}))
+            if ce is None:
+                buses = []                        # a state outside the event contract (superseded)
+            else:
+                self._dispatch(buses, {**p, "cloudevent": ce}, wait)
+        self._dispatch(others, p, wait)
+        return [cfg.get("type", "webhook") for cfg in others + buses]
+
+    def send_to(self, names, p: dict, wait: bool = False) -> dict[str, bool | None]:
+        """Deliver a prepared payload to the named channels. Returns {name: delivered}; a value is None
+        while its delivery is still running (always, when not waiting)."""
+        wanted = set(names)
+        targets = [c for c in self.configs if c.get("name") in wanted]
+        results = self._dispatch(targets, p, wait)
+        return {c["name"]: results.get(id(c)) for c in targets}
+
+    def _dispatch(self, targets: list[dict], p: dict, wait: bool) -> dict[int, bool]:
+        results: dict[int, bool] = {}
+        threads = []
+        for cfg in targets:
+            t = threading.Thread(target=self._deliver, args=(cfg, cfg.get("type", "webhook"), p, results),
+                                 daemon=True, name="farrier-notify")
+            t.start()
+            threads.append(t)
+        if wait:
+            for t in threads:
+                t.join(6)
+        return results
+
+    @staticmethod
+    def deliver_one(cfg: dict, p: dict) -> None:
+        """Deliver synchronously; raises on failure. Show errors through failure_detail only: the raw
+        text may contain the (secret) URL."""
+        kind = cfg.get("type", "webhook")
+        if kind in EMAIL_TYPES:
+            send_email(cfg, p)
+            return
+        if kind in EVENT_TYPES:
+            from farrier.events.cloudevents import test_event
+            from farrier.events.publishers import publish
+            ce = p.get("cloudevent")
+            if ce is None and p.get("event") == "test":
+                ce = test_event()
+            if ce is None:
+                raise ValueError(f"{kind} channels publish renewal events only (not {p.get('event')} messages)")
+            publish(cfg, ce)
+            return
+        url = resolve_secret(cfg["url"])
+        headers = {k: resolve_secret(v) for k, v in (cfg.get("headers") or {}).items()}
+        r = httpx.post(url, json=body_for(kind, p), headers=headers, timeout=5)
+        r.raise_for_status()
+
+    def _deliver(self, cfg: dict, kind: str, p: dict, results: dict | None = None):
+        try:
+            self.deliver_one(cfg, p)
+            ok = True
+        except Exception as e:  # noqa: BLE001 - a notifier must never break a renewal
+            ok = False
+            # never log the URL: webhook URLs are secrets
+            self.log(f"{kind} notification for {p['event']} failed: {type(e).__name__}", None, p.get("renewal_id"),
+                     level="warning")
+        if results is not None:
+            results[id(cfg)] = ok
+
+
+def failure_detail(e: Exception) -> str:
+    """A delivery error as the dashboard may see it: never a URL or a credential."""
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"the receiver answered HTTP {e.response.status_code}"
+    if isinstance(e, KeyError):
+        return str(e.args[0]) if e.args else "a referenced secret is not set"
+    from farrier.security.cloud_auth.http import CloudError
+    if isinstance(e, CloudError):                 # built without URLs' queries, bodies or credentials
+        return str(e)[:300]
+    if isinstance(e, (ValueError, OSError)) and not isinstance(e, httpx.HTTPError):
+        return f"{type(e).__name__}: {e}"[:300]
+    return type(e).__name__

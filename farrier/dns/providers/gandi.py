@@ -1,7 +1,7 @@
 """Gandi LiveDNS (API v5). credentials: api_token (Personal Access Token) or legacy api_key."""
 from __future__ import annotations
 
-from ..base import RRsetProvider, Zone, norm, quote_txt, relative, unquote_txt
+from farrier.dns.base import RRsetProvider, Zone, norm, quote_txt, relative, unquote_txt
 
 API = "https://api.gandi.net/v5/livedns"
 

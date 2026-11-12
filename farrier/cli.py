@@ -8,18 +8,18 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import policy
+from farrier.core import policy
 
 
 def _engine(args):
-    from .engine import Engine
+    from farrier.core.engine import Engine
     return Engine(Path(args.data))
 
 
 def cmd_serve(args):
     import uvicorn
 
-    from .api import create_app
+    from farrier.api.app import create_app
     if args.host not in ("127.0.0.1", "localhost") and not os.environ.get("FARRIER_API_TOKEN"):
         sys.exit("refusing to listen on a non-loopback address without FARRIER_API_TOKEN set")
     import signal
@@ -43,8 +43,8 @@ def cmd_serve(args):
 
 
 def cmd_db_migrate(args):
-    from .db import Store
-    from .db_dialects import redact_url
+    from farrier.db.dialects import redact_url
+    from farrier.db.store import Store
     src = Store(Path(args.data), url=args.source)
     dst = Store(Path(args.data), url=args.to)
     print(f"copying {redact_url(src.url)} ({src.backend}) -> {redact_url(dst.url)} ({dst.backend})")
@@ -58,16 +58,16 @@ def cmd_db_migrate(args):
 
 
 def cmd_backup(args):
-    from .backup import backup
-    from .db import Store
-    from .storage import from_url
+    from farrier.db.backup import backup
+    from farrier.db.store import Store
+    from farrier.storage import from_url
     url = backup(Store(Path(args.data)), from_url(args.to, Path(args.data)))
     print(f"backup written to {url}\nSealed keys and secrets stay sealed: restoring needs the same master key.")
 
 
 def cmd_restore(args):
-    from .backup import restore, split_object_url
-    from .db import Store
+    from farrier.db.backup import restore, split_object_url
+    from farrier.db.store import Store
     storage, key = split_object_url(args.source)
     data = storage.get(key)
     if data is None:
@@ -81,8 +81,8 @@ def cmd_restore(args):
 def cmd_demo(args):
     import uvicorn
 
-    from .api import create_app
-    from .demo import start
+    from farrier.api.app import create_app
+    from farrier.demo import start
     eng, srv = start(Path(args.data), args.simulate_date)
     print(f"demo estate: {len(eng.store.endpoints())} endpoints served by SNI on 127.0.0.1:{srv.port}")
     eng.tick()
@@ -92,7 +92,7 @@ def cmd_demo(args):
 
 
 def cmd_scan(args):
-    from .discovery import expand_targets, scan
+    from farrier.core.discovery import expand_targets, scan
     results = scan(expand_targets(" ".join(args.targets)), timeout=args.timeout)
     now = policy.utcnow()
     for r in sorted(results, key=lambda r: (r.cert is None, r.cert and r.cert.not_after)):
@@ -113,7 +113,7 @@ def cmd_tick(args):
 
 def cmd_import(args):
     eng = _engine(args)
-    from .connectors import make_connector
+    from farrier.connectors import make_connector
     items = json.loads(Path(args.file).read_text())
     for ep in items:
         make_connector(ep.get("connector", "manual"), ep.get("connector_config", {}), eng.data_dir)
@@ -135,7 +135,7 @@ def cmd_forecast(args):
 
 def cmd_mcp(args):
     """MCP over stdio for Claude Desktop/Code, Gemini CLI, Codex. stdout carries only protocol messages."""
-    from .mcp_server import run_stdio
+    from farrier.api.mcp import run_stdio
     run_stdio(_engine(args))
 
 

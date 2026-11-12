@@ -1,7 +1,7 @@
 """Cloudflare (API v4). Credentials: api_token (scoped "Zone.DNS:Edit"), or legacy api_key + email."""
 from __future__ import annotations
 
-from ..base import DnsError, RecordProvider, Zone, norm, unquote_txt
+from farrier.dns.base import DnsError, RecordProvider, Zone, norm, unquote_txt
 
 API = "https://api.cloudflare.com/client/v4"
 

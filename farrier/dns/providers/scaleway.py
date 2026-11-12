@@ -1,7 +1,7 @@
 """Scaleway Domains & DNS (domain/v2beta1). credentials: secret_key (IAM API key secret)."""
 from __future__ import annotations
 
-from ..base import Provider, Zone, norm, quote_txt, relative, unquote_txt
+from farrier.dns.base import Provider, Zone, norm, quote_txt, relative, unquote_txt
 
 API = "https://api.scaleway.com/domain/v2beta1"
 

@@ -21,9 +21,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..vault import resolve_secret
-from .acme import AcmeIssuer
-from .local_ca import LocalCA
+from farrier.issuers.acme import AcmeIssuer
+from farrier.issuers.local_ca import LocalCA
+from farrier.security.vault import resolve_secret
 
 # name -> (directory URL or None when it is account-specific, EAB required?)
 PRESETS: dict[str, dict] = {

@@ -2,9 +2,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from farrier.api import create_app
-from farrier.engine import Engine
-from farrier.vault import SecretRefused, resolve_secret
+from farrier.api.app import create_app
+from farrier.core.engine import Engine
+from farrier.security.vault import SecretRefused, resolve_secret
 
 ADMIN = {"authorization": "Bearer admin-token"}
 READER = {"authorization": "Bearer read-token"}

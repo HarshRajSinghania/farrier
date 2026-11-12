@@ -1,7 +1,7 @@
 """Infomaniak DNS (api.infomaniak.com, v1 domain API). credentials: api_token (scope "domain:read/write")."""
 from __future__ import annotations
 
-from ..base import DnsError, RecordProvider, norm, relative, unquote_txt
+from farrier.dns.base import DnsError, RecordProvider, norm, relative, unquote_txt
 
 API = "https://api.infomaniak.com"
 

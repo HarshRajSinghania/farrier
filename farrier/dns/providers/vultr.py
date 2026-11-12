@@ -1,7 +1,14 @@
 """Vultr DNS (API v2). credentials: api_key."""
 from __future__ import annotations
 
-from ..base import RecordProvider, Zone, norm, quote_txt, relative, unquote_txt
+from farrier.dns.base import (
+    RecordProvider,
+    Zone,
+    norm,
+    quote_txt,
+    relative,
+    unquote_txt,
+)
 
 API = "https://api.vultr.com/v2"
 

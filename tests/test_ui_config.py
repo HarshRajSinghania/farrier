@@ -7,17 +7,17 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from farrier import policy
-from farrier.api import create_app
-from farrier.db import Store, now_iso
-from farrier.engine import Engine
-from farrier.health import store_grade
+from farrier.api.app import create_app
+from farrier.core import policy
+from farrier.core.engine import Engine
+from farrier.core.x509util import parse_pem
+from farrier.db.store import Store, now_iso
 from farrier.issuers import acme as acme_mod
 from farrier.issuers.acme import b64u
 from farrier.issuers.local_ca import LocalCA
-from farrier.notify import Notifier
-from farrier.vault import resolve_secret
-from farrier.x509util import parse_pem
+from farrier.monitoring.health import store_grade
+from farrier.monitoring.notify import Notifier
+from farrier.security.vault import resolve_secret
 
 ADMIN = {"Authorization": "Bearer admin-tok", "X-Farrier-Actor": "alice"}
 READ = {"Authorization": "Bearer read-tok"}
@@ -359,7 +359,7 @@ def test_notifiers_round_trip_without_urls(env, monkeypatch):
     def fake_post(url, json=None, headers=None, timeout=None):
         posted.append(url)
         return httpx.Response(500 if "bad" in url else 200, request=httpx.Request("POST", url))
-    monkeypatch.setattr("farrier.notify.httpx.post", fake_post)
+    monkeypatch.setattr("farrier.monitoring.notify.httpx.post", fake_post)
     assert c.post("/api/notifiers/ops/test", headers=ADMIN).json() == {"ok": True, "detail": "delivered to #ops on Slack"}
     assert posted == ["https://hooks.slack.com/services/T/B/secret"]
     put(c, "/api/secrets/slack-hook", {"value": "https://hooks.slack.com/bad"})

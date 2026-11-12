@@ -1,7 +1,7 @@
 """NS1 (IBM NS1 Connect) API v1. credentials: api_key.   options: endpoint (default https://api.nsone.net/v1)"""
 from __future__ import annotations
 
-from ..base import RRsetProvider, Zone, norm
+from farrier.dns.base import RRsetProvider, Zone, norm
 
 
 class NS1(RRsetProvider):

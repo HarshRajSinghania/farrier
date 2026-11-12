@@ -13,7 +13,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-from . import ObjectStorage, configured, explicit
+from farrier.storage import ObjectStorage, configured, explicit
 
 SEALED = frozenset({"key.pem", "bundle.pfx", "passphrase.txt"})
 SUFFIX = ".sealed"
@@ -108,5 +108,5 @@ def pack_store(data_dir: Path):
     """LocalPacks unless FARRIER_STORAGE_URL is set."""
     if not explicit():
         return LocalPacks(data_dir)
-    from ..vault import master_key
+    from farrier.security.vault import master_key
     return ObjectPacks(configured(data_dir), master_key(data_dir))

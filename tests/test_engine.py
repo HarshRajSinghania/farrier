@@ -1,8 +1,8 @@
 """End-to-end: real TLS listener, real issuance from the local CA, real file deploys."""
 from datetime import timedelta
 
-from farrier.discovery import fetch_cert, scan
-from farrier.x509util import parse_pem
+from farrier.core.discovery import fetch_cert, scan
+from farrier.core.x509util import parse_pem
 
 
 def _endpoint(engine, port, connector, cfg, **kw):
@@ -13,7 +13,7 @@ def _endpoint(engine, port, connector, cfg, **kw):
 
 def _due_now(engine, eid):
     obs = engine.store.latest_cert_observation(eid)
-    from farrier.db import parse_dt
+    from farrier.db.store import parse_dt
     return parse_dt(obs["not_after"]) - timedelta(days=3)
 
 
@@ -103,7 +103,7 @@ def test_keystore_connector(engine, served, tmp_path):
     ca = engine.issuers["default"]
     from conftest import issue_initial
     key, full = issue_initial(ca, "kafka.internal.test", 30)
-    from farrier.x509util import split_pem_chain
+    from farrier.core.x509util import split_pem_chain
     certs = split_pem_chain(full)
     path = tmp_path / "ks" / "server.p12"
     conn = make_connector("keystore", {"path": str(path), "password": "changeit", "alias": "kafka"}, tmp_path)

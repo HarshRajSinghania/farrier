@@ -1,7 +1,7 @@
 """Linode (Akamai Cloud) DNS Manager (API v4). credentials: api_token."""
 from __future__ import annotations
 
-from ..base import RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import RecordProvider, Zone, norm, relative, unquote_txt
 
 API = "https://api.linode.com/v4"
 

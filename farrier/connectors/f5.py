@@ -14,7 +14,7 @@ config:
 """
 from __future__ import annotations
 
-from .base import Bundle, Connector, DeployError, check
+from farrier.connectors.base import Bundle, Connector, DeployError, check
 
 
 def _tm(path: str) -> str:

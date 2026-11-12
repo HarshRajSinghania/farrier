@@ -3,7 +3,7 @@ GoDaddy restricts DNS API access to accounts meeting its eligibility rules (e.g.
 ACCESS_DENIED from GoDaddy means the account is not eligible, not that Farrier is misconfigured."""
 from __future__ import annotations
 
-from ..base import RRsetProvider, Zone, norm, relative
+from farrier.dns.base import RRsetProvider, Zone, norm, relative
 
 
 class GoDaddy(RRsetProvider):

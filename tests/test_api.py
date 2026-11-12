@@ -4,7 +4,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
-from farrier.api import create_app
+from farrier.api.app import create_app
 from farrier.demo import start
 
 
@@ -47,7 +47,7 @@ def test_demo_estate_through_api(tmp_path, monkeypatch):
 
 def test_token_required_when_set(tmp_path, monkeypatch):
     monkeypatch.setenv("FARRIER_API_TOKEN", "s3cret")
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
     c = TestClient(create_app(Engine(tmp_path)))
     assert c.get("/api/summary").status_code == 401
     assert c.get("/api/summary", headers={"Authorization": "Bearer s3cret"}).status_code == 200

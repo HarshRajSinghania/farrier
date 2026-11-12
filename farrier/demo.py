@@ -19,9 +19,9 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from .engine import Engine
-from .issuers.local_ca import LocalCA
-from .x509util import generate_key, key_to_pem
+from farrier.core.engine import Engine
+from farrier.core.x509util import generate_key, key_to_pem
+from farrier.issuers.local_ca import LocalCA
 
 FLEET = [
     # (prefix, count, connector, runbook, window, lead_days)

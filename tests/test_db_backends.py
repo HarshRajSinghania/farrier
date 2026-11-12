@@ -7,11 +7,17 @@ import threading
 
 import pytest
 
-from farrier import db_migrations
-from farrier.db import Store, now_iso
-from farrier.db_dialects import (MySQLDialect, PostgresDialect, make_dialect, parse_url, redact_url)
-from farrier.engine import Engine
-from farrier.leader import FileLease, PostgresLease
+from farrier.core.engine import Engine
+from farrier.db import migrations as db_migrations
+from farrier.db.dialects import (
+    MySQLDialect,
+    PostgresDialect,
+    make_dialect,
+    parse_url,
+    redact_url,
+)
+from farrier.db.leader import FileLease, PostgresLease
+from farrier.db.store import Store, now_iso
 
 
 @pytest.fixture(autouse=True)
@@ -201,7 +207,7 @@ def test_migrations_apply_once_and_are_idempotent(tmp_path):
 
 
 def test_legacy_sqlite_file_is_migrated_in_place(tmp_path):
-    c = sqlite3.connect(tmp_path / "farrier.db")
+    c = sqlite3.connect(tmp_path / "farrier.db.store")
     c.executescript(LEGACY_SCHEMA)
     c.execute("INSERT INTO endpoints(name, host, created_at, window) VALUES ('old', 'h', 'now', '{\"a\": 1}')")
     c.commit()

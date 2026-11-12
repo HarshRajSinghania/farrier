@@ -10,17 +10,17 @@
     finally:
         solver.cleanup()                         # never raises
 """
-from .accounts import DnsAccounts, DnsSolver, validate_account
-from .base import (
-           DnsConfigError,
-           DnsError,
-           DnsPropagationError,
-           Provider,
-           RecordProvider,
-           RRsetProvider,
-           Zone,
+from farrier.dns.accounts import DnsAccounts, DnsSolver, validate_account
+from farrier.dns.base import (
+    DnsConfigError,
+    DnsError,
+    DnsPropagationError,
+    Provider,
+    RecordProvider,
+    RRsetProvider,
+    Zone,
 )
-from .providers import PROVIDERS, canonical, provider_class
+from farrier.dns.providers import PROVIDERS, canonical, provider_class
 
 __all__ = [
            "PROVIDERS",

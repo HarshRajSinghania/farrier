@@ -5,14 +5,14 @@ import xml.etree.ElementTree as ET
 
 import httpx
 import pytest
-
 from conftest import issue_initial
+
 from farrier.connectors import Bundle, DeployError, make_connector
 from farrier.connectors.f5 import F5Connector
 from farrier.connectors.fortigate import FortiGateConnector
 from farrier.connectors.panos import PanOSConnector
+from farrier.core.x509util import split_pem_chain
 from farrier.issuers.local_ca import LocalCA
-from farrier.x509util import split_pem_chain
 
 
 @pytest.fixture

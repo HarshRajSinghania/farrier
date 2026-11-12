@@ -1,8 +1,8 @@
 from datetime import date, datetime, timezone
 
-from farrier import policy
-from farrier.discovery import expand_targets
-from farrier.scheduler import level, next_window_start
+from farrier.core import policy
+from farrier.core.discovery import expand_targets
+from farrier.core.scheduler import level, next_window_start
 
 
 def test_schedule_steps():

@@ -4,9 +4,9 @@ from __future__ import annotations
 import os
 from urllib.parse import quote
 
-from ..cloud_auth import google
-from ..cloud_auth.http import json_body, request
-from . import ObjectStorage, check_key, join
+from farrier.security.cloud_auth import google
+from farrier.security.cloud_auth.http import json_body, request
+from farrier.storage import ObjectStorage, check_key, join
 
 API = "https://storage.googleapis.com/storage/v1"
 UPLOAD = "https://storage.googleapis.com/upload/storage/v1"

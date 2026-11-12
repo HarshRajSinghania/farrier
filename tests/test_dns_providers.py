@@ -15,14 +15,26 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from farrier.dns import DnsAccounts, DnsConfigError, DnsError, DnsPropagationError, provider_class
-from farrier.dns.providers.rfc2136 import RFC2136, build_update, sign, tsig_vars, verify_response
+from farrier.core.x509util import build_csr, generate_key
+from farrier.dns import (
+    DnsAccounts,
+    DnsConfigError,
+    DnsError,
+    DnsPropagationError,
+    provider_class,
+)
+from farrier.dns.providers.rfc2136 import (
+    RFC2136,
+    build_update,
+    sign,
+    tsig_vars,
+    verify_response,
+)
 from farrier.dns.providers.route53 import signing_key, sigv4_headers
 from farrier.dns.resolver import Resolver, parse_message
 from farrier.issuers import PRESETS, apply_preset, load_issuers
 from farrier.issuers.acme import AcmeError, AcmeIssuer
 from farrier.issuers.local_ca import LocalCA
-from farrier.x509util import build_csr, generate_key
 
 CHAL = "_acme-challenge.www.example.com"
 

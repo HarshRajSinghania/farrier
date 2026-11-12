@@ -1,7 +1,7 @@
 """Dynu (API v2). credentials: api_key."""
 from __future__ import annotations
 
-from ..base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
 
 API = "https://api.dynu.com/v2"
 

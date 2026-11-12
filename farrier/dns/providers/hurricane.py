@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from ..base import DnsConfigError, DnsError, Provider, norm
+from farrier.dns.base import DnsConfigError, DnsError, Provider, norm
 
 API = "https://dyn.dns.he.net/nic/update"
 PLACEHOLDER = "farrier-cleared"

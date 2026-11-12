@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from farrier.engine import Engine
+from farrier.core.engine import Engine
+from farrier.core.x509util import build_csr, generate_key, key_to_pem
 from farrier.issuers.local_ca import LocalCA
-from farrier.x509util import build_csr, generate_key, key_to_pem
 
 
 class TLSServer:

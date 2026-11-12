@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import base64
 
-from ..base import DnsConfigError, Provider, norm, unquote_txt
+from farrier.dns.base import DnsConfigError, Provider, norm, unquote_txt
 
 
 class SolidServer(Provider):

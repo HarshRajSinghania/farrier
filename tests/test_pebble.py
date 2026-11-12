@@ -16,8 +16,8 @@ import os
 import httpx
 import pytest
 
+from farrier.core.x509util import build_csr, generate_key, parse_pem
 from farrier.issuers.acme import AcmeIssuer
-from farrier.x509util import build_csr, generate_key, parse_pem
 
 pytestmark = pytest.mark.skipif(os.environ.get("FARRIER_TEST_PEBBLE") != "1", reason="needs Pebble (CI job)")
 

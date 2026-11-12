@@ -6,9 +6,9 @@ import re
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
 
-from ..cloud_auth import azure
-from ..cloud_auth.http import CloudConfigError, request
-from . import ObjectStorage, check_key, join
+from farrier.security.cloud_auth import azure
+from farrier.security.cloud_auth.http import CloudConfigError, request
+from farrier.storage import ObjectStorage, check_key, join
 
 API_VERSION = "2023-11-03"
 ACCOUNT = re.compile(r"^[a-z0-9]{3,24}$")

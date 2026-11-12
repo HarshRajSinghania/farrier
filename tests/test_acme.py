@@ -10,9 +10,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from farrier.core.x509util import build_csr, generate_key, parse_pem
 from farrier.issuers.acme import AcmeError, AcmeIssuer, b64u, b64u_decode, thumbprint
 from farrier.issuers.local_ca import LocalCA
-from farrier.x509util import build_csr, generate_key, parse_pem
 
 B = "https://acme.test"
 
@@ -245,7 +245,7 @@ def test_rate_limit_reports_when_to_retry_and_503_is_retried_once(tmp_path):
 def test_engine_plans_inside_the_cas_ari_window(tmp_path, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
-    from farrier.engine import Engine
+    from farrier.core.engine import Engine
     eng = Engine(tmp_path / "data", issuers={"default": {"kind": "local"}})
     eid = eng.store.upsert_endpoint({"name": "a.test", "host": "127.0.0.1", "port": 1, "sni": "a.test",
                                      "window": {}, "tags": [], "enabled": True})

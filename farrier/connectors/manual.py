@@ -20,10 +20,10 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-from ..storage.packs import pack_store
-from ..vault import resolve_secret
-from ..x509util import load_key, split_pem_chain
-from .base import Bundle, Connector, check
+from farrier.connectors.base import Bundle, Connector, check
+from farrier.core.x509util import load_key, split_pem_chain
+from farrier.security.vault import resolve_secret
+from farrier.storage.packs import pack_store
 
 RUNBOOKS = {
     "generic": """1. Import `bundle.pfx` (passphrase in `passphrase.txt`) or `fullchain.pem` + `key.pem`

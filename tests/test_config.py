@@ -4,8 +4,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from farrier.api import create_app
-from farrier.engine import Engine
+from farrier.api.app import create_app
+from farrier.core.engine import Engine
 
 ADMIN = {"authorization": "Bearer admin-token"}
 READER = {"authorization": "Bearer read-token"}

@@ -1,7 +1,7 @@
 """ArvanCloud CDN DNS (API 4.0). credentials: api_key (the "Apikey ..." machine-user key)."""
 from __future__ import annotations
 
-from ..base import RecordProvider, Zone, norm, relative
+from farrier.dns.base import RecordProvider, Zone, norm, relative
 
 API = "https://napi.arvancloud.ir/cdn/4.0"
 

@@ -16,7 +16,14 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from .base import USER_AGENT, DnsError, DnsPropagationError, in_zone, norm, unquote_txt
+from farrier.dns.base import (
+    USER_AGENT,
+    DnsError,
+    DnsPropagationError,
+    in_zone,
+    norm,
+    unquote_txt,
+)
 
 log = logging.getLogger("farrier.dns")
 

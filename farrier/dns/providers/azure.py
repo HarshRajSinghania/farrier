@@ -10,8 +10,20 @@ from __future__ import annotations
 
 import time
 
-from ...cloud_auth.azure import AUTHORITY, client_credentials_form, token_expiry, token_url
-from ..base import DnsConfigError, DnsError, RRsetProvider, Zone, norm, relative
+from farrier.dns.base import (
+    DnsConfigError,
+    DnsError,
+    RRsetProvider,
+    Zone,
+    norm,
+    relative,
+)
+from farrier.security.cloud_auth.azure import (
+    AUTHORITY,
+    client_credentials_form,
+    token_expiry,
+    token_url,
+)
 
 API_VERSION = "2018-05-01"
 

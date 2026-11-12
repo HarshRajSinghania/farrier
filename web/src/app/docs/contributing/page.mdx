@@ -70,6 +70,23 @@ The engine tests need no network. ACME runs against an in-process RFC 8555 serve
 
 **Python**
 
+The engine is grouped by responsibility:
+
+```
+farrier/
+  api/          REST API, dashboard configuration routes, MCP server
+  core/         renewal engine, policy, change windows, discovery, X.509
+  db/           store, SQL dialects, migrations, leader election, backups
+  security/     vault, secret store and backends, cloud identity, KMS
+  config/       engine settings, dashboard-managed integrations
+  monitoring/   health checks, zombie scanner, alert rules, notifications
+  events/       CloudEvents and their publishers
+  connectors/   F5, FortiGate, PAN-OS, keystores, files, change packs
+  dns/          DNS-01 providers and accounts
+  issuers/      ACME and the private CA
+  storage/      object storage (file, S3, GCS, Azure Blob)
+```
+
 - Python 3.11+, type hints, `from __future__ import annotations`.
 - Keep dependencies minimal: `cryptography`, `httpx`, `fastapi`, `uvicorn`.
 - Engine changes need a test. State-machine changes need an end-to-end test in `tests/test_engine.py`.
@@ -79,8 +96,8 @@ The engine tests need no network. ACME runs against an in-process RFC 8555 serve
 
 - Components use design tokens, never raw hex. Read the [Design system](/docs/design-system) first.
 - Data fetching goes through the hooks in `web/src/lib/api.ts`. The browser only talks to `/api/farrier/*`.
-- `web/src/lib/types.ts` mirrors the API in `farrier/api.py`. **If you change an API response, update the types in the same PR**, and update `web/src/lib/demo.ts` so demo mode stays faithful.
-- `web/src/lib/policy.ts` is a port of `farrier/policy.py`. Change both together.
+- `web/src/lib/types.ts` mirrors the API in `farrier/api/`. **If you change an API response, update the types in the same PR**, and update `web/src/lib/demo.ts` so demo mode stays faithful.
+- `web/src/lib/policy.ts` is a port of `farrier/core/policy.py`. Change both together.
 - Docs live in `web/src/app/docs/<slug>/page.mdx`. Document every config key, route and state you add.
 
 ## Adding a connector

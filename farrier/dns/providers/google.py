@@ -8,9 +8,7 @@ from __future__ import annotations
 import json
 import time
 
-from ...cloud_auth.google import DNS_SCOPE as SCOPE
-from ...cloud_auth.google import TOKEN_URI, jwt_bearer_form, service_account_jwt
-from ..base import (
+from farrier.dns.base import (
     DnsConfigError,
     DnsError,
     RRsetProvider,
@@ -18,6 +16,12 @@ from ..base import (
     norm,
     quote_txt,
     unquote_txt,
+)
+from farrier.security.cloud_auth.google import DNS_SCOPE as SCOPE
+from farrier.security.cloud_auth.google import (
+    TOKEN_URI,
+    jwt_bearer_form,
+    service_account_jwt,
 )
 
 API = "https://dns.googleapis.com/dns/v1"

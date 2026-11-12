@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from email.utils import formatdate
 
-from ..base import RecordProvider, norm, quote_txt, relative, unquote_txt
+from farrier.dns.base import RecordProvider, norm, quote_txt, relative, unquote_txt
 
 
 class DnsMadeEasy(RecordProvider):

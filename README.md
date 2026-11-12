@@ -114,10 +114,11 @@ certificate. PostgreSQL and MySQL are tested against a mocked driver. Change win
 ## Repository
 
 ```
-farrier/   Python engine: discovery, planning, ACME and private CA, connectors, DNS, API, MCP, CLI
+farrier/   Python engine: api, core, db, security, config, monitoring, events, connectors, dns, issuers, storage
 tests/     engine tests (python -m pytest)
 web/       Next.js app: site, docs (/docs) and dashboard (/dashboard)
-deploy/    Kubernetes manifests          examples/   configs for issuers, DNS and MCP clients
+deploy/    Terraform (AWS, GCP, Azure), Helm, Compose, Kubernetes   examples/   configs for issuers, DNS, MCP
+events/    the CloudEvents contract       functions/  Lambda, Cloud Functions and Azure Functions that react to it
 ```
 
 ## Contributing

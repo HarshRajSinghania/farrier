@@ -4,7 +4,7 @@ instead of silently overwriting the first value (which would make the CA reject 
 credentials: token."""
 from __future__ import annotations
 
-from ..base import DnsError, Provider, norm
+from farrier.dns.base import DnsError, Provider, norm
 
 API = "https://www.duckdns.org/update"
 

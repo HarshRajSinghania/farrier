@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 
-from .base import Bundle, Connector, check
+from farrier.connectors.base import Bundle, Connector, check
 
 BINDINGS = {
     "sslvpn": {"path": "/api/v2/cmdb/vpn.ssl/settings", "field": "servercert"},

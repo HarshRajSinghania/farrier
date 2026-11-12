@@ -32,9 +32,9 @@ from pathlib import Path
 
 import httpx
 
-from ..vault import SecretRefused, check_secret_ref, is_ref
-from .base import DnsConfigError, DnsError, Provider, in_zone, norm
-from .providers import ALTERNATIVES, canonical, provider_class
+from farrier.dns.base import DnsConfigError, DnsError, Provider, in_zone, norm
+from farrier.dns.providers import ALTERNATIVES, canonical, provider_class
+from farrier.security.vault import SecretRefused, check_secret_ref, is_ref
 
 log = logging.getLogger("farrier.dns")
 
@@ -136,7 +136,7 @@ class DnsAccounts:
         if not isinstance(aliases, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in aliases.items()):
             raise DnsConfigError("dns.json aliases must map challenge names to target names")
         if resolver is None and cfg.get("resolvers"):
-            from .resolver import Resolver
+            from farrier.dns.resolver import Resolver
             resolver = Resolver(nameservers=list(cfg["resolvers"]), http=http)
         providers, settings = {}, {}
         for name, raw in cfg.items():
@@ -162,7 +162,7 @@ class DnsAccounts:
     @property
     def resolver(self):
         if self._resolver is None:
-            from .resolver import Resolver
+            from farrier.dns.resolver import Resolver
             self._resolver = Resolver()
         return self._resolver
 

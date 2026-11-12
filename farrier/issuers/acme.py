@@ -41,15 +41,15 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
-from ..vault import load_private_key, save_private_key
-from ..x509util import split_pem_chain
+from farrier.core.x509util import split_pem_chain
+from farrier.security.vault import load_private_key, save_private_key
 
 LETSENCRYPT = "https://acme-v02.api.letsencrypt.org/directory"
 LETSENCRYPT_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 
 def _version() -> str:
-    from .. import __version__
+    from farrier import __version__
     return __version__
 
 
@@ -198,7 +198,7 @@ class AcmeIssuer:
     @property
     def dns_accounts(self):
         if self._dns_accounts is None:
-            from ..dns import DnsAccounts
+            from farrier.dns import DnsAccounts
             self._dns_accounts = DnsAccounts.load(self.data_dir)
         return self._dns_accounts
 

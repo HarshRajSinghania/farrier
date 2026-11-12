@@ -17,8 +17,8 @@ import secrets
 import struct
 import time
 
-from ..base import DnsConfigError, DnsError, Provider, norm
-from ..resolver import (
+from farrier.dns.base import DnsConfigError, DnsError, Provider, norm
+from farrier.dns.resolver import (
     CLASS_ANY,
     CLASS_IN,
     CLASS_NONE,

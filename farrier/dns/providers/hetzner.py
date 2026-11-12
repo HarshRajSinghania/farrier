@@ -2,7 +2,7 @@
 see hetzner_cloud). credentials: api_token."""
 from __future__ import annotations
 
-from ..base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
+from farrier.dns.base import DnsError, RecordProvider, Zone, norm, relative, unquote_txt
 
 API = "https://dns.hetzner.com/api/v1"
 

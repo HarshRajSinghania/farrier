@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from ..base import RRsetProvider, Zone, norm, quote_txt, unquote_txt
+from farrier.dns.base import RRsetProvider, Zone, norm, quote_txt, unquote_txt
 
 MAX_BODY = 131072
 
