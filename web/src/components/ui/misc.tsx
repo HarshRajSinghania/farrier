@@ -2,7 +2,7 @@ import { Tooltip as T } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 export function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("animate-pulse rounded-md bg-muted", className)} {...props} />;
+  return <div aria-hidden className={cn("skeleton rounded-md", className)} {...props} />;
 }
 
 export function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
@@ -55,20 +55,26 @@ export function EmptyState({
   icon,
   title,
   children,
+  action,
   className,
 }: {
   icon?: React.ReactNode;
   title: string;
   children?: React.ReactNode;
+  /** the next step: a button or link that resolves the empty state */
+  action?: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center gap-2 px-6 py-14 text-center", className)}>
+    <div className={cn("flex animate-fade-in flex-col items-center justify-center gap-2 px-6 py-16 text-center", className)}>
       {icon && (
-        <div className="mb-1 rounded-lg border bg-muted p-2 text-muted-foreground [&_svg]:size-5">{icon}</div>
+        <div className="mb-2 flex size-12 items-center justify-center rounded-full bg-brand-soft text-brand-ink [&_svg]:size-5">
+          {icon}
+        </div>
       )}
-      <p className="text-sm font-medium">{title}</p>
+      <p className="text-base font-semibold">{title}</p>
       {children && <div className="max-w-sm text-sm text-muted-foreground">{children}</div>}
+      {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
 }

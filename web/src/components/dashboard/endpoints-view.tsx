@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowDownUp, Download, MoreHorizontal, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
@@ -139,8 +140,18 @@ export function EndpointsView() {
         {isLoading ? (
           <TableSkeleton />
         ) : rows.length === 0 ? (
-          <EmptyState icon={<Server />} title={data?.length ? "No endpoints match" : "No endpoints yet"}>
-            {data?.length ? "Try a different filter or search." : "Add one by hand, or scan a network range from Discovery."}
+          <EmptyState
+            icon={<Server />}
+            title={data?.length ? "No endpoints match" : "No endpoints yet"}
+            action={
+              !data?.length && (
+                <Button asChild>
+                  <Link href="/dashboard/discovery">Scan a network range</Link>
+                </Button>
+              )
+            }
+          >
+            {data?.length ? "Try a different filter or search." : "Scan a range to find what's being served, or add an endpoint by hand."}
           </EmptyState>
         ) : (
           <Table>

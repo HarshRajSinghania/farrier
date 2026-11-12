@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldHint, Label, Textarea } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/misc";
 import { api } from "@/lib/api";
 import type { DiscoverResult } from "@/lib/types";
 
@@ -85,6 +86,14 @@ export default function DiscoveryPage() {
               <p role="alert" className="mt-4 rounded-md bg-critical/8 px-4 py-2 text-sm text-critical-fg">
                 {error}
               </p>
+            )}
+
+            {busy && !result && (
+              <div role="status" aria-label="Scanning" className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {Array.from({ length: 4 }, (_, i) => (
+                  <Skeleton key={i} className="h-20 rounded-lg" />
+                ))}
+              </div>
             )}
 
             {result && (

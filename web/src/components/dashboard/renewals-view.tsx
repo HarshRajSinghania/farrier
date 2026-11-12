@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarClock } from "lucide-react";
@@ -91,7 +93,15 @@ export function RenewalsView() {
         {isLoading ? (
           <TableSkeleton />
         ) : rows.length === 0 ? (
-          <EmptyState icon={<CalendarClock />} title="No renewals here">
+          <EmptyState
+            icon={<CalendarClock />}
+            title="No renewals here"
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/dashboard/endpoints">View endpoints</Link>
+              </Button>
+            }
+          >
             Farrier plans renewals at the one-third point of a certificate&apos;s life, leveled into change windows.
           </EmptyState>
         ) : (

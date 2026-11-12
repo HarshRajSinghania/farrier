@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { BellRing, CheckCircle2, CircleDashed, Save, XCircle } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
@@ -7,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/misc";
+import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { api, useConfig, useStatus, useSummary } from "@/lib/api";
 import { useAccess } from "@/lib/auth/client";
 import type { EngineSettings } from "@/lib/types";
@@ -211,7 +212,17 @@ export default function SettingsPage() {
             {!cfg ? (
               <Skeleton className="h-24" />
             ) : cfg.dns_accounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No DNS accounts. Issuers use their DNS hook, or the private CA needs none.</p>
+              <EmptyState
+                className="py-8"
+                title="No DNS accounts"
+                action={
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href="/docs/dns">Add a DNS account</Link>
+                  </Button>
+                }
+              >
+                Issuers use their DNS hook, and the private CA needs none.
+              </EmptyState>
             ) : (
               <ul className="divide-y text-sm">
                 {cfg.dns_accounts.map((a) => (
@@ -242,7 +253,17 @@ export default function SettingsPage() {
             {!cfg ? (
               <Skeleton className="h-16" />
             ) : cfg.notifiers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">None set. Add Slack, Teams, a webhook or email under notifiers in settings.json.</p>
+              <EmptyState
+                className="py-8"
+                title="No notifications"
+                action={
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href="/docs/configuration#notifications">Set up alerts</Link>
+                  </Button>
+                }
+              >
+                Send failures and change packs to Slack, Teams, a webhook or email.
+              </EmptyState>
             ) : (
               <ul className="divide-y text-sm">
                 {cfg.notifiers.map((n, k) => (

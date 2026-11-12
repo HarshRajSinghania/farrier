@@ -49,7 +49,9 @@ export default function ActivityPage() {
         {isLoading ? (
           <TableSkeleton rows={10} />
         ) : rows.length === 0 ? (
-          <EmptyState icon={<ScrollText />} title="No events" />
+          <EmptyState icon={<ScrollText />} title={filter === "all" ? "No activity yet" : "No warnings or errors"}>
+            {filter === "all" ? "Scans, renewals and changes appear here as they happen." : "Everything recent went through cleanly."}
+          </EmptyState>
         ) : (
           <ol className="divide-y">
             {rows.map((e) => {

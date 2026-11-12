@@ -6,7 +6,7 @@ import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { CONNECTOR_LABEL } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/misc";
+import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useConnectors, useSummary } from "@/lib/api";
 
 export default function ConnectorsPage() {
@@ -30,7 +30,9 @@ export default function ConnectorsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {!data
           ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-44" />)
-          : data.map((c) => (
+          : data.length === 0
+            ? [<EmptyState key="none" className="col-span-full" title="No connectors loaded">The engine reported none. Check its logs.</EmptyState>]
+            : data.map((c) => (
               <Card key={c.kind} className="flex flex-col p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>

@@ -45,7 +45,7 @@ export function StatTile({
 }) {
   const alert = tone !== "default" && tone !== "good";
   const body = (
-    <Card className={cn("h-full p-4 transition-colors", href && "hover:bg-muted/40")}>
+    <Card className={cn("h-full p-4 transition-[transform,box-shadow]", href && "hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0")}>
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-muted-foreground">{label}</p>
         {Icon && (
@@ -101,9 +101,22 @@ export function SplitBar({ a, b, labelA, labelB }: { a: number; b: number; label
 
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="space-y-4 p-6">
+    <div role="status" aria-label="Loading" className="divide-y">
+      <div className="flex gap-6 px-6 py-4">
+        {[28, 16, 16, 20].map((w, i) => (
+          <Skeleton key={i} className="h-3" style={{ width: `${w}%` }} />
+        ))}
+      </div>
       {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-6 w-full" />
+        <div key={i} className="flex items-center gap-6 px-6 py-4">
+          <div className="w-[28%] space-y-2">
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+          <Skeleton className="h-6 w-[16%] rounded-full" />
+          <Skeleton className="h-4 w-[16%]" />
+          <Skeleton className="ml-auto h-8 w-20" />
+        </div>
       ))}
     </div>
   );
