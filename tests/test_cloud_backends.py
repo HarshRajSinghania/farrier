@@ -725,6 +725,35 @@ def test_backup_round_trip_into_a_new_store(cloud, tmp_path, monkeypatch):
     assert any(k.startswith("cli/backups/farrier-backup-") for (_, k) in objects)
 
 
+def test_restore_refuses_unsigned_or_tampered_backups_and_unknown_columns(tmp_path, monkeypatch):
+    from farrier.db.backup import backup, restore
+    from farrier.db.store import Store
+    monkeypatch.setenv("FARRIER_MASTER_KEY", Fernet.generate_key().decode())
+    monkeypatch.delenv("FARRIER_ALLOW_API_COMMANDS", raising=False)
+    src = Store(tmp_path / "a")
+    src.upsert_endpoint({"name": "web", "host": "10.0.0.1", "port": 443, "connector": "files",
+                         "connector_config": {"cert_path": "/x", "reload_command": "true"}})
+    put = {}
+    backup(src, type("Mem", (), {"put": lambda self, k, d, ct: put.setdefault("d", d)})())
+    signed = put["d"]
+    body = signed.rstrip().rpartition(b"\n")[0] + b"\n"
+
+    tampered = signed.replace(b"10.0.0.1", b"10.6.6.6")
+    for bad, why in ((body, "missing"), (tampered, "wrong")):
+        with pytest.raises(ValueError, match=why):
+            restore(Store(tmp_path / f"d-{why}"), bad)
+    # an old (unsigned) backup restores only with the flag, and its command rows also need the opt-in
+    with pytest.raises(ValueError, match="FARRIER_ALLOW_API_COMMANDS"):
+        restore(Store(tmp_path / "d1"), body, allow_unsigned=True)
+    monkeypatch.setenv("FARRIER_ALLOW_API_COMMANDS", "1")
+    assert restore(Store(tmp_path / "d2"), body, allow_unsigned=True)["endpoints"] == 1
+    # a column the live table does not have is refused before any SQL is built from it
+    evil = body.replace(b'"name": "web"', b'"name": "web", "x) VALUES (1); --": 1')
+    with pytest.raises(ValueError, match="unknown column"):
+        restore(Store(tmp_path / "d3"), evil, allow_unsigned=True)
+    assert restore(Store(tmp_path / "d4"), signed)["endpoints"] == 1
+
+
 # ---- events ----------------------------------------------------------------------------------------
 def _renewal_and_endpoint(data_dir, state="done"):
     from conftest import issue_initial

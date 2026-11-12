@@ -348,12 +348,15 @@ export function events(limit = 100, endpointId?: number): FarrierEvent[] {
 const demoSettings: EngineSettings = {
   horizon_days: 14, safety_days: 2, manual_daily_cap: 25, auto_daily_cap: 1000, verify_max_attempts: 6,
   scan_timeout: 5, verify_chain_and_names: true, verify_all_addresses: false,
+  crypto_scan_hours: 24, ssh_scan_hours: 24, ssh_collect_hours: 24, export_key_retention_hours: 24,
 };
 const LIMITS: FarrierConfig["limits"] = {
   horizon_days: { min: 1, max: 60, type: "int" }, safety_days: { min: 0, max: 30, type: "int" },
   manual_daily_cap: { min: 0, max: 10000, type: "int" }, auto_daily_cap: { min: 1, max: 100000, type: "int" },
   verify_max_attempts: { min: 1, max: 50, type: "int" }, scan_timeout: { min: 1, max: 60, type: "float" },
   verify_chain_and_names: { min: 0, max: 1, type: "bool" }, verify_all_addresses: { min: 0, max: 1, type: "bool" },
+  crypto_scan_hours: { min: 0, max: 720, type: "int" }, ssh_scan_hours: { min: 0, max: 720, type: "int" },
+  ssh_collect_hours: { min: 0, max: 720, type: "int" }, export_key_retention_hours: { min: 0, max: 8760, type: "int" },
 };
 
 export function config(): FarrierConfig {

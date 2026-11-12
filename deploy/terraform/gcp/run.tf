@@ -27,7 +27,13 @@ locals {
   }
 
   web_env = merge(
-    { NEXT_PUBLIC_SITE_URL = local.site_url },
+    {
+      NEXT_PUBLIC_SITE_URL = local.site_url
+
+      # The external Application Load Balancer appends "<client>, <load balancer>" to
+      # X-Forwarded-For: the client is the second entry from the right.
+      FARRIER_TRUSTED_PROXY_HOPS = "2"
+    },
     local.oidc_enabled ? local.web_oidc_env : {},
     var.web_extra_env,
   )

@@ -18,6 +18,7 @@ Create a confidential web application with:
 ```bash title="web.env"
 FARRIER_OIDC_ISSUER=https://example.okta.com/oauth2/default
 FARRIER_OIDC_CLIENT_ID=0oa1b2c3d4
+FARRIER_OIDC_REDIRECT_URI=https://farrier.example.com/auth/callback   # required in production
 FARRIER_OIDC_CLIENT_SECRET=...
 FARRIER_SESSION_SECRET=...            # 32+ random bytes: openssl rand -base64 48
 FARRIER_OIDC_ADMIN_GROUPS=pki-admins
@@ -55,7 +56,7 @@ The session is one encrypted cookie: HttpOnly, SameSite=Lax, and `Secure` with a
 |---|---|
 | `FARRIER_OIDC_SCOPES` | `openid profile email groups` |
 | `FARRIER_OIDC_ROLE_CLAIM` | `groups` (dotted paths work) |
-| `FARRIER_OIDC_REDIRECT_URI` | derived from the request. Set it behind a proxy that rewrites `Host`. |
+| `FARRIER_OIDC_REDIRECT_URI` | Required in production: the exact redirect URI registered with the provider. Development only: derived from the request |
 | `FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI` | derived from the request |
 
 Without OIDC, `FARRIER_DASHBOARD_PASSWORD` turns on HTTP Basic auth with a lockout. A production dashboard refuses to front a live engine with neither.

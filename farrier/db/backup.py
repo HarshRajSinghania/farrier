@@ -10,17 +10,35 @@ Every table is read inside one snapshot transaction, so the export is consistent
 run. Rows are copied as stored: sealed private keys and sealed secret values stay sealed (restoring needs
 the same master key), JSON columns stay JSON text. Secrets held by a cloud secret backend are not in the
 database at all; the backup keeps their index references.
+
+The last line signs everything before it: ``{"farrier_signature": "<hex HMAC-SHA256>"}``, keyed with
+HKDF-SHA256(master key, info "farrier-backup-v1"). ``restore`` refuses a missing or wrong signature (whoever can
+write the backup bucket could otherwise plant connector commands) unless ``allow_unsigned``; even then, rows
+that carry command keys need FARRIER_ALLOW_API_COMMANDS, as they would through the API.
 """
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
+import os
 from datetime import UTC, datetime
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
 from farrier.db.store import CONFIG_TABLES, TABLES, Store
+from farrier.security.vault import master_key
 from farrier.storage import ObjectStorage, from_url
 
 FORMAT = 1
+SIG_PURPOSE = b"farrier-backup-v1"
+
+
+def _mac(store: Store, body: bytes) -> str:
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=SIG_PURPOSE).derive(master_key(store.data_dir))
+    return hmac.new(key, body, hashlib.sha256).hexdigest()
 
 
 def _cell(v):
@@ -47,11 +65,52 @@ def export_lines(store: Store) -> list[bytes]:
 def backup(store: Store, storage: ObjectStorage) -> str:
     """Write a backup object; return its URL."""
     key = f"backups/farrier-backup-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
-    return storage.put(key, b"\n".join(export_lines(store)) + b"\n", "application/x-ndjson")
+    body = b"\n".join(export_lines(store)) + b"\n"
+    sig = json.dumps({"farrier_signature": _mac(store, body)}).encode()
+    return storage.put(key, body + sig + b"\n", "application/x-ndjson")
 
 
-def restore(store: Store, data: bytes) -> dict[str, int]:
-    """Load a backup into an empty database (ids kept). Returns rows per table."""
+def _verify(store: Store, data: bytes, allow_unsigned: bool) -> tuple[bytes, bool]:
+    """(body, signed). Raises on a missing or bad signature unless allow_unsigned."""
+    body, _, last = data.rstrip().rpartition(b"\n")
+    try:
+        sig = json.loads(last).get("farrier_signature")
+    except (ValueError, AttributeError):
+        sig = None
+    if isinstance(sig, str) and hmac.compare_digest(sig, _mac(store, body + b"\n")):
+        return body, True
+    if allow_unsigned:
+        return (data if sig is None else body), False
+    raise ValueError("the backup's signature is " + ("wrong (another master key, or the file was changed)"
+                     if sig is not None else "missing (an old or altered backup)")
+                     + "; pass --allow-unsigned only if you trust this file")
+
+
+def _columns(store: Store, table: str) -> set[str]:
+    with store._lock:
+        cur = store.conn.cursor()
+        cur.execute(store.dialect.translate(f"SELECT * FROM {table} WHERE 1=0"))
+        cols = {c[0] for c in cur.description}
+        cur.fetchall()
+    return cols
+
+
+def _commands(row: dict) -> list[str]:
+    from farrier.api.app import _command_keys
+    found = []
+    for col in ("connector_config", "body"):        # endpoints, config_items
+        v = row.get(col)
+        try:
+            found += _command_keys(json.loads(v) if isinstance(v, str) else v)
+        except ValueError:
+            pass
+    return found
+
+
+def restore(store: Store, data: bytes, allow_unsigned: bool = False) -> dict[str, int]:
+    """Load a signed backup into an empty database (ids kept). Returns rows per table."""
+    data, signed = _verify(store, data, allow_unsigned)
+    allow_commands = os.environ.get("FARRIER_ALLOW_API_COMMANDS", "").lower() in ("1", "true", "yes")
     lines = [ln for ln in data.splitlines() if ln.strip()]
     if not lines:
         raise ValueError("the backup is empty")
@@ -64,6 +123,7 @@ def restore(store: Store, data: bytes) -> dict[str, int]:
         if store._run(f"SELECT COUNT(*) AS n FROM {t}", (), fetch="one")["n"]:
             raise ValueError(f"destination table {t} is not empty; restore into a new database")
     counts: dict[str, int] = {}
+    known = {t: _columns(store, t) for t in TABLES + CONFIG_TABLES}
     with store.transaction():
         for ln in lines[1:]:
             rec = json.loads(ln)
@@ -71,6 +131,11 @@ def restore(store: Store, data: bytes) -> dict[str, int]:
             if t not in TABLES + CONFIG_TABLES:
                 raise ValueError(f"unknown table {t!r} in backup")
             cols = list(row)
+            if bad := [c for c in cols if c not in known[t]]:
+                raise ValueError(f"unknown column(s) {bad!r} for table {t} in backup")
+            if not signed and not allow_commands and (found := _commands(row)):
+                raise ValueError(f"unsigned backup row in {t} sets command keys {found}; "
+                                 "set FARRIER_ALLOW_API_COMMANDS=1 to restore it")
             store._run(f"INSERT INTO {t}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                        tuple(row[c] for c in cols))
             counts[t] = counts.get(t, 0) + 1

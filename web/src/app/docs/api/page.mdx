@@ -19,7 +19,7 @@ curl -H "Authorization: Bearer $FARRIER_API_TOKEN" http://127.0.0.1:8740/api/sum
 
 Without `FARRIER_API_TOKEN` the API is open, and `farrier serve` refuses to bind anything but loopback.
 
-**Scopes**: `FARRIER_API_TOKEN` can read and change everything. `FARRIER_API_READ_TOKEN`, if set, can call every `GET` (including `/metrics`) and gets `403` on anything else. Send `X-Farrier-Actor: <name>` with a change to record who made it in the event log; the dashboard sends its signed-in user.
+**Scopes**: `FARRIER_API_TOKEN` can read and change everything. `FARRIER_API_READ_TOKEN`, if set, can call every `GET` (including `/metrics`) except the change-pack download, and gets `403` on anything else. Send `X-Farrier-Actor: <name>` with a change to record who made it in the event log; the dashboard sends its signed-in user.
 
 **Errors** use FastAPI's shape:
 
@@ -241,7 +241,7 @@ Cancel an open renewal. Response: `{ "state": "cancelled" }`. Errors: `400` (`re
 
 ### `GET /api/renewals/{id}/pack`
 
-Download the change pack for a renewal in `awaiting_manual` as `application/zip`, named `<endpoint>-renewal-<id>.zip`. Each download is recorded in the event log. Errors: `404` if the renewal isn't awaiting a manual install, or the pack was already cleaned up.
+Download the change pack for a renewal in `awaiting_manual` as `application/zip`, named `<endpoint>-renewal-<id>.zip`. Each download is recorded in the event log. Admin token only: the pack holds a private key, so the read token gets `403`. Errors: `404` if the renewal isn't awaiting a manual install, or the pack was already cleaned up.
 
 ### `GET /api/renewals/{id}/runbook`
 

@@ -80,9 +80,47 @@ data "aws_iam_policy_document" "put_events" {
   }
 }
 
-# Resource policy on the bus: names the engine role as the only external publisher.
-# Same-account callers also need the identity policy below.
+# Resource policy on the bus: names the engine role as the only publisher. The Allow covers a
+# cross-account engine (same-account callers also need the identity policy below); the Denies
+# stop any other principal in the account, whatever its own IAM policies say, from forging
+# events, and stop the engine itself from publishing as anything but "farrier".
 data "aws_iam_policy_document" "bus" {
+  statement {
+    sid       = "DenyPutEventsExceptFarrierEngine"
+    effect    = "Deny"
+    actions   = ["events:PutEvents"]
+    resources = [aws_cloudwatch_event_bus.this.arn]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "ArnNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = [var.engine_role_arn]
+    }
+  }
+
+  statement {
+    sid       = "DenyPutEventsOtherSources"
+    effect    = "Deny"
+    actions   = ["events:PutEvents"]
+    resources = [aws_cloudwatch_event_bus.this.arn]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "events:source"
+      values   = [local.event_source]
+    }
+  }
+
   statement {
     sid       = "FarrierEnginePutEvents"
     actions   = ["events:PutEvents"]

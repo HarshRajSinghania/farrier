@@ -316,6 +316,12 @@ variable "storage_prefix" {
   }
 }
 
+variable "storage_admin_principal_arns" {
+  description = "IAM role/user ARNs (besides the engine task role) allowed to write or delete objects in the bucket, e.g. a break-glass admin role. The bucket policy denies object writes to everyone else, including the principal running Terraform, so force_destroy_bucket needs it listed here."
+  type        = list(string)
+  default     = []
+}
+
 variable "force_destroy_bucket" {
   description = "Allow terraform destroy to delete a non-empty bucket. Keep false in production."
   type        = bool

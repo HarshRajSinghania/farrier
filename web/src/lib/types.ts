@@ -202,6 +202,10 @@ export type EngineSettings = {
   scan_timeout: number;
   verify_chain_and_names: boolean;
   verify_all_addresses: boolean;
+  crypto_scan_hours: number;
+  ssh_scan_hours: number;
+  ssh_collect_hours: number;
+  export_key_retention_hours: number;
 };
 export interface FarrierConfig {
   settings: EngineSettings;

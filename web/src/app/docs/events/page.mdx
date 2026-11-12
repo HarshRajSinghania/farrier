@@ -40,7 +40,8 @@ Events are [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/clo
 - **`type`** is `dev.farrier.renewal.` followed by the state: `planned`, `issued`, `deploying`, `verifying`, `done`, `failed`, `rolled_back`, `awaiting_manual` or `cancelled`.
 - **`renewal.fingerprint_sha256`** is the SHA-256 of the new leaf certificate (DER, lowercase hex). Functions check the chain they fetch against it, and use it to spot duplicates.
 - **`certificate`**, `not_after` and the fingerprint are `null` until a certificate is issued.
-- **`chain_ref`** points to the full chain, leaf first. **`private_key_ref`** is present only when you enable key export for the endpoint.
+- **`source`** is `farrier://<FARRIER_INSTANCE_ID>`; unset, the id is `farrier-` plus a hash of the master key, the same on every replica.
+- **`chain_ref`** points to the full chain, leaf first (needs `FARRIER_STORAGE_URL` on a cloud bucket). **`private_key_ref`** is present only for endpoints tagged `export-key`, with `FARRIER_SECRET_BACKEND` set to `aws`, `gcp` or `azure`; the key is stored as secret `keys/<renewal id>` and deleted after `export_key_retention_hours` (default `24`).
 - **`endpoint.tags`** are your tags. The shipped functions select endpoints with prefixed tags: `acm:`, `gcp-cm:`, `akv:`.
 
 ### Versioning
@@ -58,6 +59,15 @@ Delivery is **at least once**: the same event can arrive twice and, rarely, out 
 | AWS | EventBridge custom bus `farrier` | `Source` `farrier`, `DetailType` = the CloudEvent `type`, `Detail` = the whole CloudEvent |
 | Google Cloud | Pub/Sub topic | message data = the CloudEvent JSON; attributes `ce-type`, `ce-id`, `ce-source` |
 | Azure | Event Grid custom topic, CloudEvents v1.0 input schema | the CloudEvent, unchanged |
+
+Add a channel to `notifiers` in `settings.json`:
+
+| Channel | Config | Defaults |
+| --- | --- | --- |
+| EventBridge | `{"type": "eventbridge", "bus": "farrier", "region": "eu-west-1"}` (`bus` may be an ARN) | Region from the ARN, else `region`, else `AWS_REGION` |
+| Pub/Sub | `{"type": "pubsub", "topic": "projects/p/topics/t"}` | |
+| Event Grid | `{"type": "eventgrid", "endpoint": "https://<topic>.<region>-1.eventgrid.azure.net/api/events", "key": "vault:eg-key"}` | Without `key`, Farrier's Azure identity |
+| All three | `events` | `issued`, `awaiting_manual`, `done`, `failed`, `rolled_back`, `cancelled`; 5 second timeout, 2 attempts per publish |
 
 On AWS, match events with a rule pattern such as:
 
@@ -124,8 +134,8 @@ def handler(event, context):
 ## Security model
 
 - **References, not secrets.** Events never contain private keys or certificates, only references such as `aws-sm:…`, `gcp-sm:…`, `azure-kv:…`, `s3://…`, `gs://…` and `azblob://…`. An event that is logged, forwarded or dead-lettered discloses nothing usable.
-- **Key export is opt-in** per endpoint. Without it, `private_key_ref` is `null` and the import functions refuse the event.
-- **Least privilege.** Each function has its own identity with read access to the key secret prefix and chain prefix only, and write access to certificates only. On AWS, the engine may publish only to the Farrier bus and only with source `farrier`. Functions also refuse references outside their configured prefixes.
+- **Key export is opt-in** per endpoint (tag `export-key`). Without it, `private_key_ref` is `null` and the import functions refuse the event. Exported keys are deleted after `export_key_retention_hours` (default `24`), so a function has that long to import one.
+- **Least privilege.** Each function has its own identity with read access to the key secret prefix and chain prefix only, and write access to certificates only. On AWS, the engine may publish only to the Farrier bus and only with source `farrier`, and the bus policy denies `PutEvents` to every other principal in the account. Functions also refuse events whose EventBridge source isn't `farrier`, and references outside their configured prefixes.
 - **Verify, then deploy.** The chain's leaf must match the event fingerprint, and a chain object that contains a private key is rejected.
 - **No secrets in logs.** Functions log one JSON object per line through a redactor that strips PEM blocks, webhook URLs and secret-named fields; cloud error messages are reduced to the operation and error code. The test suite checks captured logs for key material.
 - **Signed webhooks.** Outbound webhooks are HTTPS only, signed with HMAC-SHA256 over a timestamp and the body, and redirects are not followed.

@@ -33,7 +33,7 @@ EOF
 docker compose up -d
 ```
 
-The dashboard listens on port 3000. Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik or your load balancer) in front, and keep port 8740 unpublished: only the web container talks to the engine. Back up the `farrier-data` volume.
+The dashboard listens on port 3000. Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik or your load balancer) in front, and keep port 8740 unpublished: only the web container talks to the engine. The proxy must append to (or overwrite) `X-Forwarded-For`; set `FARRIER_TRUSTED_PROXY_HOPS` to the number of proxies that do (default `1`, see [Behind proxies](/docs/security#behind-proxies)). With single sign-on, set `FARRIER_OIDC_REDIRECT_URI` to `https://<host>/auth/callback`: production requires it. Back up the `farrier-data` volume.
 
 ## Kubernetes (EKS, GKE, AKS, OpenShift, any cluster)
 

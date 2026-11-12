@@ -10,7 +10,6 @@ import {
   BookOpen,
   CalendarClock,
   FileBadge,
-  Gauge,
   Globe,
   KeyRound,
   Landmark,
@@ -37,7 +36,6 @@ const NAV = [
       { href: "/dashboard/renewals", label: "Renewals", icon: CalendarClock, badge: true },
       { href: "/dashboard/discovery", label: "Discovery", icon: Radar },
       { href: "/dashboard/health", label: "Health", icon: ShieldCheck },
-      { href: "/dashboard/forecast", label: "Forecast", icon: Gauge },
       { href: "/dashboard/activity", label: "Activity", icon: Activity },
     ],
   },
@@ -209,7 +207,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col gap-6 border-r bg-background px-4 py-4 animate-fade-in">
+          <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85vw] flex-col gap-6 overflow-y-auto overscroll-contain border-r bg-background px-4 py-4 animate-fade-in">
             <div className="flex items-center justify-between px-2">
               <Logo href="/" />
               <Button variant="ghost" size="icon-sm" aria-label="Close menu" onClick={() => setOpen(false)}>
@@ -253,7 +251,7 @@ export function PageHeader({
         <h1 className="text-4xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="mt-2 max-w-[65ch] text-base text-muted-foreground">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

@@ -8,10 +8,15 @@
  *
  * This is the first lock. The bridge (app/api/farrier/[...path]/route.ts) checks the session
  * again and enforces roles and the same-origin rule on every call.
+ *
+ * FARRIER_REQUIRE_HEADER=Name:value runs before all of that on every path (landing, docs, assets,
+ * sign-in, dashboard, API) except /api/health: a request without that exact header value gets 403.
+ * FARRIER_TRUSTED_PROXY_HOPS (default 1) says how many proxies append X-Forwarded-For (see clientAddress).
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { checkBasic } from "@/lib/auth/basic";
 import { authMode, oidcConfig } from "@/lib/auth/config";
+import { clientAddress, requiredHeaderStatus } from "@/lib/auth/request";
 import { clearSession, hasSessionCookie, readSession, touchSession } from "@/lib/auth/session";
 
 const MAX_FAILURES = 10;
@@ -22,11 +27,7 @@ const failures = new Map<string, { count: number; until: number }>();
 const GLOBAL_MAX_FAILURES = 200;
 let globalFailures = { count: 0, until: 0 };
 
-function clientKey(req: NextRequest) {
-  // The right-most hop is the one our own proxy appended; anything left of it is whatever the client sent.
-  const hops = req.headers.get("x-forwarded-for")?.split(",").map((h) => h.trim()).filter(Boolean);
-  return hops?.at(-1) || req.headers.get("x-real-ip") || "unknown";
-}
+const clientKey = (req: NextRequest) => clientAddress(req.headers, process.env);
 
 const isApi = (req: NextRequest) => req.nextUrl.pathname.startsWith("/api/");
 
@@ -89,7 +90,15 @@ function basicGate(req: NextRequest) {
   });
 }
 
+// The sign-in gates cover these; FARRIER_REQUIRE_HEADER covers everything the matcher sends here.
+const gated = (path: string) =>
+  path === "/dashboard" || path.startsWith("/dashboard/") || path.startsWith("/api/farrier/");
+
 export async function proxy(req: NextRequest) {
+  const blocked = requiredHeaderStatus(req.headers, req.nextUrl.pathname, process.env);
+  if (blocked === 500) return new NextResponse("FARRIER_REQUIRE_HEADER must look like Name:value", { status: 500 });
+  if (blocked) return new NextResponse("Forbidden", { status: 403 });
+  if (!gated(req.nextUrl.pathname)) return NextResponse.next();
   switch (authMode()) {
     case "oidc":
       return oidcGate(req);
@@ -101,5 +110,6 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/farrier/:path*"],
+  // every path, so FARRIER_REQUIRE_HEADER also guards the landing page, docs, sign-in and build assets
+  matcher: ["/:path*"],
 };

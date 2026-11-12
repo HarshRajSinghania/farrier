@@ -43,7 +43,8 @@ These are enforced in code and covered by tests (`tests/test_guardrails.py`). Th
 
 | Guardrail | What it stops | Setting |
 | --- | --- | --- |
-| Scoped tokens | A dashboard viewer or monitoring system changing anything | `FARRIER_API_TOKEN` (admin: read and change), `FARRIER_API_READ_TOKEN` (read only: every `GET`, `403` on anything else) |
+| Scoped tokens | A dashboard viewer or monitoring system changing anything, or reading keys | `FARRIER_API_TOKEN` (admin: read and change), `FARRIER_API_READ_TOKEN` (read only: every `GET` except change-pack downloads, which carry private keys; `403` on anything else) |
+| Discovery approval | Renewing a certificate for names a scanned host chose | Endpoints added by discovery are tagged `discovered` and only monitored until an admin calls `POST /api/endpoints/{id}/approve` |
 | No shell commands over the API | Turning an API token into code execution: `test_command`, `reload_command`, `ssh` and `dns_hook` are refused by `POST /api/endpoints` | Set them in an inventory file imported with `farrier import` (trusted, on disk), or opt in with `FARRIER_ALLOW_API_COMMANDS=1` |
 | Farrier's own secrets are unreadable | A config that points a device URL at an attacker and sets `password: env:FARRIER_MASTER_KEY` | Always on, whatever the allowlists say: `env:` names Farrier uses itself (`FARRIER_*` outside `FARRIER_SECRET_ENV_PREFIX`, or outside `FARRIER_SECRET_` when that is unset) and the host's cloud credentials (`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AZURE_CLIENT_SECRET`, `VAULT_TOKEN` and similar) are refused, as is any `file:` inside the data directory, under `/proc`, `/sys`, `/dev` or the Kubernetes service-account directory, or named by a token-file variable Farrier logs in with |
 | Secret allowlists | Configs reading arbitrary environment variables or files | `FARRIER_SECRET_ENV_PREFIX` (e.g. `FARRIER_SECRET_`), `FARRIER_SECRET_DIRS` (e.g. `/run/secrets/farrier`) |
@@ -66,6 +67,21 @@ These are enforced in code and covered by tests (`tests/test_guardrails.py`). Th
 - `FARRIER_DASHBOARD_PASSWORD` enables HTTP Basic auth on `/dashboard` and the proxy. In production, with a live API configured, the proxy returns `503` until a password is set.
 - For per-user identity and MFA, front the dashboard with an identity-aware proxy (oauth2-proxy, Cloudflare Access, Google IAP, an AWS ALB with Cognito, Azure Application Gateway with Entra ID) and keep the password as a second lock.
 - The app sends `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, a strict referrer policy and a restrictive permissions policy.
+
+## Behind proxies
+
+The sign-in lockout counts failures per client address, read from `X-Forwarded-For`. Each proxy you run in front of the dashboard must append to that header (or overwrite it), never pass the client's value through as the last entry. `FARRIER_TRUSTED_PROXY_HOPS` says how many entries your own proxies add; the client is that many from the right.
+
+| Setting | Use it for |
+| --- | --- |
+| `FARRIER_TRUSTED_PROXY_HOPS=1` (default) | One reverse proxy, Ingress or Gateway (the Helm chart's `web.trustedProxyHops`, Compose) |
+| `FARRIER_TRUSTED_PROXY_HOPS=2` | A CDN or cloud load balancer in front of that proxy: CloudFront → ALB, Front Door → Container Apps, Google's external load balancer (it appends two entries itself) |
+| `FARRIER_TRUSTED_PROXY_HOPS=0` | No proxy: ignore `X-Forwarded-For` and use the connection address |
+| `FARRIER_REQUIRE_HEADER=Name:value` | Refuse requests without this header, e.g. `X-Azure-FDID:<profile GUID>` so only your Front Door profile reaches the app (set by the Azure module) |
+
+## Backups
+
+`farrier backup` writes the whole database to object storage, and `farrier restore` loads it back as trusted rows, connector settings included. Backups are therefore signed with HMAC-SHA256 under a key derived from the master key, and `restore` refuses a missing or wrong signature; `--allow-unsigned` exists only for backups made before signing. Even then, rows carrying commands need `FARRIER_ALLOW_API_COMMANDS`. Let only Farrier's identity write the bucket or prefix: the Terraform modules deny or withhold write access from every other principal.
 
 ## How a request flows when hosted
 
@@ -94,7 +110,7 @@ Nothing reaches the engine except the web app and your metrics scraper. The engi
 6. Leave `FARRIER_ALLOW_API_COMMANDS` unset unless you need it; put reload commands in an inventory file reviewed like code.
 7. Allowlist egress to your CA, your DNS API, device management addresses and your ticketing and notification hosts.
 8. Scrape `/metrics`, alert on `farrier_cert_expires_in_seconds < 7 * 86400` and on `farrier_renewals{state=~"failed|rolled_back"} > 0`, and add a Slack or Teams notifier.
-9. Back up the data directory daily and test a restore.
+9. Back up daily (`farrier backup`, or the data directory on SQLite), let only Farrier write the backup bucket, and test a restore.
 10. Try every connector against a lab device and your CA's staging endpoint before production.
 
 ## Threat model notes

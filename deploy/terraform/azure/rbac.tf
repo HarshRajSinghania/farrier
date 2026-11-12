@@ -14,6 +14,10 @@ resource "azurerm_role_assignment" "engine_master_wrap" {
   principal_id         = azurerm_user_assigned_identity.engine.principal_id
 }
 
+# The only data-plane grant on the objects container (change packs, backups, audit exports).
+# Shared keys and public network access are off, so nobody else can write a backup without being
+# granted a data role here first. Keep it that way: `farrier restore` trusts a backup's rows,
+# though backups are also HMAC-signed and unsigned ones need --allow-unsigned.
 resource "azurerm_role_assignment" "engine_blob" {
   scope                = azurerm_storage_container.objects.id
   role_definition_name = "Storage Blob Data Contributor"

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from farrier.security.vault import resolve_secret
+from farrier.security.vault import PROTECTED_DIRS, resolve_secret
 
 
 @dataclass
@@ -37,6 +37,7 @@ class Connector:
     kind = "base"
     automated = True          # False -> a human installs it; we only verify
     required: tuple[str, ...] = ()
+    local_paths: tuple[str, ...] = ()   # config keys naming files this host writes (never in Farrier's data)
 
     def __init__(self, config: dict, data_dir: Path):
         missing = [k for k in self.required if k not in config]
@@ -45,6 +46,13 @@ class Connector:
         self.raw = config
         self.cfg = {k: resolve_secret(v) for k, v in config.items()}
         self.data_dir = Path(data_dir)
+        if not self.cfg.get("ssh"):
+            roots = {*PROTECTED_DIRS, self.data_dir.resolve()}
+            for k in self.local_paths:
+                if self.cfg.get(k):
+                    p = Path(str(self.cfg[k])).expanduser().resolve()
+                    if any(p == r or r in p.parents for r in roots):
+                        raise ValueError(f"{self.kind} connector {k} {p} is inside Farrier's data directory")
 
     def deploy(self, b: Bundle) -> dict:
         """Install and activate. Return a JSON-able rollback token."""

@@ -40,6 +40,7 @@ def build_pkcs12(b: Bundle, alias: str, password: str, legacy: bool = False) -> 
 class KeystoreConnector(Connector):
     kind = "keystore"
     required = ("path", "password")
+    local_paths = ("path",)
 
     def deploy(self, b: Bundle) -> dict:
         path = Path(self.cfg["path"])

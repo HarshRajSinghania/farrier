@@ -1,5 +1,13 @@
 # Container Apps. One VNet-integrated environment: the engine's ingress is limited to the
 # environment (no external endpoint); the web app has external ingress, fronted by Front Door.
+# That ingress accepts only Front Door's backend addresses (the AzureFrontDoor.Backend service
+# tag; Container Apps IP rules take CIDRs, not tags), and the web app rejects requests whose
+# X-Azure-FDID header is not this Front Door profile, so other Front Door tenants can't reach it.
+
+data "azurerm_network_service_tags" "front_door" {
+  location = var.location
+  service  = "AzureFrontDoor.Backend"
+}
 
 resource "azurerm_container_app_environment" "this" {
   name                       = "${var.name}-env"
@@ -52,7 +60,16 @@ locals {
   }
 
   web_env = merge(
-    { NEXT_PUBLIC_SITE_URL = local.site_url },
+    {
+      NEXT_PUBLIC_SITE_URL = local.site_url
+
+      # Requests that did not come through this Front Door profile are refused.
+      FARRIER_REQUIRE_HEADER = "X-Azure-FDID:${azurerm_cdn_frontdoor_profile.this.resource_guid}"
+
+      # Front Door appends the client address, then the Container Apps ingress appends Front
+      # Door's: the client is the second X-Forwarded-For entry from the right.
+      FARRIER_TRUSTED_PROXY_HOPS = "2"
+    },
     local.oidc_enabled ? local.web_oidc_env : {},
     var.web_extra_env,
   )
@@ -186,6 +203,18 @@ resource "azurerm_container_app" "web" {
     allow_insecure_connections = false
     target_port                = 3000
     transport                  = "http"
+
+    # Only Front Door may connect (all rules must share one action; anything unlisted is denied).
+    dynamic "ip_security_restriction" {
+      for_each = data.azurerm_network_service_tags.front_door.ipv4_cidrs
+
+      content {
+        name             = "front-door-${ip_security_restriction.key}"
+        description      = "AzureFrontDoor.Backend"
+        action           = "Allow"
+        ip_address_range = ip_security_restriction.value
+      }
+    }
 
     traffic_weight {
       latest_revision = true

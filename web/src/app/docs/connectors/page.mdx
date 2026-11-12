@@ -42,6 +42,8 @@ PEM files on a host: nginx, HAProxy, Apache, Postfix, or any appliance with a sh
 | `reload_command` | no | e.g. `systemctl reload nginx` |
 | `ssh` | no | `user@host`; commands then run on the target |
 
+Local `files` and `keystore` paths may not point inside Farrier's data directory.
+
 Each file is backed up as `<path>.farrier-bak-<renewal id>` and replaced atomically. If `test_command` or `reload_command` fails, the backups are restored and the service reloaded. Rollback does the same.
 
 ```json

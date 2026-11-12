@@ -28,6 +28,8 @@ EDITABLE: dict[str, tuple[type, float, float]] = {
     "crypto_scan_hours": (int, 0, 720),
     "ssh_scan_hours": (int, 0, 720),
     "ssh_collect_hours": (int, 0, 720),
+    # hours before a key exported for tag export-key is deleted from the secret backend (0 = keep)
+    "export_key_retention_hours": (int, 0, 8760),
 }
 _lock = threading.Lock()
 

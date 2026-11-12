@@ -26,7 +26,7 @@ Internet ─HTTPS─> CloudFront ─VPC origin─> internal ALB (web) ─> web t
 | Database | RDS PostgreSQL 16, encrypted with the CMK, Multi-AZ (toggle), not publicly accessible, `rds.force_ssl=1`, password generated and stored in Secrets Manager by RDS, 14-day backups, deletion protection, final snapshot |
 | Keys | One KMS CMK with rotation: wraps the Farrier master key; encrypts S3, Secrets Manager, RDS and CloudWatch Logs |
 | Secrets | `<name>-runtime/api-token`, `api-read-token`, `session-secret` or `dashboard-password` (generated), `master-key` and `oidc-client-secret` (empty: you seed them) |
-| Storage | S3 bucket: SSE-KMS with the CMK and bucket keys, versioning, all four Block Public Access settings, BucketOwnerEnforced, TLS-only (and TLS ≥ 1.2) bucket policy, lifecycle (`change-packs/` expire after 30 days, noncurrent versions after 90, incomplete uploads after 7) |
+| Storage | S3 bucket: SSE-KMS with the CMK and bucket keys, versioning, all four Block Public Access settings, BucketOwnerEnforced, TLS-only (and TLS ≥ 1.2) bucket policy that also denies object writes and deletes to every principal but the engine task role and `storage_admin_principal_arns` (backups are restored as trusted rows; they are also HMAC-signed, and `farrier restore` needs `--allow-unsigned` for unsigned ones), lifecycle (`change-packs/` expire after 30 days, noncurrent versions after 90, incomplete uploads after 7) |
 | IAM | Per-service execution and task roles. Engine: its Secrets Manager prefix only, Encrypt/Decrypt/GenerateDataKey on the CMK, S3 on its prefix only, optional Route 53 `_acme-challenge` TXT changes on listed zones. Web: read its own secrets only. |
 | Logs | CloudWatch log groups per service, KMS-encrypted, `log_retention_days` (90) |
 
@@ -39,7 +39,8 @@ TLS by a short-lived init container), `FARRIER_DATABASE_PASSWORD` (from the RDS-
 `FARRIER_SECRET_AWS_PREFIX`, `FARRIER_STORAGE_URL=s3://<bucket>/farrier`, `FARRIER_STORAGE_KMS_KEY`.
 
 Web: `FARRIER_API_URL` (engine ALB), `NEXT_PUBLIC_SITE_URL`, `FARRIER_API_TOKEN`, `FARRIER_API_READ_TOKEN`,
-and either the OIDC settings plus `FARRIER_SESSION_SECRET` and `FARRIER_OIDC_CLIENT_SECRET`, or
+`FARRIER_TRUSTED_PROXY_HOPS=2` (CloudFront and the ALB each append to `X-Forwarded-For`), and either the
+OIDC settings (`FARRIER_OIDC_REDIRECT_URI=<site>/auth/callback` included) plus `FARRIER_SESSION_SECRET` and `FARRIER_OIDC_CLIENT_SECRET`, or
 `FARRIER_DASHBOARD_PASSWORD`.
 
 All AWS access uses the task roles. There are no access keys.
@@ -63,6 +64,7 @@ The most used inputs (all are documented in `variables.tf`):
 | `db_instance_class`, `db_multi_az`, `db_iam_auth` | `db.t4g.medium`, `true`, `false` | |
 | `route53_zone_ids` | `[]` | Zones for DNS-01 |
 | `oidc_issuer`, `oidc_client_id`, `oidc_scopes`, `web_extra_env` | | SSO; empty issuer = generated Basic-auth password |
+| `storage_admin_principal_arns` | `[]` | Roles besides the engine task role that may write or delete bucket objects (the bucket policy denies everyone else; list your Terraform role to use `force_destroy_bucket`) |
 | `secrets_seeded` | `false` | Services start only once this is `true` |
 | `deletion_protection` | `true` | RDS and ALBs |
 

@@ -133,7 +133,11 @@ All keys are optional; missing keys use these defaults.
   "verify_retry_seconds": 2.0,
   "issue_max_attempts": 5,
   "safety_days": 2,
-  "scan_timeout": 5.0
+  "scan_timeout": 5.0,
+  "crypto_scan_hours": 24,
+  "ssh_scan_hours": 24,
+  "ssh_collect_hours": 24,
+  "export_key_retention_hours": 24
 }
 ```
 
@@ -147,6 +151,10 @@ All keys are optional; missing keys use these defaults.
 | `issue_max_attempts` | Issuance attempts before a renewal is marked `failed` |
 | `safety_days` | A renewal's deadline is expiry minus this |
 | `scan_timeout` | Seconds per TLS handshake during the tick scan |
+| `crypto_scan_hours` | Hours between TLS crypto / PQC re-probes of each reachable endpoint (default `24`, `0` = off; [PQC](/docs/pqc)) |
+| `ssh_scan_hours` | Hours between unauthenticated SSH host-key scans (default `24`, `0` = off; [SSH](/docs/ssh)) |
+| `ssh_collect_hours` | Hours between `authorized_keys` collections over SSH (default `24`, `0` = off) |
+| `export_key_retention_hours` | Hours an exported private key (endpoint tag `export-key`) stays in the cloud secret backend before Farrier deletes it (default `24`; [Events](/docs/events#security-model)) |
 
 See [Concepts](/docs/concepts) for how these interact.
 
@@ -167,7 +175,7 @@ Add `notifiers` to `settings.json` to hear about renewals in Slack, Microsoft Te
 }
 ```
 
-- `events` defaults to `failed`, `rolled_back` and `awaiting_manual`. Others: `planned`, `issued`, `verifying`, `done`, `superseded`, `cancelled`.
+- `events` defaults to `failed`, `rolled_back` and `awaiting_manual` (event-bus channels `eventbridge`, `pubsub` and `eventgrid`: `issued`, `awaiting_manual`, `done`, `failed`, `rolled_back` and `cancelled`; see [Events](/docs/events#transports)). Others: `planned`, `issued`, `verifying`, `done`, `superseded`, `cancelled`.
 - `webhook` posts JSON: `event`, `endpoint`, `host`, `port`, `connector`, `owner`, `renewal_id`, `error`, `ticket`, `new_not_after`, `at`, `dashboard_url`. `slack` and `teams` post a one-paragraph `text` message.
 - URLs and header values go through the secret guardrails, are resolved at send time and are never logged. Delivery runs in the background with a 5 second timeout; a failure is written to the event log and never blocks a renewal.
 - Check the setup with `POST /api/notifiers/test`.
@@ -226,6 +234,12 @@ Declare endpoints and their connectors in a JSON array and import them. Importin
 | `FARRIER_SECRET_ENV_PREFIX` | connectors, issuers, notifiers | If set, `env:` references must start with it (e.g. `FARRIER_SECRET_`) |
 | `FARRIER_SECRET_DIRS` | connectors, issuers, notifiers | If set, `file:` references must sit under one of these directories (`:`-separated, `;` on Windows) |
 | `FARRIER_DASHBOARD_URL` | notifiers | Link added to notifications (or `dashboard_url` in `settings.json`) |
+| `FARRIER_SECRET_BACKEND` and `FARRIER_SECRET_*` | engine | Where dashboard-entered secrets live: `local` (default), `aws`, `gcp`, `azure`, `hashicorp`; per-backend settings in [Enterprise deployment](/docs/enterprise#engine) |
+| `FARRIER_SECRET_EXTERNAL_PREFIXES` | connectors, issuers, notifiers | Comma-separated prefixes `aws-sm:`, `gcp-sm:`, `azure-kv:`, `hcvault:` references must start with. Unset: only the configured backend's own location and prefix |
+| `FARRIER_MASTER_KEY_KMS` | engine | `FARRIER_MASTER_KEY` is wrapped; unwrap it at boot with this key (`aws-kms:`, `gcp-kms:`, `azure-kv:`) |
+| `FARRIER_STORAGE_URL` and `FARRIER_STORAGE_*` | engine | Object store for change packs, chains, backups and audit exports (default: `objects/` in the data directory); see [Enterprise deployment](/docs/enterprise#engine) |
+| `FARRIER_INSTANCE_ID` | events | CloudEvent `source` becomes `farrier://<id>` (`A-Z a-z 0-9 . _ ~ -`). Default: `farrier-` plus a hash of the master key, the same on every replica |
+| `FARRIER_TRUSTED_PROXY_HOPS` | web | Proxies in front of the dashboard that append to `X-Forwarded-For`; the client address is that many entries from the right (default `1`, `0` = ignore the header). See [Security](/docs/security#behind-proxies) |
 | any `NAME` referenced as `env:NAME` | connectors, issuers, notifiers | Secrets. `FARRIER_MASTER_KEY` and the API tokens can never be referenced |
 
 The web dashboard has its own variables; see [Self-hosting](/docs/self-hosting#dashboard-environment).
@@ -242,6 +256,8 @@ Global option: `--data PATH`.
 | `farrier import FILE` | Upsert endpoints from a JSON inventory |
 | `farrier tick` | Run one scan/plan/advance cycle and print the result |
 | `farrier forecast [--certs 1000] [--manual 0.4] [--minutes 45] [--lead 0]` | Renewal workload under the CA/B Forum schedule |
+| `farrier backup --to URL` | Export the database, HMAC-signed with a key derived from the master key, to `backups/` under an object-storage URL |
+| `farrier restore --from URL [--to DB] [--allow-unsigned]` | Load a backup into an empty database. Refuses a missing or wrong signature; `--allow-unsigned` only for trusted backups made before signing |
 
 ### Target syntax
 

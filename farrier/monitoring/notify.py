@@ -20,6 +20,7 @@ defaults to failed, rolled_back and awaiting_manual. Delivery runs on a backgrou
 """
 from __future__ import annotations
 
+import re
 import threading
 from datetime import UTC, datetime
 
@@ -80,12 +81,30 @@ def _text(p: dict) -> str:
     return line
 
 
+def _slack_escape(s: str) -> str:
+    """Slack mrkdwn control characters: a cert subject or error body must not become <!channel> or a link."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+_TEAMS_MD = re.compile(r"([\\`*_~#\[\]])")
+
+
+def _teams_escape(s: str) -> str:
+    """Teams text is markdown with some HTML: escape both, so device strings stay plain text."""
+    return _TEAMS_MD.sub(r"\\\1", _slack_escape(s))
+
+
+def _escaped(p: dict, esc) -> dict:
+    """Device- and ticket-controlled strings escaped; the event name and Farrier's own dashboard link kept."""
+    return {k: esc(v) if isinstance(v, str) and k not in ("event", "dashboard_url") else v for k, v in p.items()}
+
+
 def body_for(kind: str, p: dict) -> dict:
     if kind == "slack":
-        return {"text": _text(p)}
+        return {"text": _text(_escaped(p, _slack_escape))}
     if kind == "teams":
         # Teams incoming webhooks and Power Automate "post to a channel" flows both accept text
-        return {"text": _text(p).replace("\n", "  \n")}
+        return {"text": _text(_escaped(p, _teams_escape)).replace("\n", "  \n")}
     return p
 
 

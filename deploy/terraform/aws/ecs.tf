@@ -65,6 +65,10 @@ locals {
     {
       FARRIER_API_URL      = local.engine_url
       NEXT_PUBLIC_SITE_URL = local.site_url
+
+      # CloudFront appends the viewer address, then the ALB appends CloudFront's: the client is
+      # the second X-Forwarded-For entry from the right.
+      FARRIER_TRUSTED_PROXY_HOPS = "2"
     },
     local.oidc_enabled ? local.web_oidc_env : {},
     var.web_extra_env,

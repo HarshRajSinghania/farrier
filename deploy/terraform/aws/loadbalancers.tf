@@ -141,6 +141,7 @@ resource "aws_lb" "web" {
   security_groups            = [aws_security_group.web_alb.id]
   subnets                    = local.private_subnet_ids
   drop_invalid_header_fields = true
+  xff_header_processing_mode = "append"
   enable_deletion_protection = var.deletion_protection
   tags                       = local.tags
 

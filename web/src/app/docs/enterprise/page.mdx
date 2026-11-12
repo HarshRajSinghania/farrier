@@ -44,7 +44,7 @@ Internet ─HTTPS─> CloudFront ─VPC origin─> internal ALB ─> web (Fargat
 | API tokens, session secret | Secrets Manager `<name>-runtime/*` | Injected at task start by a per-service execution role |
 | Device credentials | Secrets Manager `farrier/*` | The engine's role can read and write only this prefix |
 | Database password | Generated and rotated by RDS in Secrets Manager | Never in state |
-| Change packs, backups, audit exports | S3, SSE-KMS, versioned, TLS-only, Block Public Access | Change packs expire after 30 days, old versions after 90 |
+| Change packs, backups, audit exports | S3, SSE-KMS, versioned, TLS-only, Block Public Access; only the engine task role (and `storage_admin_principal_arns`) may write or delete objects | Change packs expire after 30 days, old versions after 90; a restored backup is trusted, so nobody else may write one |
 | Cache | CloudFront, static paths only | Dashboard, `/api/*` and `/auth/*` are never cached and get cookies and headers |
 
 ## Google Cloud
@@ -59,7 +59,7 @@ Cloud Run web ─VPC─> Cloud Run engine (internal) ─VPC─> Cloud SQL privat
 | --- | --- |
 | Master key | Secret Manager `<name>-runtime-master-key`, wrapped by Cloud KMS `master-wrap` |
 | Device credentials | Secret Manager, names under `farrier-`; the engine's service account can read and add versions there only, by IAM condition |
-| Objects | GCS with uniform access, public access prevention, CMEK, versioning and lifecycle |
+| Objects | GCS with uniform access, public access prevention, CMEK, versioning and lifecycle; the engine's service account holds the only bucket-level role |
 | Identity | One service account per service; no keys |
 
 Cloud Run cannot pull from `ghcr.io`, so the module creates an Artifact Registry remote repository that proxies it. On GKE, use the Kubernetes manifests with Workload Identity and keep the data tier from the module.
@@ -77,7 +77,8 @@ engine ─> PostgreSQL (delegated subnet) · Blob and Key Vault (private endpoin
 | Master key | Key Vault secret `master-key`, wrapped by Key Vault key `master-wrap` |
 | App secrets | Runtime Key Vault; each managed identity may read only its own secrets |
 | Device credentials | A separate store Key Vault (`FARRIER_SECRET_AZURE_VAULT_URL`), where the engine is Secrets Officer |
-| Objects | Storage account: HTTPS only, TLS 1.2, no public or shared-key access, private endpoint, CMK, versioning, lifecycle |
+| Objects | Storage account: HTTPS only, TLS 1.2, no public or shared-key access, private endpoint, CMK, versioning, lifecycle; only the engine identity has a data role |
+| Edge | The web app's ingress admits only `AzureFrontDoor.Backend` addresses, and the app refuses requests without this profile's `X-Azure-FDID` |
 
 ## On-prem
 
@@ -97,13 +98,19 @@ Every deployment configures the same variables.
 | `FARRIER_MASTER_KEY_KMS` | `aws-kms:arn:aws:kms:…:key/…`, `gcp-kms:projects/…/locations/…/keyRings/…/cryptoKeys/…` or `azure-kv:https://<vault>.vault.azure.net/keys/<name>`. The engine unwraps the master key with it at boot. |
 | `FARRIER_API_TOKEN`, `FARRIER_API_READ_TOKEN` | Admin and read-only API tokens |
 | `FARRIER_SECRET_BACKEND` | `local` (default), `aws`, `gcp`, `azure` or `hashicorp` |
-| `FARRIER_SECRET_AWS_REGION`, `FARRIER_SECRET_AWS_PREFIX` | Region, and name prefix (default `farrier/`) |
-| `FARRIER_SECRET_GCP_PROJECT` | Project holding the secrets |
-| `FARRIER_SECRET_AZURE_VAULT_URL` | `https://<vault>.vault.azure.net/` |
-| `FARRIER_SECRET_VAULT_ADDR`, `FARRIER_SECRET_VAULT_MOUNT`, `FARRIER_SECRET_VAULT_ROLE` | Vault address, KV v2 mount (default `secret`), Kubernetes auth role |
-| `FARRIER_STORAGE_URL` | `file:///var/lib/farrier/objects` (default), `s3://bucket/prefix`, `gs://bucket/prefix` or `azblob://account/container/prefix` |
-| `FARRIER_STORAGE_S3_ENDPOINT` | MinIO or another S3-compatible endpoint |
+| `FARRIER_SECRET_AWS_REGION`, `FARRIER_SECRET_AWS_PREFIX`, `FARRIER_SECRET_AWS_KMS_KEY` | Region, name prefix (default `farrier/`), optional CMK for new secrets |
+| `FARRIER_SECRET_GCP_PROJECT`, `FARRIER_SECRET_GCP_PREFIX` | Project holding the secrets, name prefix (default `farrier-`) |
+| `FARRIER_SECRET_AZURE_VAULT_URL`, `FARRIER_SECRET_AZURE_PREFIX` | `https://<vault>.vault.azure.net/`, name prefix (default `farrier-`) |
+| `FARRIER_SECRET_VAULT_ADDR`, `FARRIER_SECRET_VAULT_MOUNT`, `FARRIER_SECRET_VAULT_PREFIX` | Vault or OpenBao address, KV v2 mount (default `secret`), path prefix (default `farrier/`) |
+| `FARRIER_SECRET_VAULT_NAMESPACE`, `FARRIER_SECRET_VAULT_CACERT` | Vault Enterprise namespace, CA bundle for the Vault server |
+| `FARRIER_SECRET_VAULT_TOKEN_FILE` | Token file (e.g. a Vault Agent sink), re-read on every use; else `VAULT_TOKEN` |
+| `FARRIER_SECRET_VAULT_ROLE`, `FARRIER_SECRET_VAULT_AUTH_MOUNT`, `FARRIER_SECRET_VAULT_K8S_TOKEN_FILE` | Kubernetes auth: role, auth mount (default `kubernetes`), service-account token (default `/var/run/secrets/kubernetes.io/serviceaccount/token`) |
+| `FARRIER_SECRET_EXTERNAL_PREFIXES` | Comma-separated prefixes that `aws-sm:`, `gcp-sm:`, `azure-kv:` and `hcvault:` references must start with (default: the backend's own location and prefix only) |
+| `FARRIER_STORAGE_URL` | `s3://bucket/prefix`, `gs://bucket/prefix`, `azblob://account/container/prefix` or `file:///path`. Default: `objects/` in the data directory. Holds change packs, chains, backups and audit exports |
+| `FARRIER_STORAGE_S3_ENDPOINT`, `FARRIER_STORAGE_S3_REGION` | MinIO or another S3-compatible endpoint (path-style), its region (default `AWS_REGION`, else `us-east-1`) |
 | `FARRIER_STORAGE_KMS_KEY` | KMS key for S3 server-side encryption |
+| `FARRIER_STORAGE_AZBLOB_ENDPOINT` | Blob endpoint override (default `https://<account>.blob.core.windows.net`) |
+| `FARRIER_INSTANCE_ID` | CloudEvent `source` id (`farrier://<id>`); default derived from the master key |
 
 Cloud backends always authenticate with the platform identity: an ECS task role, a Cloud Run or GKE service account through Workload Identity, an Azure managed identity, or Vault's Kubernetes auth. Never give the engine static cloud keys.
 
@@ -114,6 +121,9 @@ Cloud backends always authenticate with the platform identity: an ECS task role,
 | `FARRIER_API_URL` | The engine's private URL |
 | `FARRIER_API_TOKEN`, `FARRIER_API_READ_TOKEN` | Same values as the engine |
 | `FARRIER_OIDC_ISSUER`, `FARRIER_OIDC_CLIENT_ID`, `FARRIER_OIDC_CLIENT_SECRET`, `FARRIER_SESSION_SECRET` | Single sign-on ([guide](/docs/sso)) |
+| `FARRIER_OIDC_REDIRECT_URI` | `https://<dashboard host>/auth/callback`, exactly as registered with the identity provider. Required in production; the modules and the Helm chart set it from the site URL |
+| `FARRIER_TRUSTED_PROXY_HOPS` | `X-Forwarded-For` entries your own proxies append (default `1`). The modules set `2`: CloudFront → ALB, Front Door → Container Apps ingress, and Google's load balancer, which appends two |
+| `FARRIER_REQUIRE_HEADER` | `Name:value` a request must carry, else it is refused. The Azure module sets `X-Azure-FDID:<Front Door profile GUID>`. Every path is checked except `/api/health`, which platform probes call without the header; a malformed value refuses all requests |
 | `FARRIER_DASHBOARD_PASSWORD` | Basic-auth fallback when SSO is off |
 | `NEXT_PUBLIC_SITE_URL` | The dashboard's public URL |
 
@@ -130,7 +140,7 @@ terraform apply -var secrets_seeded=true   # start the services
 The two-step apply keeps the master key out of Terraform: you generate it, wrap it with the module's key, and store only the ciphertext. Generated API tokens and the session secret do pass through state, so keep state in an encrypted, access-controlled backend.
 
 <Callout type="warning" title="The key outlives the backups">
-Sealed private keys and database backups are useless without the master key, and the wrapped master key is useless without the KMS key. Keep both for at least as long as your backups, and test a restore.
+Sealed private keys and database backups are useless without the master key, and the wrapped master key is useless without the KMS key. Keep both for at least as long as your backups, and test a restore. Backups are signed with a key derived from the master key; `farrier restore` refuses unsigned ones (made before signing) unless you pass `--allow-unsigned`. Even then, rows that set connector commands need `FARRIER_ALLOW_API_COMMANDS=1`.
 </Callout>
 
 After deploying, work through the [hosting checklist](/docs/security#hosting-checklist), and see [Databases and HA](/docs/databases) for replicas and migrating from SQLite.

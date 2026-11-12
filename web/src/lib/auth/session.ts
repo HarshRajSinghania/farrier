@@ -6,6 +6,7 @@
  */
 import type { NextRequest, NextResponse } from "next/server";
 import type { OidcConfig } from "./config";
+import { configuredOrigin } from "./request";
 import type { Role } from "./roles";
 import { seal, unseal } from "./seal";
 
@@ -32,8 +33,13 @@ export interface Session {
 
 export const now = () => Math.floor(Date.now() / 1000);
 
-/** The origin users reach this site on, honouring a reverse proxy's X-Forwarded-* headers. */
+/**
+ * The origin users reach this site on. In production, the configured one (FARRIER_OIDC_REDIRECT_URI or
+ * NEXT_PUBLIC_SITE_URL); otherwise a reverse proxy's X-Forwarded-* headers, then the Host header.
+ */
 export function publicOrigin(req: NextRequest): string {
+  const fixed = process.env.NODE_ENV === "production" ? configuredOrigin(process.env) : null;
+  if (fixed) return fixed;
   const proto = req.headers.get("x-forwarded-proto")?.split(",")[0].trim() || req.nextUrl.protocol.replace(":", "");
   const host = req.headers.get("x-forwarded-host")?.split(",")[0].trim() || req.headers.get("host") || req.nextUrl.host;
   return `${proto}://${host}`;

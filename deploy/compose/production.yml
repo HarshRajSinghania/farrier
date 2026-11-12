@@ -93,9 +93,15 @@ services:
     environment:
       FARRIER_API_URL: http://engine:8740
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://farrier.example.internal}
-      # SSO instead of the dashboard password: set FARRIER_OIDC_ISSUER, FARRIER_OIDC_CLIENT_ID
-      # here and add oidc_client_secret / session_secret secrets with targets
-      # FARRIER_OIDC_CLIENT_SECRET / FARRIER_SESSION_SECRET.
+      # One reverse proxy (Caddy, nginx, Traefik) in front: the client address is the right-most
+      # X-Forwarded-For entry. The proxy must append to or overwrite that header (Caddy and Traefik
+      # do; nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for or $remote_addr).
+      # 2 if a CDN or load balancer sits in front of that proxy; 0 ignores the header.
+      FARRIER_TRUSTED_PROXY_HOPS: "1"
+      # SSO instead of the dashboard password: set FARRIER_OIDC_ISSUER, FARRIER_OIDC_CLIENT_ID and
+      # FARRIER_OIDC_REDIRECT_URI (required in production: the exact URL registered with the
+      # identity provider, ${NEXT_PUBLIC_SITE_URL}/auth/callback) here, and add oidc_client_secret /
+      # session_secret secrets with targets FARRIER_OIDC_CLIENT_SECRET / FARRIER_SESSION_SECRET.
     secrets:
       - { source: api_token, target: FARRIER_API_TOKEN }
       - { source: api_read_token, target: FARRIER_API_READ_TOKEN }

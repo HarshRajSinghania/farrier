@@ -40,10 +40,14 @@ Engine: `FARRIER_DATABASE_URL`, `FARRIER_DATABASE_PASSWORD`, `FARRIER_MASTER_KEY
 `FARRIER_API_READ_TOKEN`, `FARRIER_SECRET_BACKEND=gcp`, `FARRIER_SECRET_GCP_PROJECT`,
 `FARRIER_STORAGE_URL=gs://<bucket>/farrier`.
 
-Web: `FARRIER_API_URL` (the engine's `run.app` URL), `NEXT_PUBLIC_SITE_URL`, the API tokens, and either
-OIDC settings + `FARRIER_SESSION_SECRET` + `FARRIER_OIDC_CLIENT_SECRET`, or `FARRIER_DASHBOARD_PASSWORD`.
+Web: `FARRIER_API_URL` (the engine's `run.app` URL), `NEXT_PUBLIC_SITE_URL`, the API tokens,
+`FARRIER_TRUSTED_PROXY_HOPS=2` (the load balancer appends the client and its own address to
+`X-Forwarded-For`), and either OIDC settings (`FARRIER_OIDC_REDIRECT_URI=<site>/auth/callback` included) + `FARRIER_SESSION_SECRET` + `FARRIER_OIDC_CLIENT_SECRET`, or `FARRIER_DASHBOARD_PASSWORD`.
 
-Identity is the service account attached to each Cloud Run service. There are no keys.
+Identity is the service account attached to each Cloud Run service. There are no keys. The engine's
+service account is the only principal with a bucket-level role on the objects bucket (backups
+included); keep project-level Owner, Editor and Storage Admin to break-glass admins, since `farrier
+restore` trusts a backup's rows (backups are HMAC-signed; unsigned ones need `--allow-unsigned`).
 
 ## Inputs
 

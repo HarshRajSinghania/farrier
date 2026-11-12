@@ -25,6 +25,9 @@ const pill = "inline-flex h-10 items-center gap-1 rounded-full px-4 text-[15px] 
 const primary = cn(pill, "bg-[#2563eb] text-white hover:bg-[#1d4ed8]");
 const secondary = cn(pill, "bg-[var(--l-pill)] hover:bg-[var(--l-pill-hover)]");
 const logo = "transition-transform duration-200 hover:scale-110";  // brand colours, as the vendors ship them
+// marks drawn in black or a very dark brand colour vanish on the dark ground: show them in white there
+const DARK_INK = new Set(["splunk.svg", "kafka-icon.svg", "aws.svg", "citrix.svg", "dns-ovh.svg"]);
+const onDark = (f: string) => (DARK_INK.has(f) ? "dark:brightness-0 dark:invert" : undefined);
 
 /* ------------------------------------------------------------------ hero */
 
@@ -96,7 +99,7 @@ export function Hero() {
                     aria-hidden={dup || undefined}
                     className={cn("shrink-0 items-center gap-2 rounded-full border border-[var(--l-line)] bg-background px-4 py-2", dup ? "l-dup" : "flex")}
                   >
-                    <img src={icon(f)} alt="" className="size-6 object-contain" />
+                    <img src={icon(f)} alt="" className={cn("size-6 object-contain", onDark(f))} />
                     <span className="text-sm font-medium">{n}</span>
                   </li>
                 )),
@@ -229,16 +232,16 @@ export function Features() {
 
 /* ------------------------------------------------------------------ platform: three equal cards, one illustration each */
 
-/** Flat illustrations on a 240x160 canvas; fixed colours so they read the same in both themes. */
+/** Flat illustrations on a 240x160 canvas; the pale grounds swap for deep tints in dark mode. */
 function CertArt() {
   return (
     <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
-      <circle cx="120" cy="80" r="64" fill="#e8efff" />
-      <rect x="72" y="34" width="96" height="92" rx="10" fill="#fff" stroke="#c7d6fb" strokeWidth="2" />
+      <circle cx="120" cy="80" r="64" fill="#e8efff" className="dark:fill-[#14254a]" />
+      <rect x="72" y="34" width="96" height="92" rx="10" fill="#fff" stroke="#c7d6fb" strokeWidth="2" className="dark:fill-[#0f1830] dark:stroke-[#2c4a8a]" />
       <rect x="86" y="50" width="52" height="7" rx="3.5" fill="#2563eb" />
-      <rect x="86" y="64" width="68" height="5" rx="2.5" fill="#dbe5fd" />
-      <rect x="86" y="75" width="60" height="5" rx="2.5" fill="#dbe5fd" />
-      <rect x="86" y="86" width="40" height="5" rx="2.5" fill="#dbe5fd" />
+      <rect x="86" y="64" width="68" height="5" rx="2.5" fill="#dbe5fd" className="dark:fill-[#2c4a8a]" />
+      <rect x="86" y="75" width="60" height="5" rx="2.5" fill="#dbe5fd" className="dark:fill-[#2c4a8a]" />
+      <rect x="86" y="86" width="40" height="5" rx="2.5" fill="#dbe5fd" className="dark:fill-[#2c4a8a]" />
       <path d="M142 128l-6 18 10-5 6 9 4-18z" fill="#1d4ed8" />
       <circle cx="150" cy="112" r="20" fill="#2563eb" />
       <path d="M140 112l7 7 13-14" stroke="#fff" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
@@ -253,8 +256,8 @@ function CertArt() {
 function KeyArt() {
   return (
     <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
-      <circle cx="120" cy="80" r="64" fill="#efe9ff" />
-      <rect x="58" y="40" width="112" height="76" rx="10" fill="#1e1b2e" />
+      <circle cx="120" cy="80" r="64" fill="#efe9ff" className="dark:fill-[#2a1f4a]" />
+      <rect x="58" y="40" width="112" height="76" rx="10" fill="#1e1b2e" className="dark:fill-[#120f1f]" />
       <circle cx="70" cy="52" r="3" fill="#f87171" />
       <circle cx="80" cy="52" r="3" fill="#fbbf24" />
       <circle cx="90" cy="52" r="3" fill="#4ade80" />
@@ -264,7 +267,7 @@ function KeyArt() {
       <path d="M174 118l22 22" stroke="#7c3aed" strokeWidth="10" strokeLinecap="round" />
       <path d="M186 130l-7 7M194 138l-6 6" stroke="#7c3aed" strokeWidth="7" strokeLinecap="round" />
       <circle cx="158" cy="104" r="22" fill="#7c3aed" />
-      <circle cx="158" cy="104" r="8" fill="#efe9ff" />
+      <circle cx="158" cy="104" r="8" fill="#efe9ff" className="dark:fill-[#2a1f4a]" />
     </svg>
   );
 }
@@ -272,7 +275,7 @@ function KeyArt() {
 function QuantumArt() {
   return (
     <svg viewBox="0 0 240 160" className="h-auto w-full max-w-[260px]" aria-hidden>
-      <circle cx="120" cy="80" r="64" fill="#e0f5f3" />
+      <circle cx="120" cy="80" r="64" fill="#e0f5f3" className="dark:fill-[#0f302d]" />
       <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#5eead4" strokeWidth="3" />
       <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#2dd4bf" strokeWidth="3" transform="rotate(60 120 80)" />
       <ellipse cx="120" cy="80" rx="74" ry="24" fill="none" stroke="#99f6e4" strokeWidth="3" transform="rotate(-60 120 80)" />
@@ -322,7 +325,7 @@ export function Platform() {
             {TOOLS.map(([f, n]) => (
               <li key={n} title={n}>
                 {f ? (
-                  <img src={icon(f)} alt={n} className={cn("object-contain", n === "Splunk" ? "h-auto w-32 -my-6" : "h-10 w-auto", logo)} />
+                  <img src={icon(f)} alt={n} className={cn("object-contain", n === "Splunk" ? "h-auto w-32 -my-6" : "h-10 w-auto", logo, onDark(f))} />
                 ) : (
                   // no official mark ships in the icon set; the name in ServiceNow green stands in
                   <span className={cn("block text-[26px] font-bold tracking-[-0.03em] text-[#62d84e]", logo)}>servicenow</span>
@@ -364,7 +367,7 @@ export function Devices() {
           <ul className="mt-10 flex flex-wrap gap-5">
             {DEVICES.map(([f, n]) => (
               <li key={n}>
-                <img src={icon(f)} alt={n} title={n} className={cn("size-7 object-contain", logo)} />
+                <img src={icon(f)} alt={n} title={n} className={cn("size-7 object-contain", logo, onDark(f))} />
               </li>
             ))}
           </ul>
@@ -414,7 +417,7 @@ export function Deploy() {
           {PLATFORMS.map((p) => (
             <article key={p.t} className="flex flex-col rounded-3xl bg-[var(--l-panel)] p-3">
               <div className="flex-1 px-3 pb-5 pt-4">
-                <img src={icon(p.logo)} alt="" className="size-8 object-contain" />
+                <img src={icon(p.logo)} alt="" className={cn("size-8 object-contain", onDark(p.logo))} />
                 <h3 className="mt-4 text-[17px] font-semibold">{p.t}</h3>
                 <p className="mt-1 text-sm text-[var(--l-sub)]">{p.d}</p>
               </div>

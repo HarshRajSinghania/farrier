@@ -3,7 +3,8 @@
 Every "device" is a real TLS endpoint with a real certificate on disk, so discovery,
 renewal, deployment, verification and the manual close-the-loop flow all run for real.
 Half the estate is "manual" (VPN concentrators, ADCs, IIS, vCenter): install a change pack
-by copying its fullchain.pem/key.pem into demo-data/devices/<name>/ and watch it close.
+by copying its fullchain.pem/key.pem into farrier-demo-devices/<name>/ and watch it close. The devices sit
+beside the data directory, not in it: connectors may never write into Farrier's own data.
 """
 from __future__ import annotations
 
@@ -93,6 +94,10 @@ def _issue_backdated(ca: LocalCA, cn: str, not_before: datetime, days: int, key)
     return cert.public_bytes(serialization.Encoding.PEM).decode() + ca.ca_pem
 
 
+def devices_dir(data_dir: Path) -> Path:
+    return data_dir.parent / f"{data_dir.name}-devices"
+
+
 def seed(data_dir: Path, simulate_date: str | None = None, seed_value: int = 7) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     issuers = {"default": {"type": "local_ca"}}
@@ -102,7 +107,7 @@ def seed(data_dir: Path, simulate_date: str | None = None, seed_value: int = 7) 
     (data_dir / "settings.json").write_text(json.dumps({"horizon_days": 21, "manual_daily_cap": 4,
                                                         "verify_retry_seconds": 0.3}, indent=2))
     ca = LocalCA(data_dir)
-    devices = data_dir / "devices"
+    devices = devices_dir(data_dir)
     rng = random.Random(seed_value)
     now = datetime.now(UTC)
     eng = Engine(data_dir)
@@ -128,9 +133,9 @@ def seed(data_dir: Path, simulate_date: str | None = None, seed_value: int = 7) 
 
 
 def start(data_dir: Path, simulate_date: str | None = None) -> tuple[Engine, SNIServer]:
-    if not (data_dir / "devices").exists():
+    if not devices_dir(data_dir).exists():
         seed(data_dir, simulate_date)
-    srv = SNIServer(data_dir / "devices")
+    srv = SNIServer(devices_dir(data_dir))
     eng = Engine(data_dir)
     eng.store.x("UPDATE endpoints SET port=? WHERE host='127.0.0.1'", (srv.port,))
     return eng, srv

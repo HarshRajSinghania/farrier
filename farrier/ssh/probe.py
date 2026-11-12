@@ -173,7 +173,7 @@ def keyscan(host: str, port: int, timeout: float) -> list[PublicKey]:
     if not exe:
         return []
     p = subprocess.run([exe, "-T", str(max(1, int(timeout))), "-p", str(port), "-t", "rsa,ecdsa,ed25519,dsa", "--", host],
-                       capture_output=True, text=True, timeout=timeout * 4 + 5)
+                       capture_output=True, text=True, timeout=max(1, int(timeout)) + 1)
     return parse_keyscan(p.stdout)
 
 
@@ -191,10 +191,17 @@ def parse_keyscan(text: str) -> list[PublicKey]:
 
 
 def probe(host: str, port: int = 22, timeout: float = 5.0, fetch_keys: bool = True,
-          use_keyscan: bool = True) -> ProbeResult:
+          use_keyscan: bool = True, total_timeout: float | None = None) -> ProbeResult:
+    """``timeout`` bounds each connection; ``total_timeout`` (default 3x timeout) bounds the whole probe,
+    which opens one connection per host-key type and may then run ssh-keyscan."""
     res = ProbeResult(host, port)
+    deadline = time.monotonic() + (3 * timeout if total_timeout is None else total_timeout)
+
+    def left() -> float:
+        return min(timeout, deadline - time.monotonic())
+
     try:
-        c = _Conn(host, port, timeout)
+        c = _Conn(host, port, left())
         try:
             res.banner, res.kexinit = _handshake(c)
         finally:
@@ -212,16 +219,19 @@ def probe(host: str, port: int = 22, timeout: float = 5.0, fetch_keys: bool = Tr
             if alg not in res.kexinit.host_key or ktype in seen:
                 continue
             seen.add(ktype)
+            if left() <= 0:
+                res.notes.append(f"{alg}: skipped, the probe's overall deadline passed")
+                continue
             try:
-                res.host_keys.append(_fetch_host_key(host, port, kex, alg, timeout))
+                res.host_keys.append(_fetch_host_key(host, port, kex, alg, left()))
             except (OSError, ProbeError, wire.WireError, ValueError) as e:
                 res.notes.append(f"{alg}: {type(e).__name__}: {e}")
         if res.host_keys:
             res.method = "kex"
             return res
-    if use_keyscan:
+    if use_keyscan and left() > 0:
         try:
-            res.host_keys = keyscan(host, port, timeout)
+            res.host_keys = keyscan(host, port, left())
         except (OSError, subprocess.SubprocessError) as e:
             res.notes.append(f"ssh-keyscan: {type(e).__name__}: {e}")
         if res.host_keys:

@@ -38,6 +38,7 @@ from farrier.monitoring.notify import Notifier
 from farrier.security.secrets_store import SecretStore
 from farrier.security.vault import PROTECTED_DIRS, set_vault_lookup
 
+ROLLING_BACK = "; rolling back"   # error suffix of a claimed rollback not yet finished (see recover_rollbacks)
 DEFAULT_SETTINGS = {
     "horizon_days": 14,          # create renewals this far ahead of their due date
     "manual_daily_cap": 25,      # change tickets a team can absorb per day
@@ -57,7 +58,10 @@ DEFAULT_SETTINGS = {
     # agentless SSH inventory: unauthenticated probe / authorized_keys collection cadence (0 = never)
     "ssh_scan_hours": 24,
     "ssh_collect_hours": 24,
+    # private keys exported for tag export-key are deleted from the secret backend after this long (0 = keep)
+    "export_key_retention_hours": 24,
 }
+EXPORTED_KEY = "exported_key"    # config_items kind: renewal id -> {backend, ref} of a key exported for consumers
 
 
 class NotApproved(ValueError):
@@ -390,6 +394,11 @@ class Engine:
             else:
                 try:
                     ref = backend.put(f"keys/{r['id']}", self.store.vault.open(r["key_sealed"]))
+                    with self.store.transaction():   # remembered so sweep_exported_keys can delete it later
+                        self.store.x("DELETE FROM config_items WHERE kind=? AND name=?", (EXPORTED_KEY, str(r["id"])))
+                        self.store.x("INSERT INTO config_items(kind, name, body, updated_at) VALUES (?,?,?,?)",
+                                     (EXPORTED_KEY, str(r["id"]), json.dumps({"backend": backend.name, "ref": ref}),
+                                      now_iso()))
                     refs["private_key_ref"] = backend.external(ref)
                     self.store.log(f"private key exported to {backend.describe()['location']}", ep["id"], r["id"])
                 except Exception as e:  # noqa: BLE001
@@ -432,6 +441,27 @@ class Engine:
             if r is None or r["state"] not in ("issued", "awaiting_manual"):
                 self._discard_pack(rid, None)
                 removed += 1
+        return removed
+
+    def sweep_exported_keys(self, now: datetime | None = None) -> int:
+        """Delete keys exported for event consumers once export_key_retention_hours have passed."""
+        hours = self.settings.get("export_key_retention_hours", 24)
+        if not hours:
+            return 0
+        cutoff = ((now or policy.utcnow()) - timedelta(hours=hours)).isoformat(timespec="seconds")
+        removed = 0
+        for row in self.store.q("SELECT name, body FROM config_items WHERE kind=? AND updated_at < ?",
+                                (EXPORTED_KEY, cutoff)):
+            b = json.loads(row["body"])
+            try:
+                self.secrets._backend(b["backend"]).delete(b["ref"])
+            except Exception as e:  # noqa: BLE001 - kept, retried next tick
+                self.store.log(f"deleting exported key keys/{row['name']} failed: {type(e).__name__}: {e}"[:500],
+                               level="warning")
+                continue
+            self.store.x("DELETE FROM config_items WHERE kind=? AND name=?", (EXPORTED_KEY, row["name"]))
+            self.store.log(f"exported private key keys/{row['name']} deleted after {hours} h")
+            removed += 1
         return removed
 
     def _step_planned(self, r, ep, now):
@@ -525,8 +555,12 @@ class Engine:
         # Claim the renewal before touching the device (verifying -> failed, then -> rolled_back once it
         # worked): a concurrent cancel or another replica must not see its renewal rolled back under it.
         if not self.store.update_renewal(r["id"], expect_state="verifying", state="failed",
-                                         error=f"new cert never went live (serving {seen}); rolling back"):
+                                         error=f"new cert never went live (serving {seen}){ROLLING_BACK}"):
             return
+        self._roll_back(r, ep, seen)
+
+    def _roll_back(self, r, ep, seen: str) -> None:
+        """Run a claimed (state failed, error ending ROLLING_BACK) rollback and record how it ended."""
         try:
             if r["rollback"]:
                 self.connector(ep).rollback(r["rollback"])
@@ -537,6 +571,27 @@ class Engine:
             self.store.update_renewal(r["id"], expect_state="failed", error=msg)
         self.store.log(msg, ep["id"], r["id"], level="error")
         self._discard_pack(r["id"], ep)
+
+    def recover_rollbacks(self, grace: timedelta = timedelta(minutes=10)) -> int:
+        """Finish rollbacks a crash interrupted: renewals still ``failed`` with the "rolling back" marker and
+        a rollback token, untouched for ``grace`` (longer than any rollback runs). Each is retried at most
+        once: the marker is swapped with a compare-and-set before the device is touched."""
+        cutoff = (policy.utcnow() - grace).isoformat(timespec="seconds")
+        done = 0
+        for row in self.store.q("SELECT id, error FROM renewals WHERE state='failed' AND rollback IS NOT NULL "
+                                "AND error LIKE ? AND updated_at < ?", (f"%{ROLLING_BACK}", cutoff)):
+            seen = row["error"][:-len(ROLLING_BACK)].removeprefix("new cert never went live (serving ").rstrip(")")
+            claimed = self.store._run("UPDATE renewals SET error=?, updated_at=? WHERE id=? AND state='failed' "
+                                      "AND error=?", (f"{row['error'][:-len(ROLLING_BACK)]}; rollback resumed "
+                                                      "after a restart", now_iso(), row["id"], row["error"]))[1]
+            if not claimed:
+                continue
+            r = self.store.renewal(row["id"])
+            ep = self.store.endpoint(r["endpoint_id"])
+            self._roll_back(r, ep, seen)
+            self._notify(self.store.renewal(r["id"])["state"], r["id"])
+            done += 1
+        return done
 
     def _deep_verify(self, r, ep) -> str | None:
         """Chain, hostname and every-VIP checks once the new fingerprint is seen. None means good."""
@@ -600,7 +655,15 @@ class Engine:
         states = Counter()
         for r in self.store.renewals(OPEN_STATES, limit=100000):
             states[self.advance(r["id"], now)] += 1
+        try:
+            self.recover_rollbacks()
+        except Exception as e:  # noqa: BLE001
+            self.store.log(f"rollback recovery failed: {type(e).__name__}: {e}", level="error")
         self.sweep_packs()
+        try:
+            self.sweep_exported_keys(now)
+        except Exception as e:  # noqa: BLE001
+            self.store.log(f"exported key sweep failed: {type(e).__name__}: {e}", level="error")
         out = {"planned": len(planned), "states": dict(states)}
         if scan:
             try:   # after renewals, so a slow probe never delays a change; wall-clock cadence (stored times are real)

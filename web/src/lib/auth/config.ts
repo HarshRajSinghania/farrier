@@ -6,6 +6,7 @@
  *   basic  FARRIER_DASHBOARD_PASSWORD is set: one shared login, treated as admin
  *   none   neither: local development and demo mode only (see the production guard)
  */
+import { redirectUriProblem } from "./request";
 import { parseList, type RoleMapping } from "./roles";
 import { secretProblem } from "./seal";
 
@@ -54,6 +55,8 @@ export function oidcConfig(): ConfigResult {
   } catch {
     return { ok: false, error: "FARRIER_OIDC_ISSUER is not a valid URL" };
   }
+  const redirect = redirectUriProblem(env);
+  if (redirect) return { ok: false, error: redirect };
   const scopes = (env.FARRIER_OIDC_SCOPES?.trim() || "openid profile email groups").split(/\s+/);
   if (!scopes.includes("openid")) scopes.unshift("openid");
   return {

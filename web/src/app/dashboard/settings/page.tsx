@@ -20,6 +20,10 @@ const NUMBERS: { key: keyof EngineSettings; label: string; help: string; unit?: 
   { key: "auto_daily_cap", label: "Automated renewals per day", help: "An upper bound on automated deploys." },
   { key: "verify_max_attempts", label: "Verification attempts", help: "Cycles before a deploy that never goes live is rolled back." },
   { key: "scan_timeout", label: "Scan timeout", help: "How long to wait for a TLS handshake.", unit: "seconds" },
+  { key: "crypto_scan_hours", label: "Crypto rescan", help: "Re-check TLS versions, ciphers and PQC readiness this often. 0 turns it off.", unit: "hours" },
+  { key: "ssh_scan_hours", label: "SSH host rescan", help: "Re-read SSH host keys and algorithms this often. 0 turns it off.", unit: "hours" },
+  { key: "ssh_collect_hours", label: "SSH key collection", help: "Re-read authorized_keys over SSH this often. 0 turns it off.", unit: "hours" },
+  { key: "export_key_retention_hours", label: "Exported key retention", help: "Delete keys exported for cloud events after this long. 0 keeps them.", unit: "hours" },
 ];
 const TOGGLES: { key: keyof EngineSettings; label: string; help: string }[] = [
   { key: "verify_chain_and_names", label: "Check chain and names after deploy", help: "Done only when the chain is complete and every name is covered." },

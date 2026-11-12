@@ -351,6 +351,7 @@ annotation. In existingSecret mode only names and keys are known: rotate values 
 {{- $w := .Values.web -}}
 {{- $d := dict "FARRIER_API_URL" (default (include "farrier.engine.url" .) $w.apiUrl) -}}
 {{- with include "farrier.web.siteUrl" . }}{{ $_ := set $d "NEXT_PUBLIC_SITE_URL" . }}{{ end -}}
+{{- $_ := set $d "FARRIER_TRUSTED_PROXY_HOPS" ($w.trustedProxyHops | toString) -}}
 {{- if eq $w.auth.mode "oidc" -}}
 {{- $o := $w.auth.oidc -}}
 {{- $_ := set $d "FARRIER_OIDC_ISSUER" (required "web.auth.oidc.issuer is required when web.auth.mode=oidc" $o.issuer) -}}
@@ -362,7 +363,10 @@ annotation. In existingSecret mode only names and keys are known: rotate values 
 {{- with $o.adminGroups }}{{ $_ := set $d "FARRIER_OIDC_ADMIN_GROUPS" . }}{{ end -}}
 {{- with $o.operatorGroups }}{{ $_ := set $d "FARRIER_OIDC_OPERATOR_GROUPS" . }}{{ end -}}
 {{- with $o.allowedGroups }}{{ $_ := set $d "FARRIER_OIDC_ALLOWED_GROUPS" . }}{{ end -}}
-{{- with $o.redirectUri }}{{ $_ := set $d "FARRIER_OIDC_REDIRECT_URI" . }}{{ end -}}
+{{- /* Production refuses to start without an exact redirect URI: default it from the site URL. */ -}}
+{{- $site := include "farrier.web.siteUrl" . -}}
+{{- $redirect := $o.redirectUri | default (ternary (printf "%s/auth/callback" (trimSuffix "/" $site)) "" (ne $site "")) -}}
+{{- $_ := set $d "FARRIER_OIDC_REDIRECT_URI" (required "web.auth.oidc.redirectUri (or web.siteUrl, an Ingress host or an HTTPRoute hostname) is required when web.auth.mode=oidc" $redirect) -}}
 {{- with $o.postLogoutRedirectUri }}{{ $_ := set $d "FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI" . }}{{ end -}}
 {{- else -}}
 {{- $_ := set $d "FARRIER_DASHBOARD_USER" $w.auth.basic.user -}}

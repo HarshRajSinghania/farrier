@@ -84,6 +84,10 @@ resource "google_project_iam_member" "engine_store_manage" {
   }
 }
 
+# The only grant on the objects bucket (change packs, backups, audit exports): nobody else gets a
+# bucket-level write role. Project-level Owner, Editor and Storage Admin still inherit write, so
+# keep those to break-glass admins. `farrier restore` trusts a backup's rows; backups are also
+# HMAC-signed and unsigned ones need --allow-unsigned.
 resource "google_storage_bucket_iam_member" "engine_objects" {
   bucket = google_storage_bucket.objects.name
   role   = "roles/storage.objectAdmin"

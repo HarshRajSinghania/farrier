@@ -400,3 +400,11 @@ def test_default_sqlite_file_name_is_stable(tmp_path):
     assert (tmp_path / "farrier.db").exists()
     assert not any(p.name.startswith("farrier.db.") and not p.name.endswith(("-wal", "-shm")) for p in tmp_path.iterdir())
     assert [e["name"] for e in Store(tmp_path).endpoints()] == ["kept"]
+
+
+def test_redact_url_masks_every_credential_like_query_parameter():
+    url = ("mysql://farrier:pw@db/f?sslmode=require&PASSWD=a1&client_secret=a2&access_token=a3&ApiKey=a4"
+           "&aws_credential=a5&Password=a6")
+    out = redact_url(url)
+    assert not any(f"a{i}" in out for i in range(1, 7)) and ":pw@" not in out, out
+    assert "sslmode=require" in out and "PASSWD=***" in out

@@ -401,6 +401,11 @@ web:
   # -- FARRIER_API_URL override. Empty uses the engine Service:
   # http://<engine>.<namespace>.svc.<clusterDomain>:<port>.
   apiUrl: ""
+  # -- FARRIER_TRUSTED_PROXY_HOPS: X-Forwarded-For entries your own proxies append in front of the
+  # dashboard (used for the sign-in lockout). 1 = one Ingress or Gateway; 2 = a CDN or cloud load
+  # balancer in front of it; 0 = ignore X-Forwarded-For. The Ingress/Gateway must append to or
+  # overwrite the header, never pass a client's value through as the right-most entry.
+  trustedProxyHops: 1
 
   auth:
     # -- basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login) or oidc (single sign-on
@@ -424,7 +429,8 @@ web:
       operatorGroups: ""
       # -- FARRIER_OIDC_ALLOWED_GROUPS: refuse anyone outside these (and admin/operator) groups.
       allowedGroups: ""
-      # -- FARRIER_OIDC_REDIRECT_URI. Empty derives it from the request.
+      # -- FARRIER_OIDC_REDIRECT_URI (required in production). Empty uses <siteUrl>/auth/callback;
+      # register exactly this URL with the identity provider.
       redirectUri: ""
       # -- FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI. Empty derives it from the request.
       postLogoutRedirectUri: ""

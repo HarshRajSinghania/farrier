@@ -460,6 +460,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `web.image.digest` | `""` | Image digest (sha256:...). |
 | `web.image.pullPolicy` | `"IfNotPresent"` | Image pull policy. |
 | `web.siteUrl` | `""` | Public URL of the dashboard (NEXT_PUBLIC_SITE_URL). Empty derives https://<first host> from the Ingress or HTTPRoute. Use https:// to turn on HSTS and __Host- cookies. |
+| `web.trustedProxyHops` | `1` | FARRIER_TRUSTED_PROXY_HOPS: X-Forwarded-For entries your own proxies append (1 = one Ingress/Gateway, 2 = a CDN or cloud LB in front of it, 0 = ignore the header). |
 | `web.apiUrl` | `""` | FARRIER_API_URL override. Empty uses the engine Service: http://<engine>.<namespace>.svc.<clusterDomain>:<port>. |
 | `web.auth.mode` | `"basic"` | basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login) or oidc (single sign-on with viewer/operator/admin roles). A production dashboard refuses to run with neither. |
 | `web.auth.basic.user` | `"admin"` | FARRIER_DASHBOARD_USER. |
@@ -470,7 +471,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `web.auth.oidc.adminGroups` | `""` | FARRIER_OIDC_ADMIN_GROUPS, comma-separated. |
 | `web.auth.oidc.operatorGroups` | `""` | FARRIER_OIDC_OPERATOR_GROUPS, comma-separated. |
 | `web.auth.oidc.allowedGroups` | `""` | FARRIER_OIDC_ALLOWED_GROUPS: refuse anyone outside these (and admin/operator) groups. |
-| `web.auth.oidc.redirectUri` | `""` | FARRIER_OIDC_REDIRECT_URI. Empty derives it from the request. |
+| `web.auth.oidc.redirectUri` | `""` | FARRIER_OIDC_REDIRECT_URI (required in production). Empty uses <siteUrl>/auth/callback; register exactly this URL with the identity provider. |
 | `web.auth.oidc.postLogoutRedirectUri` | `""` | FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI. Empty derives it from the request. |
 | `web.auth.oidc.sessionIdleMinutes` | `60` | FARRIER_SESSION_IDLE_MINUTES. |
 | `web.auth.oidc.sessionMaxHours` | `12` | FARRIER_SESSION_MAX_HOURS. |

@@ -119,6 +119,34 @@ data "aws_iam_policy_document" "bucket" {
       values   = ["1.2"]
     }
   }
+
+  # Backups are restored as trusted rows (connector commands included), so only the engine task
+  # role, and the admin roles you name, may write or delete objects. Backups are also HMAC-signed by
+  # the engine; `farrier restore` refuses unsigned ones unless given --allow-unsigned.
+  statement {
+    sid    = "DenyObjectWritesExceptFarrier"
+    effect = "Deny"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:RestoreObject",
+      "s3:PutObjectRetention",
+      "s3:PutObjectLegalHold",
+    ]
+    resources = ["${aws_s3_bucket.objects.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "ArnNotLike"
+      variable = "aws:PrincipalArn"
+      values   = concat([aws_iam_role.engine_task.arn], var.storage_admin_principal_arns)
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "objects" {

@@ -1029,6 +1029,11 @@
           "type": "string",
           "pattern": "^$|^https?://[^/]+"
         },
+        "trustedProxyHops": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
         "apiUrl": {
           "type": "string",
           "pattern": "^$|^https?://"

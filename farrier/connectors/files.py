@@ -22,6 +22,7 @@ from farrier.connectors.base import Bundle, Connector, DeployError
 class FilesConnector(Connector):
     kind = "files"
     required = ("cert_path", "key_path")
+    local_paths = ("cert_path", "key_path", "chain_path", "fullchain_path", "combined_path")
 
     def _targets(self, b: Bundle) -> dict[str, str]:
         t = {self.cfg["cert_path"]: b.cert_pem, self.cfg["key_path"]: b.key_pem}

@@ -66,3 +66,26 @@ def test_notifier_shapes_and_delivery(tmp_path, monkeypatch):
     eng.notifier.send("test", wait=True)
     assert sent == []
     assert any("notification for test failed" in e["message"] for e in c.get("/api/events").json())
+
+
+def test_inventory_csv_neutralises_tab_and_cr_led_formulas(tmp_path, monkeypatch):
+    from farrier.core.engine import Engine
+    monkeypatch.delenv("FARRIER_API_TOKEN", raising=False)
+    monkeypatch.delenv("FARRIER_API_READ_TOKEN", raising=False)
+    eng = Engine(tmp_path / "d")
+    for i, name in enumerate(("\t=1+1", "\r=cmd|' /C calc'!A0", "=x", "web")):
+        eng.store.upsert_endpoint({"name": name, "host": f"10.0.0.{i}", "port": 443, "connector": "manual",
+                                   "connector_config": {}})
+    parsed = list(csv.DictReader(io.StringIO(TestClient(create_app(eng)).get("/api/inventory?format=csv").text)))
+    assert sorted(r["name"] for r in parsed) == sorted(["'\t=1+1", "'\r=cmd|' /C calc'!A0", "'=x", "web"])
+
+
+def test_slack_and_teams_escape_device_controlled_strings():
+    p = payload("failed", {"id": 7, "error": "<!channel> <https://evil.example|click> & [x](https://evil) *b*"},
+                {"name": "web<@U1>", "host": "h", "port": 443})
+    p["dashboard_url"] = "https://farrier.example/renewals/7"
+    slack = body_for("slack", p)["text"]
+    assert "<" not in slack.replace("&lt;", "") and "&lt;!channel&gt;" in slack and "&amp;" in slack
+    teams = body_for("teams", p)["text"]
+    assert "<" not in teams and r"\[x\](https://evil)" in teams and r"\*b\*" in teams
+    assert "https://farrier.example/renewals/7" in slack and "https://farrier.example/renewals/7" in teams

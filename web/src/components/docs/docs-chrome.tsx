@@ -122,7 +122,7 @@ function SearchTrigger({ onOpen }: { onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      className="flex h-10 w-full items-center gap-2 rounded-xl bg-background px-4 text-sm text-muted-foreground ring-1 ring-border transition-shadow hover:text-foreground hover:ring-foreground/30"
+      className="flex h-10 w-full shrink-0 items-center gap-2 rounded-xl border bg-background px-3 text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
     >
       <Search className="size-4 shrink-0" />
       <span className="flex-1 truncate text-left">Search docs</span>

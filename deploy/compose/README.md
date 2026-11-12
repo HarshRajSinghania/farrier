@@ -51,7 +51,10 @@ docker compose -f deploy/compose/production.yml ps
 ```
 
 Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik, your load balancer) in front of
-`127.0.0.1:3000`. Set `FARRIER_VERSION` to pin a release; for air-gapped hosts, mirror the images
+`127.0.0.1:3000`. It must append to or overwrite `X-Forwarded-For` (Caddy and Traefik do; nginx:
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), never pass the client's value
+through unchanged. `FARRIER_TRUSTED_PROXY_HOPS` is `1` for that one proxy; make it `2` if a CDN or
+load balancer sits in front of it. Set `FARRIER_VERSION` to pin a release; for air-gapped hosts, mirror the images
 into your registry and pin them by digest.
 
 Moving from the single-host quickstart's SQLite: `farrier db migrate --to "postgresql://..."` with
@@ -59,8 +62,9 @@ the same master key (see `/docs/databases`).
 
 ## Single sign-on
 
-Add to `web.environment`: `FARRIER_OIDC_ISSUER`, `FARRIER_OIDC_CLIENT_ID` (and `FARRIER_OIDC_SCOPES`,
-group settings); add `oidc_client_secret` and `session_secret` files and mount them on `web` with
+Add to `web.environment`: `FARRIER_OIDC_ISSUER`, `FARRIER_OIDC_CLIENT_ID`,
+`FARRIER_OIDC_REDIRECT_URI` (required in production: `<NEXT_PUBLIC_SITE_URL>/auth/callback`, registered
+exactly with the identity provider), and optionally `FARRIER_OIDC_SCOPES` and group settings; add `oidc_client_secret` and `session_secret` files and mount them on `web` with
 targets `FARRIER_OIDC_CLIENT_SECRET` and `FARRIER_SESSION_SECRET`. Remove `dashboard_password`.
 
 ## Object storage
@@ -70,7 +74,10 @@ The engine gets `FARRIER_STORAGE_URL=s3://farrier/farrier` and
 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` variables (the secret from `minio_engine_secret`).
 MinIO's community edition no longer publishes new images; the pinned release works, and any
 S3-compatible store (Ceph RGW, SeaweedFS, Garage, a NetApp or Dell S3 endpoint) can replace it: point
-`FARRIER_STORAGE_S3_ENDPOINT` at it and drop the `minio` services.
+`FARRIER_STORAGE_S3_ENDPOINT` at it and drop the `minio` services. Only the `farrier-engine` user
+(and the MinIO root user) can write the bucket, which holds backups: keep it that way, since
+`farrier restore` trusts a backup's rows (backups are HMAC-signed; unsigned ones need
+`--allow-unsigned`).
 
 ## Device credentials
 

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isSameOrigin, safeReturnTo } from "./csrf.ts";
+import { clientAddress, configuredOrigin, redirectUriProblem, requiredHeaderStatus } from "./request.ts";
 import { actorName, claimValues, mapRole, parseList, permits, requiredRole } from "./roles.ts";
 import { seal, secretProblem, unseal } from "./seal.ts";
 
@@ -103,4 +104,32 @@ test("secretProblem enforces 32 bytes", () => {
   assert.ok(secretProblem(undefined));
   assert.ok(secretProblem("short"));
   assert.equal(secretProblem(SECRET), null);
+});
+
+test("redirect URI: production needs a configured URL, never the request's host headers", () => {
+  assert.match(redirectUriProblem({ NODE_ENV: "production" }), /FARRIER_OIDC_REDIRECT_URI/);
+  assert.equal(redirectUriProblem({ NODE_ENV: "production", NEXT_PUBLIC_SITE_URL: "https://certs.example.com" }), null);
+  assert.equal(redirectUriProblem({ NODE_ENV: "development" }), null); // dev keeps deriving it from the request
+  assert.equal(configuredOrigin({ FARRIER_OIDC_REDIRECT_URI: "https://a.example/auth/callback", NEXT_PUBLIC_SITE_URL: "https://b.example" }), "https://a.example");
+  assert.equal(configuredOrigin({ NEXT_PUBLIC_SITE_URL: "not a url" }), null);
+});
+
+test("clientAddress: FARRIER_TRUSTED_PROXY_HOPS picks the hop that many from the right", () => {
+  const h = headers({ "x-forwarded-for": "6.6.6.6, 1.2.3.4, 10.0.0.2", "x-real-ip": "10.0.0.9" });
+  assert.equal(clientAddress(h, {}), "10.0.0.2");
+  assert.equal(clientAddress(h, { FARRIER_TRUSTED_PROXY_HOPS: "2" }), "1.2.3.4");
+  assert.equal(clientAddress(h, { FARRIER_TRUSTED_PROXY_HOPS: "9" }), "6.6.6.6");
+  assert.equal(clientAddress(h, { FARRIER_TRUSTED_PROXY_HOPS: "0" }), "10.0.0.9"); // XFF ignored
+  assert.equal(clientAddress(headers({}), {}), "unknown");
+});
+
+test("requiredHeaderStatus: FARRIER_REQUIRE_HEADER gates every path but /api/health", () => {
+  const env = { FARRIER_REQUIRE_HEADER: "X-Azure-FDID:0f6e-guid" };
+  const ok = headers({ "X-Azure-FDID": "0f6e-guid" });
+  assert.equal(requiredHeaderStatus(ok, "/", env), null);
+  assert.equal(requiredHeaderStatus(headers({ "X-Azure-FDID": "other" }), "/docs", env), 403);
+  assert.equal(requiredHeaderStatus(headers({}), "/dashboard", env), 403);
+  assert.equal(requiredHeaderStatus(headers({}), "/api/health", env), null);
+  assert.equal(requiredHeaderStatus(headers({}), "/", {}), null); // unset: no check
+  assert.equal(requiredHeaderStatus(ok, "/", { FARRIER_REQUIRE_HEADER: "no-colon" }), 500);
 });

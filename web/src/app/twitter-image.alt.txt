@@ -1,1 +1,1 @@
-Farrier: certificate renewal for firewalls, load balancers and appliances
+Farrier: every machine identity, managed without agents

@@ -73,7 +73,7 @@ def cmd_restore(args):
     if data is None:
         sys.exit(f"no backup at {args.source}")
     dst = Store(Path(args.data), url=args.to)
-    for t, n in restore(dst, data).items():
+    for t, n in restore(dst, data, allow_unsigned=args.allow_unsigned).items():
         print(f"  {t:<13} {n} rows")
     print("done. Every replica needs the master key the backup was sealed with.")
 
@@ -170,6 +170,9 @@ def main(argv=None):
     s.add_argument("--from", dest="source", required=True, help="URL of the backup object written by farrier backup")
     s.add_argument("--to", default=None, help="destination database URL (default: FARRIER_DATABASE_URL, else the "
                    "SQLite file in --data); must be empty")
+    s.add_argument("--allow-unsigned", action="store_true",
+                   help="restore a backup without a valid signature (made before signing, or by another master "
+                   "key); rows with connector commands still need FARRIER_ALLOW_API_COMMANDS=1")
     s.set_defaults(fn=cmd_restore)
 
     s = sub.add_parser("demo", help="spin up a simulated estate of real TLS endpoints and open the dashboard")

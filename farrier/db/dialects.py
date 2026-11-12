@@ -40,6 +40,9 @@ RESERVED_IDENTIFIERS = {"window"}
 _TOKEN = re.compile(r"""('(?:[^']|'')*')|("(?:[^"]|"")*")|(`[^`]*`)|(\?)|(%)|([A-Za-z_][A-Za-z0-9_]*)""")
 
 
+_SECRET_PARAM = re.compile(r"password|passwd|secret|token|key|credential", re.IGNORECASE)
+
+
 def redact_url(url: str) -> str:
     """The URL with any password (literal or reference) removed, safe for logs and status pages."""
     if not url or "://" not in url:
@@ -50,7 +53,7 @@ def redact_url(url: str) -> str:
         userinfo, host = netloc.rsplit("@", 1)
         user = userinfo.split(":", 1)[0]
         netloc = f"{user}:***@{host}" if ":" in userinfo else f"{user}@{host}"
-    query = "&".join(f"{k}=***" if k.lower() == "password" else f"{k}={v}"
+    query = "&".join(f"{k}=***" if _SECRET_PARAM.search(k) else f"{k}={v}"
                      for k, v in parse_qsl(parts.query, keep_blank_values=True))
     return f"{parts.scheme}://{netloc}{parts.path}" + (f"?{query}" if query else "")
 

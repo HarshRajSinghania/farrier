@@ -270,6 +270,10 @@ def test_jira_cloud_and_data_center_shapes(monkeypatch):
     dc.check()
     assert j.requests[-1].url.path == "/rest/api/2/myself"
     assert j.requests[-1].headers["Authorization"] == f"Bearer {JIRA_TOKEN}"
+    dc.open(TicketSpec(key="lbl-2", kind="change", summary="Install",
+                       description="CN=[x|https://evil] !https://evil/p.png! {html}<b>"))
+    desc = json.loads(j.requests[-1].content)["fields"]["description"]       # wiki markup: escaped
+    assert desc == r"CN=\[x\|https://evil\] \!https://evil/p.png\! \{html\}<b>"
 
 
 def test_datadog_events_v2_and_v1(monkeypatch):

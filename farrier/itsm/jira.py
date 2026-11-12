@@ -42,6 +42,15 @@ def adf(text: str) -> dict:
     return {"type": "doc", "version": 1, "content": content or [{"type": "paragraph", "content": []}]}
 
 
+_WIKI = re.compile(r"([\\{}\[\]|!*_+^~?#-])")
+
+
+def wiki(text: str) -> str:
+    """Plain text for Jira Data Center wiki markup: every markup character backslash-escaped, so a cert
+    subject or device error never becomes a link, an image (a tracking beacon), a macro or a table."""
+    return _WIKI.sub(r"\\\1", text)
+
+
 class Jira(TicketAdapter):
     kind = "jira"
     label = "Jira"
@@ -103,7 +112,7 @@ class Jira(TicketAdapter):
         self.http = Http(cfg["base_url"], headers, secrets=secrets, transport=transport)
 
     def _body(self, text: str):
-        return adf(text) if self.cloud else text
+        return adf(text) if self.cloud else wiki(text)      # ADF text nodes are never parsed as markup
 
     def check(self) -> str:
         me = self.http.get(f"{self.api}/myself").json()

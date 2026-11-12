@@ -786,3 +786,38 @@ def test_probe_is_bounded_against_a_server_trickling_ignore_messages():
     finally:
         stop.set()
         srv.close()
+
+
+def test_probe_has_one_overall_deadline_across_its_connections():
+    import time
+
+    from farrier.ssh import wire
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(16)
+    port = srv.getsockname()[1]
+    stop = threading.Event()
+    algs = ["ssh-ed25519", "ecdsa-sha2-nistp256", "rsa-sha2-512", "ssh-dss"]
+
+    def stall():          # answers KEXINIT at once, then never sends the KEX reply
+        while not stop.is_set():
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            try:
+                c.sendall(b"SSH-2.0-stall\r\n" + wire.frame(wire.build_kexinit(
+                    ["curve25519-sha256"], algs, ["aes128-ctr"], ["hmac-sha2-256"], ["none"])))
+            except OSError:
+                c.close()
+
+    threading.Thread(target=stall, daemon=True).start()
+    try:
+        t0 = time.monotonic()
+        r = probe("127.0.0.1", port, timeout=0.5, use_keyscan=False)
+        took = time.monotonic() - t0
+        assert took < 1.5 + 0.3, took                  # 3 x timeout, not 1 + 4 connections x timeout
+        assert not r.host_keys and any("overall deadline" in n for n in r.notes), r.notes
+    finally:
+        stop.set()
+        srv.close()

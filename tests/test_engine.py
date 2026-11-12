@@ -1,6 +1,7 @@
 """End-to-end: real TLS listener, real issuance from the local CA, real file deploys."""
 from datetime import timedelta
 
+from farrier.core import policy
 from farrier.core.discovery import fetch_cert, scan
 from farrier.core.x509util import parse_pem
 
@@ -106,7 +107,7 @@ def test_keystore_connector(engine, served, tmp_path):
     from farrier.core.x509util import split_pem_chain
     certs = split_pem_chain(full)
     path = tmp_path / "ks" / "server.p12"
-    conn = make_connector("keystore", {"path": str(path), "password": "changeit", "alias": "kafka"}, tmp_path)
+    conn = make_connector("keystore", {"path": str(path), "password": "changeit", "alias": "kafka"}, engine.data_dir)
     tok = conn.deploy(Bundle("kafka", 7, key, certs[0], "".join(certs[1:]), "2027-01-01"))
     loaded = pkcs12.load_pkcs12(path.read_bytes(), b"changeit")
     assert loaded.cert.friendly_name == b"kafka"
@@ -114,7 +115,7 @@ def test_keystore_connector(engine, served, tmp_path):
     assert tok["backup"] is None
 
     legacy = make_connector("keystore", {"path": str(path), "password": "changeit", "format": "pkcs12-legacy"},
-                            tmp_path)
+                            engine.data_dir)
     tok2 = legacy.deploy(Bundle("kafka", 8, key, certs[0], "".join(certs[1:]), "2027-01-01"))
     assert tok2["backup"] and pkcs12.load_pkcs12(path.read_bytes(), b"changeit").key is not None
 
@@ -233,3 +234,47 @@ def test_discovery_never_overwrites_an_endpoint_that_shares_its_name(engine, ser
     kept = engine.store.endpoint(eid)
     assert (kept["host"], kept["connector"], kept["sans"]) == ("10.9.9.9", "files", ["real.example"])
     assert any(e["name"] == f"{name} (2)" and "discovered" in e["tags"] for e in engine.store.endpoints())
+
+
+def test_leader_tick_finishes_a_rollback_interrupted_by_a_crash_exactly_once(engine, monkeypatch):
+    eid = engine.store.upsert_endpoint({"name": "app10", "host": "127.0.0.1", "port": 1, "connector": "files",
+                                        "connector_config": {"cert_path": "/x/c.pem", "key_path": "/x/k.pem"}})
+    rid = engine.store.create_renewal(eid, "2020-01-01T00:00:00+00:00", None, None, "test")
+    # what a crash right after the verifying -> failed claim leaves behind
+    engine.store.update_renewal(rid, state="failed", rollback={"backup": "x"},
+                                error="new cert never went live (serving abcd); rolling back")
+    rolled = []
+
+    class Conn:
+        def rollback(self, token):
+            rolled.append(token)
+
+    monkeypatch.setattr(engine, "connector", lambda ep: Conn())
+    assert engine.recover_rollbacks() == 0                       # too recent: the rollback may still be running
+    engine.store.x("UPDATE renewals SET updated_at='2020-01-01T00:00:00+00:00' WHERE id=?", (rid,))
+    engine.tick(scan=False)
+    engine.tick(scan=False)
+    r = engine.store.renewal(rid)
+    assert rolled == [{"backup": "x"}] and r["state"] == "rolled_back" and "(serving abcd); rolled back" in r["error"]
+
+
+def test_exported_keys_are_deleted_after_the_retention_window(engine, monkeypatch):
+    from farrier.security import secret_backends
+    monkeypatch.setattr(secret_backends, "CLOUD", ("local",))    # let the local backend stand in for a cloud one
+    eid = engine.store.upsert_endpoint({"name": "kafka", "host": "127.0.0.1", "port": 1, "connector": "manual",
+                                        "connector_config": {}, "tags": ["export-key"]})
+    ep = engine.store.endpoint(eid)
+    refs = []
+    for rid in (engine.store.create_renewal(eid, "2020-01-01T00:00:00+00:00", None, None, "t"),):
+        engine.store.update_renewal(rid, state="done", cert_pem="x", key_sealed=engine.store.vault.seal("KEY"))
+        refs.append(engine._export_artifacts(engine.store.renewal(rid), ep)["private_key_ref"])
+    assert refs == [f"vault:keys/{rid}"] and engine.secrets.backend.get(f"keys/{rid}") == "KEY"
+    engine.tick(scan=False)
+    assert engine.secrets.backend.get(f"keys/{rid}") == "KEY"                # still inside 24 h
+    engine.settings["export_key_retention_hours"] = 0
+    engine.tick(policy.utcnow() + timedelta(days=30), scan=False)
+    assert engine.secrets.backend.get(f"keys/{rid}") == "KEY"                # 0 = keep
+    engine.settings["export_key_retention_hours"] = 24
+    engine.tick(policy.utcnow() + timedelta(hours=25), scan=False)
+    assert engine.secrets.backend.get(f"keys/{rid}") is None
+    assert not engine.store.q("SELECT * FROM config_items WHERE kind='exported_key'")

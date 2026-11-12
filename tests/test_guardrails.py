@@ -111,3 +111,18 @@ def test_secret_refs_never_reach_system_files_or_farrier_and_cloud_credentials(m
     check_secret_ref("env:FARRIER_CONN_F5")
     with pytest.raises(SecretRefused):
         check_secret_ref("env:FARRIER_SECRET_F5")
+
+
+def test_files_and_keystore_connectors_refuse_paths_in_farriers_data_dir(client, tmp_path, monkeypatch):
+    eng, c = client
+    monkeypatch.setenv("FARRIER_SECRET_KS", "changeit")
+    data = tmp_path / "data"
+    for kind, cfg in (("files", {"cert_path": str(tmp_path / "srv" / "c.pem"), "key_path": str(data / "master.key")}),
+                      ("files", {"cert_path": str(data / ".." / "data" / "farrier.db"), "key_path": "/srv/k.pem"}),
+                      ("keystore", {"path": str(data / "sub" / "tls.p12"), "password": "env:FARRIER_SECRET_KS"})):
+        r = c.post("/api/endpoints", headers=ADMIN, json={"name": f"n{len(str(cfg))}", "host": "h", "port": 443,
+                                                          "connector": kind, "connector_config": cfg})
+        assert r.status_code == 400 and "data directory" in r.text, r.text
+    from farrier.connectors import make_connector
+    make_connector("files", {"cert_path": str(tmp_path / "srv" / "c.pem"), "key_path": str(tmp_path / "srv" / "k.pem")},
+                   eng.data_dir)

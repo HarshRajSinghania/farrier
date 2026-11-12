@@ -429,7 +429,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             w.writeheader()
             for row in rows:
                 # neutralise spreadsheet formulas in exported text
-                w.writerow({k: ("'" + v if isinstance(v, str) and v[:1] in "=+-@" else v) for k, v in row.items()})
+                w.writerow({k: ("'" + v if isinstance(v, str) and v and v[0] in "=+-@\t\r|%" else v) for k, v in row.items()})
             return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                                      headers={"Content-Disposition": 'attachment; filename="farrier-inventory.csv"'})
         return rows

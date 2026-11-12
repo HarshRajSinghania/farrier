@@ -36,8 +36,9 @@ certificates chain to public roots), `FARRIER_DATABASE_PASSWORD`, `FARRIER_MASTE
 `FARRIER_API_READ_TOKEN`, `FARRIER_SECRET_BACKEND=azure`, `FARRIER_SECRET_AZURE_VAULT_URL`,
 `FARRIER_STORAGE_URL=azblob://<account>/objects/farrier`, `AZURE_CLIENT_ID` (selects the managed identity).
 
-Web: `FARRIER_API_URL` (the engine's internal FQDN), `NEXT_PUBLIC_SITE_URL`, the API tokens, and
-either OIDC settings + `FARRIER_SESSION_SECRET` + `FARRIER_OIDC_CLIENT_SECRET`, or
+Web: `FARRIER_API_URL` (the engine's internal FQDN), `NEXT_PUBLIC_SITE_URL`, the API tokens,
+`FARRIER_REQUIRE_HEADER=X-Azure-FDID:<Front Door profile GUID>`, `FARRIER_TRUSTED_PROXY_HOPS=2`, and
+either OIDC settings (`FARRIER_OIDC_REDIRECT_URI=<site>/auth/callback` included) + `FARRIER_SESSION_SECRET` + `FARRIER_OIDC_CLIENT_SECRET`, or
 `FARRIER_DASHBOARD_PASSWORD`. Secrets are Key Vault references resolved by Container Apps with each
 app's identity.
 
@@ -115,9 +116,17 @@ With central private DNS zones, set `create_private_dns_zones = false` and pass
 ## Limits and hardening notes
 
 - **Front Door Standard cannot reach private origins.** The web app therefore has a public
-  Container Apps endpoint (TLS only); Front Door is the published entry point. To make the origin
-  private, move to Front Door **Premium** with a Private Link origin and an internal environment, or
-  restrict the web app's ingress with IP security restrictions. The engine is never exposed either way.
+  Container Apps endpoint (TLS only), locked to Front Door twice: its ingress allows only the
+  `AzureFrontDoor.Backend` IPv4 ranges (read from the service tag at plan time, so re-apply now and
+  then to pick up new ranges), and the web app gets `FARRIER_REQUIRE_HEADER=X-Azure-FDID:<profile
+  GUID>`, refusing anything that did not pass through this Front Door profile. For a private origin,
+  move to Front Door **Premium** with a Private Link origin and an internal environment. The engine is
+  never exposed either way.
+- `FARRIER_TRUSTED_PROXY_HOPS=2` (Front Door, then the Container Apps ingress, append to
+  `X-Forwarded-For`). Override it in `web_extra_env` if you add a proxy.
+- Only the engine identity has a data role on the objects container (backups included); shared keys
+  are off. Don't grant others `Storage Blob Data Contributor` there: `farrier restore` trusts a
+  backup's rows (backups are HMAC-signed; unsigned ones need `--allow-unsigned`).
 - Container Apps does not offer a read-only root filesystem setting; the images still run as UID 10001.
 - PostgreSQL is encrypted at rest with service-managed keys. A customer-managed key needs a
   `customer_managed_key` block with a second identity (and a geo-backup key if geo-redundant).

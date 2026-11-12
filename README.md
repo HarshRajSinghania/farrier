@@ -107,9 +107,10 @@ Report vulnerabilities privately through GitHub's security advisories. See the [
 
 ## Status
 
-95 tests cover the renewal state machine, rollback, the ACME client against an in-process RFC 8555 server,
-the appliance connectors against mock management APIs, DNS providers, database backends and leader election,
-SSO roles, the MCP server, health checks and the guardrails.
+236 engine tests (plus 160 for the cloud functions) cover the renewal state machine, rollback, the ACME client
+against an in-process RFC 8555 server, the appliance connectors against mock management APIs, DNS providers,
+database backends and leader election, signed backups, SSO roles, the MCP server, health checks, SSH key
+inventory, PQC readiness probes, the ServiceNow and Jira integrations, and the guardrails.
 
 **Not yet run against real hardware, live CAs or live provider accounts.** Try the F5, FortiGate and PAN-OS
 connectors on a lab device first, ACME against Let's Encrypt staging, and each DNS provider with a staging

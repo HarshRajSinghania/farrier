@@ -79,7 +79,7 @@ Manual endpoints stop at **Awaiting human**. That is the point where, in product
 2. "Install" it on the simulated device by copying the two PEM files into its directory:
 
    ```bash
-   cp fullchain.pem key.pem farrier-demo/devices/<endpoint-name>/
+   cp fullchain.pem key.pem farrier-demo-devices/<endpoint-name>/
    ```
 
 3. Wait for the next cycle, or click **Run cycle**. The scanner sees the new fingerprint live and the renewal moves to **Done** on its own. The change pack, including its private key, is then deleted.

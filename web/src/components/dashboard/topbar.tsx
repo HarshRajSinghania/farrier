@@ -24,7 +24,6 @@ const TITLES: Record<string, string> = {
   "/dashboard/ssh": "SSH keys",
   "/dashboard/crypto": "Crypto & PQC",
   "/dashboard/discovery": "Discovery",
-  "/dashboard/forecast": "Forecast",
   "/dashboard/health": "Health",
   "/dashboard/activity": "Activity",
   "/dashboard/integrations/authorities": "Certificate authorities",
