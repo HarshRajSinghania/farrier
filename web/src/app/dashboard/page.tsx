@@ -8,6 +8,7 @@ import { ForecastChart } from "@/components/charts/forecast-chart";
 import { Legend, StackedBars } from "@/components/charts/stacked-bars";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { RenewalActions } from "@/components/dashboard/renewal-actions";
+import { RunCycle } from "@/components/dashboard/topbar";
 import { SplitBar, StatTile } from "@/components/dashboard/widgets";
 import { CONNECTOR_LABEL, StateBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ export default function OverviewPage() {
             "Your certificate estate at a glance."
           )
         }
+        actions={<RunCycle />}
       />
       <ErrorNotice error={error} />
 

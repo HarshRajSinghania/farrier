@@ -88,7 +88,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           onClick={() => switchTheme(setTheme, value)}
           className={cn(
             "rounded-full p-1 text-muted-foreground transition-colors hover:text-foreground",
-            mounted && theme === value && "bg-muted text-foreground",
+            mounted && theme === value && "bg-foreground text-background hover:text-background",
           )}
         >
           <Icon className="size-3.5" />

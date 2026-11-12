@@ -104,7 +104,7 @@ function BackendPill() {
   );
 }
 
-function RunCycle() {
+export function RunCycle() {
   const [busy, setBusy] = useState(false);
   const { can } = useAccess();
   if (!can("POST", "tick")) return null;
@@ -325,7 +325,6 @@ export function Topbar({ onMenu, onToggle, collapsed }: { onMenu: () => void; on
       <div className="ml-auto flex items-center gap-2">
         <SearchBox />
         <BackendPill />
-        <RunCycle />
         <Notifications />
         <UserMenu />
       </div>
