@@ -139,7 +139,17 @@ class Vault:
 
 # Farrier's own credentials. A connector config is partly attacker-controllable (anyone with an
 # API token can set a device URL), so it must never be able to read these and send them away.
-INTERNAL_ENV = {"FARRIER_MASTER_KEY", "FARRIER_API_TOKEN", "FARRIER_API_READ_TOKEN"}
+INTERNAL_ENV = {"FARRIER_MASTER_KEY", "FARRIER_API_TOKEN", "FARRIER_API_READ_TOKEN", "FARRIER_MCP_TOKEN",
+                "FARRIER_DATABASE_PASSWORD", "FARRIER_DATABASE_URL", "FARRIER_MASTER_KEY_KMS", "FARRIER_LEADER_KEY"}
+# The host's ambient cloud credentials: Farrier's own identity, never a connector's.
+AMBIENT_ENV = {"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ACCESS_KEY_ID", "AZURE_CLIENT_SECRET",
+               "AZURE_CLIENT_CERTIFICATE_PASSWORD", "GOOGLE_APPLICATION_CREDENTIALS", "VAULT_TOKEN",
+               "ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
+# Env vars naming token files Farrier itself reads (workload identity, Vault login); those files are refused.
+TOKEN_FILE_ENV = ("FARRIER_SECRET_VAULT_TOKEN_FILE", "FARRIER_SECRET_VAULT_K8S_TOKEN_FILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
+                  "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "AZURE_FEDERATED_TOKEN_FILE", "GOOGLE_APPLICATION_CREDENTIALS")
+# Process, kernel and device files, and the pod's service-account token: never a connector secret.
+SYSTEM_DIRS = ("/proc", "/sys", "/dev", "/var/run/secrets/kubernetes.io", "/run/secrets/kubernetes.io")
 # Directories whose files are never readable as secrets (the data dir: master.key, the database).
 PROTECTED_DIRS: set[Path] = set()
 
@@ -180,7 +190,10 @@ def _inside(path: Path, root: Path) -> bool:
 def check_secret_ref(value) -> None:
     """Raise SecretRefused if `value` is a reference Farrier must not resolve.
 
-    Always refused: Farrier's own credentials and files in the data directory.
+    Always refused, whatever the allowlists say: Farrier's own variables (FARRIER_*, except user secrets under
+    FARRIER_SECRET_ENV_PREFIX when it starts with FARRIER_, else under FARRIER_SECRET_), the host's ambient cloud
+    credentials (AWS_SECRET_ACCESS_KEY, VAULT_TOKEN, ...), files in the data directory, under /proc, /sys, /dev
+    or the Kubernetes service-account directory, and the token files Farrier itself logs in with.
     Optional allowlists for hosted deployments:
       FARRIER_SECRET_ENV_PREFIX  env refs must start with it (e.g. FARRIER_SECRET_)
       FARRIER_SECRET_DIRS        file refs must sit under one of these (os.pathsep-separated)
@@ -200,9 +213,10 @@ def check_secret_ref(value) -> None:
             raise SecretRefused(f"{value!r} is not a valid vault reference (vault:NAME, NAME 1-64 of A-Z a-z 0-9 _ . -)")
     elif value.startswith("env:"):
         name = value[4:]
-        if name in INTERNAL_ENV:
-            raise SecretRefused(f"env:{name} is one of Farrier's own credentials and cannot be used by a connector")
         prefix = os.environ.get("FARRIER_SECRET_ENV_PREFIX")
+        user = prefix if prefix and prefix.startswith("FARRIER_") else "FARRIER_SECRET_"
+        if name in INTERNAL_ENV or name in AMBIENT_ENV or (name.startswith("FARRIER_") and not name.startswith(user)):
+            raise SecretRefused(f"env:{name} is one of Farrier's own credentials and cannot be used by a connector")
         if prefix and not name.startswith(prefix):
             raise SecretRefused(f"env:{name} is outside FARRIER_SECRET_ENV_PREFIX ({prefix})")
     elif value.startswith("file:"):
@@ -210,6 +224,11 @@ def check_secret_ref(value) -> None:
         for root in PROTECTED_DIRS:
             if _inside(path, root):
                 raise SecretRefused(f"file:{path} is inside Farrier's data directory")
+        if any(_inside(path, Path(d).resolve()) for d in SYSTEM_DIRS):
+            raise SecretRefused(f"file:{path} is a system or service-account file")
+        own = [Path(os.environ[k]).expanduser().resolve() for k in TOKEN_FILE_ENV if os.environ.get(k)]
+        if path in own:
+            raise SecretRefused(f"file:{path} is one of Farrier's own credential files")
         allowed = [Path(d).expanduser().resolve() for d in os.environ.get("FARRIER_SECRET_DIRS", "").split(os.pathsep) if d]
         if allowed and not any(_inside(path, d) for d in allowed):
             raise SecretRefused(f"file:{path} is outside FARRIER_SECRET_DIRS")

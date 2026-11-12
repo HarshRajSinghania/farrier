@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from farrier.connectors import REGISTRY, is_automated, make_connector
 from farrier.core import policy
 from farrier.core.discovery import expand_targets, scan
-from farrier.core.engine import Engine
+from farrier.core.engine import Engine, NotApproved
 from farrier.db.store import OPEN_STATES, parse_dt
 from farrier.security.vault import REF_PREFIXES, SecretRefused, check_secret_refs
 
@@ -267,9 +267,21 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         if not S.endpoint(eid):
             raise HTTPException(404)
         with lock:
-            rid = engine.force_renewal(eid, f"requested by {actor(request)}")
+            try:
+                rid = engine.force_renewal(eid, f"requested by {actor(request)}")
+            except NotApproved as e:
+                raise HTTPException(409, str(e))
             state = engine.advance(rid)
         return {"renewal_id": rid, "state": state}
+
+    @app.post("/api/endpoints/{eid}/approve", dependencies=[Depends(auth)])
+    def approve(eid: int, request: Request):
+        """Admin: let a discovered endpoint be renewed (its names came from whatever the host served)."""
+        if not S.endpoint(eid):
+            raise HTTPException(404)
+        with lock:
+            engine.approve(eid, actor(request))
+        return {"ok": True}
 
     @app.post("/api/discover", dependencies=[Depends(auth)])
     def discover(body: DiscoverIn):
@@ -437,7 +449,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         """Health for any targets, in discovery syntax (host, host:port, sni@ip:port, small CIDR ranges)."""
         from farrier.monitoring import health
         try:
-            targets = expand_targets(body.targets)
+            targets = expand_targets(body.targets, limit=64)
         except ValueError as e:
             raise HTTPException(400, str(e))
         if not targets:

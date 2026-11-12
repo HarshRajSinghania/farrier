@@ -62,12 +62,13 @@ def _is_hostname(name: str) -> bool:
     return 0 < len(name) <= 253 and all(_LABEL.match(label) for label in name.split("."))
 
 
-def expand_targets(spec: str) -> list[tuple[str, int, str | None]]:
+def expand_targets(spec: str, limit: int = 4096) -> list[tuple[str, int, str | None]]:
     """Accepts comma/whitespace separated items:
          host            -> host:443
          host:8443
          10.0.0.0/28:443|8443
          sni@10.0.0.5:443  (connect to IP, send SNI)
+    Raises ValueError once more than ``limit`` targets would result, counted before any are built.
     """
     out: list[tuple[str, int, str | None]] = []
     for item in spec.replace(",", " ").split():
@@ -91,13 +92,15 @@ def expand_targets(spec: str) -> list[tuple[str, int, str | None]]:
                 net = ipaddress.ip_network(host, strict=False)
             except ValueError:
                 raise ValueError(f"{host!r} is not a valid CIDR range") from None
-            if net.num_addresses > 65536:
-                raise ValueError(f"{host} is too large to scan in one go")
-            hosts = [str(h) for h in (net.hosts() if net.num_addresses > 2 else net)]
+            n = net.num_addresses
+            count = n if n <= 2 else n - (2 if net.version == 4 else 1)   # what net.hosts() yields
         elif _is_ip(host) or _is_hostname(host):
-            hosts = [host]
+            net, count = None, 1
         else:
             raise ValueError(f"{host!r} is not a valid host, IP or CIDR range")
+        if len(out) + count * len(port_list) > limit:
+            raise ValueError(f"more than {limit} targets; split the range")
+        hosts = [str(h) for h in (net.hosts() if net.num_addresses > 2 else net)] if net else [host]
         for h in hosts:
             for p in port_list:
                 out.append((h, p, sni))

@@ -43,7 +43,7 @@ def expand_hosts(items: list[str] | str, default_port: int = 22) -> list[tuple[s
             raise Invalid(f"{item!r}: name@address is TLS SNI syntax and does not apply to SSH")
         explicit = item.count(":") == 1
         try:
-            expanded = expand_targets(item)
+            expanded = expand_targets(item, limit=MAX_HOSTS)
         except ValueError as e:
             raise Invalid(str(e)) from None
         out += [(h, p if explicit else default_port) for h, p, _ in expanded]

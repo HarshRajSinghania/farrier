@@ -14,6 +14,7 @@ import hashlib
 import shutil
 import socket
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -24,6 +25,7 @@ from farrier.ssh import wire
 from farrier.ssh.keys import SIG_TO_KEY, PublicKey, parse_blob, verify
 
 CLIENT_ID = "SSH-2.0-Farrier_probe"
+MAX_SKIPPED = 64        # IGNORE/DEBUG messages tolerated before the message we wait for
 
 _ECDH = {"ecdh-sha2-nistp256": (ec.SECP256R1, hashlib.sha256), "ecdh-sha2-nistp384": (ec.SECP384R1, hashlib.sha384),
          "ecdh-sha2-nistp521": (ec.SECP521R1, hashlib.sha512)}
@@ -51,11 +53,12 @@ class ProbeResult:
 
 # ---- connection ---------------------------------------------------------------------------------------
 class _Conn:
-    """A socket with a read buffer: SSH mixes a text line and binary packets in one stream."""
+    """A socket with a read buffer: SSH mixes a text line and binary packets in one stream. The whole
+    connection, connect included, is bounded by ``timeout``: a server trickling bytes cannot stall it."""
 
     def __init__(self, host: str, port: int, timeout: float):
+        self.deadline = time.monotonic() + timeout
         self.sock = socket.create_connection((host, port), timeout=timeout)
-        self.sock.settimeout(timeout)
         self.buf = b""
 
     def close(self) -> None:
@@ -65,6 +68,10 @@ class _Conn:
             pass
 
     def _fill(self) -> None:
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the server did not finish within the timeout")
+        self.sock.settimeout(left)
         chunk = self.sock.recv(65536)
         if not chunk:
             raise ProbeError("connection closed by server")
@@ -86,7 +93,7 @@ class _Conn:
 
     def read_payload(self) -> bytes:
         """Next message, skipping IGNORE/DEBUG; DISCONNECT becomes an error."""
-        while True:
+        for _ in range(MAX_SKIPPED + 1):
             n = wire.packet_length(self.read_exact(4))
             payload = wire.unframe(self.read_exact(n))
             if not payload:
@@ -98,6 +105,7 @@ class _Conn:
                 r.uint32()
                 raise ProbeError(f"server disconnected: {r.string().decode('utf-8', 'replace')[:200]}")
             return payload
+        raise ProbeError(f"more than {MAX_SKIPPED} IGNORE/DEBUG messages")
 
     def send(self, data: bytes) -> None:
         self.sock.sendall(data)

@@ -385,15 +385,16 @@ class FakeHost:
                     out += b64(self.files[p]) if self._readable(p, sudo) else f"@@E {i}\n".encode()
             return CommandResult(0, out, "")
         if script == collect._WRITE_SCRIPT:
-            f, b, want, content = stdin.split(b"\n", 3)
-            f, b = f.decode(), b.decode()
+            f, user, want, content = stdin.split(b"\n", 3)
+            f = f.decode()
             if not self._readable(f, sudo):
                 return CommandResult(1, b"", "Permission denied")
             if hashlib.sha256(self.files[f]).hexdigest() != want.decode():
                 return CommandResult(3, b"", "file changed since it was read")
+            b = f"{f}.farrier-bak-{len(self.files):08d}"
             self.files[b] = self.files[f]
             self.files[f] = content
-            return CommandResult(0, b"", "")
+            return CommandResult(0, f"{b}\n".encode(), "")
         raise AssertionError(f"unexpected script: {script[:40]}")
 
     def close(self):
@@ -666,3 +667,122 @@ def test_periodic_run_is_due_once_per_interval(eng, monkeypatch):
     assert schedule.run_due(eng, now, background=False) == "scan+collect"
     assert scanned == [[("web1.internal", 22)]] and len(db.keys(eng.store)) == 2
     assert schedule.run_due(eng, now, background=False) is None          # not due again for 24h
+
+
+def _posix_sh():
+    """argv prefix for a real POSIX sh with real symlinks: sh itself, or WSL's on Windows; None if neither."""
+    import os
+    import shutil
+    import subprocess
+    if os.name != "nt":
+        return ["sh", "-c"] if shutil.which("sh") else None
+    if shutil.which("wsl.exe"):
+        try:
+            p = subprocess.run(["wsl.exe", "-e", "sh", "-c", "echo ok"], capture_output=True, timeout=60)
+            if p.stdout.strip() == b"ok":
+                return ["wsl.exe", "-e", "sh", "-c"]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return None
+
+
+class LocalSh:
+    """A Transport that runs scripts with a local POSIX sh. ``sudo`` is a fake on PATH that logs its
+    arguments and runs the command as the current user."""
+
+    def __init__(self, argv, bindir: str):
+        self.argv, self.bindir = argv, bindir
+
+    def run(self, script, stdin=None, sudo=False, timeout=60.0):
+        import subprocess
+        script = f'PATH="{self.bindir}:$PATH"; export PATH\n' + wrap(script, sudo)
+        b64 = base64.b64encode(script.encode()).decode()
+        p = subprocess.run(self.argv + [f'eval "$(echo {b64} | base64 -d)"'], input=stdin or b"",
+                           capture_output=True, timeout=timeout)
+        return CommandResult(p.returncode, p.stdout, p.stderr.decode("utf-8", "replace"))
+
+    def close(self):
+        pass
+
+
+def test_key_removal_write_never_follows_planted_links_and_runs_as_the_account():
+    from datetime import UTC, datetime, timedelta
+    argv = _posix_sh()
+    if argv is None:
+        pytest.skip("no POSIX sh with symlinks (sh or WSL)")
+    sh = LocalSh(argv, "/nonexistent")
+    d = sh.run("mktemp -d").stdout.decode().strip()
+    sh.bindir = f"{d}/bin"
+    f = f"{d}/home/.ssh/authorized_keys"
+    now = datetime.now(UTC)
+    # the attacker owns ~/.ssh: links at every backup name the old code could pick in the next minute
+    stamps = " ".join((now + timedelta(seconds=i)).strftime("%Y%m%dT%H%M%SZ") for i in range(-2, 60))
+    setup = sh.run(f"""set -e
+mkdir -p "{d}/home/.ssh" "{d}/etc" "{d}/bin"
+echo root-owned-original > "{d}/etc/victim"
+printf 'ssh-ed25519 AAAAOLD old\nssh-ed25519 AAAAKEEP keep\n' > "{f}"
+for s in {stamps}; do ln -s "{d}/etc/victim" "{f}.farrier-bak-$s"; done
+printf '#!/bin/sh\necho "$@" > "{d}/bin/sudo.log"\nwhile [ "$1" != "--" ]; do shift; done; shift\nexec "$@"\n' > "{d}/bin/sudo"
+chmod +x "{d}/bin/sudo"
+""")
+    assert setup.ok, setup.stderr
+    try:
+        before = b"ssh-ed25519 AAAAOLD old\nssh-ed25519 AAAAKEEP keep\n"
+        new = b"ssh-ed25519 AAAAKEEP keep\n"
+        backup = collect.write_file(sh, f, "mallory", before, new)          # through sudo, as mallory
+        out = sh.run(f'cat "{d}/etc/victim"; echo @@; cat "{f}"; echo @@; cat "{backup}"; echo @@; '
+                     f'[ -L "{backup}" ] && echo LINK; cat "{d}/bin/sudo.log"').stdout.decode()
+        victim, now_f, saved, rest = out.split("@@\n")
+        assert victim == "root-owned-original\n"                  # nothing written through a planted link
+        assert now_f.encode() == new and saved.encode() == before
+        assert "LINK" not in rest and backup.startswith(f + ".farrier-bak-")
+        assert "-u mallory -- sh -c" in rest                        # file operations run as the account
+        # the file itself replaced by a link: refused, the target untouched
+        sh.run(f'rm -f "{f}"; ln -s "{d}/etc/victim" "{f}"')
+        with pytest.raises(collect.CollectError, match="not a regular file"):
+            collect.write_file(sh, f, "", b"root-owned-original\n", b"x\n")
+        assert sh.run(f'cat "{d}/etc/victim"').stdout == b"root-owned-original\n"
+    finally:
+        sh.run(f'rm -rf "{d}"')
+
+
+def test_probe_is_bounded_against_a_server_trickling_ignore_messages():
+    import time
+
+    from farrier.ssh import wire
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(4)
+    port = srv.getsockname()[1]
+    stop = threading.Event()
+
+    def evil():          # never sends KEXINIT: an IGNORE every 0.2 s keeps each recv() under its timeout
+        while not stop.is_set():
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            def feed(c=c):
+                try:
+                    c.sendall(b"SSH-2.0-evil\r\n")
+                    while not stop.is_set():
+                        c.sendall(wire.frame(bytes([wire.MSG_IGNORE]) + b"\0\0\0\0"))
+                        time.sleep(0.2)
+                except OSError:
+                    pass
+                finally:
+                    c.close()
+            threading.Thread(target=feed, daemon=True).start()
+
+    threading.Thread(target=evil, daemon=True).start()
+    try:
+        done = {}
+        t = threading.Thread(target=lambda: done.setdefault("r", probe("127.0.0.1", port, timeout=1.0)), daemon=True)
+        t0 = time.monotonic()
+        t.start()
+        t.join(10)
+        assert "r" in done, "probe still running after 10 s"
+        assert time.monotonic() - t0 < 5 and done["r"].error and "Timeout" in done["r"].error
+    finally:
+        stop.set()
+        srv.close()

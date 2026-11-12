@@ -13,11 +13,14 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 ALIAS = "farrier-target"
+MAX_STDOUT = 64 << 20      # bytes a remote command may print (authorized_keys and passwd as base64)
+MAX_STDERR = 1 << 20
 
 
 @dataclass
@@ -101,17 +104,52 @@ class SSHBinaryTransport:
 
     def run(self, script: str, stdin: bytes | None = None, sudo: bool = False,
             timeout: float = 60.0) -> CommandResult:
+        p = subprocess.Popen(self._argv(wrap(script, sudo)), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+        outs: dict[int, bytes] = {}
+        over = threading.Event()
+
+        def drain(stream, limit: int, key: int) -> None:
+            buf = bytearray()
+            while chunk := stream.read(65536):
+                if len(buf) + len(chunk) > limit:   # a hostile host must not fill Farrier's memory
+                    over.set()
+                    p.kill()
+                    break
+                buf += chunk
+            outs[key] = bytes(buf)
+
+        def feed() -> None:
+            try:
+                p.stdin.write(stdin or b"")
+                p.stdin.close()
+            except OSError:
+                pass
+
+        threads = [threading.Thread(target=drain, args=(p.stdout, MAX_STDOUT, 1), daemon=True),
+                   threading.Thread(target=drain, args=(p.stderr, MAX_STDERR, 2), daemon=True),
+                   threading.Thread(target=feed, daemon=True)]
+        for t in threads:
+            t.start()
         try:
-            p = subprocess.run(self._argv(wrap(script, sudo)), input=stdin if stdin is not None else b"",
-                               capture_output=True, timeout=timeout)
+            p.wait(timeout)
         except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
             raise TransportError(f"ssh to {self.host}:{self.port} timed out after {timeout:.0f}s") from None
-        err = p.stderr.decode("utf-8", "replace").strip()
+        finally:
+            for t in threads:
+                t.join(5)
+            for f in (p.stdout, p.stderr):
+                f.close()
+        if over.is_set():
+            raise TransportError(f"ssh to {self.host}:{self.port}: the command printed too much output")
+        err = outs.get(2, b"").decode("utf-8", "replace").strip()
         if p.returncode == 255 and ("IDENTIFICATION HAS CHANGED" in err or "Host key verification failed" in err):
             raise HostKeyMismatch(f"{self.host}:{self.port} host key does not match the pinned key")
         if p.returncode == 255:
             raise TransportError(f"ssh to {self.host}:{self.port} failed: {err[-300:]}")
-        return CommandResult(p.returncode, p.stdout, err[-2000:])
+        return CommandResult(p.returncode, outs.get(1, b""), err[-2000:])
 
     def close(self) -> None:
         shutil.rmtree(self._dir, ignore_errors=True)

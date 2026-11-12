@@ -956,3 +956,25 @@ def test_database_password_is_reread_on_every_reconnect(tmp_path, monkeypatch):
     pw.write_text("rotated\n")                    # the secret store / sidecar rewrote it
     d.connect()                                   # what Store._reconnect does after a dropped connection
     assert seen == ["first", "rotated"]
+
+
+def test_eventgrid_identity_token_only_goes_to_event_grid_hosts(cloud, data_dir, monkeypatch):
+    from farrier.api.app import create_app
+    from farrier.core.engine import Engine
+    from farrier.events import publishers
+    monkeypatch.setenv("FARRIER_API_TOKEN", "admin-tok")
+    c = TestClient(create_app(Engine(data_dir)))
+    h = {"Authorization": "Bearer admin-tok"}
+    r = c.put("/api/notifiers/eg", json={"type": "eventgrid", "endpoint": "https://attacker.example/api/events"},
+              headers=h)
+    assert r.status_code == 400 and "Event Grid host" in r.text
+    r = c.put("/api/notifiers/eg", json={"type": "eventgrid", "endpoint": "https://eventgrid.azure.net.attacker.example/"},
+              headers=h)
+    assert r.status_code == 400
+    for host in ("t.westeurope-1.eventgrid.azure.net", "t.usgovvirginia-1.eventgrid.azure.us",
+                 "t.chinaeast2-1.eventgrid.chinacloudapi.cn"):
+        publishers.check({"type": "eventgrid", "endpoint": f"https://{host}/api/events"})
+    publishers.check({"type": "eventgrid", "endpoint": "https://hook.example/api", "key": "vault:eg"})  # own key: ok
+    with pytest.raises(Exception, match="Event Grid host"):          # a channel saved before the rule
+        publishers.publish({"type": "eventgrid", "endpoint": "https://attacker.example/"}, {"id": "1"})
+    assert not cloud.to("attacker.example")

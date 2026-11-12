@@ -1,8 +1,9 @@
 """Authorized-key collection and removal over SSH with a stored access profile (agentless).
 
 What a host needs: an account the profile's key can log in to, a POSIX ``sh`` with ``base64``,
-``getent`` (or a readable /etc/passwd), and for removal ``cp``, ``mktemp``, ``mv`` and ``sha256sum``
-(or ``shasum``). With ``sudo: true``, passwordless ``sudo -n`` to read other users' files.
+``getent`` (or a readable /etc/passwd), and for removal ``cat``, ``cp``, ``mktemp``, ``mv`` and ``sha256sum``
+(or ``shasum``). With ``sudo: true``, passwordless ``sudo -n`` to read other users' files; removal then
+writes as the file's account (``sudo -n -u <user>``), never as root.
 
 Host keys: before every connection the host's keys are probed (farrier.ssh.probe) and compared with the
 keys pinned for host:port. No pin yet: "tofu" pins what the host presents now; "strict" refuses until a
@@ -17,10 +18,10 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import shlex
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 
 from farrier.security.vault import resolve_secret
 from farrier.ssh import access, db, scan
@@ -55,18 +56,32 @@ while IFS= read -r p; do
 done
 """
 
-# stdin: path, backup path, expected sha256 of the current file, then the new content.
-_WRITE_SCRIPT = r"""set -eu
-IFS= read -r f
-IFS= read -r b
-IFS= read -r want
+# Runs as the account that owns the file ($1 path, $2 expected sha256; stdin: the new content). The
+# directory may be writable by that account, so nothing here goes through a name it could have planted:
+# the file must be a regular file (not a symlink), and the backup and temp files are fresh random names
+# that mktemp creates exclusively. Prints the backup's path.
+_WRITE_INNER = r"""set -eu
+f=$1
+if [ -L "$f" ] || [ ! -f "$f" ]; then echo "$f is not a regular file" >&2; exit 4; fi
 have=$( (sha256sum 2>/dev/null || shasum -a 256) < "$f" | cut -d' ' -f1)
-if [ "$have" != "$want" ]; then echo "file changed since it was read" >&2; exit 3; fi
-cp -p -- "$f" "$b"
+if [ "$have" != "$2" ]; then echo "file changed since it was read" >&2; exit 3; fi
+b=$(mktemp "$f.farrier-bak-XXXXXXXX")
+cat -- "$f" > "$b"
 t=$(mktemp "$f.farrier-XXXXXX")
 cp -p -- "$f" "$t"
 cat > "$t"
 mv -f -- "$t" "$f"
+printf '%s\n' "$b"
+"""
+# stdin: path, the account to write as (empty: the login user), expected sha256, then the new content.
+# Through sudo (root), the file operations are handed to that account: root never writes in its directory.
+_WRITE_SCRIPT = r"""set -eu
+IFS= read -r f
+IFS= read -r u
+IFS= read -r want
+inner=""" + shlex.quote(_WRITE_INNER) + r"""
+if [ -n "$u" ] && [ "$(id -un)" != "$u" ]; then exec sudo -n -u "$u" -- sh -c "$inner" farrier "$f" "$want"; fi
+exec sh -c "$inner" farrier "$f" "$want"
 """
 
 
@@ -272,6 +287,19 @@ def refresh_findings(store, items) -> None:
 
 
 # ---- removal ----------------------------------------------------------------------------------------
+def write_file(t: Transport, path: str, user: str, before: bytes, new: bytes) -> str:
+    """Replace ``path``, which must still hash like ``before``, with ``new``; as ``user`` through sudo when
+    given. Returns the path of the backup the host created."""
+    header = f"{path}\n{user}\n{hashlib.sha256(before).hexdigest()}\n".encode()
+    w = t.run(_WRITE_SCRIPT, stdin=header + new, sudo=bool(user), timeout=60)
+    if w.rc == 3:
+        raise Conflict(f"{path} changed while removing; nothing was written")
+    if not w.ok:
+        raise CollectError(f"writing {path} failed (exit {w.rc}): {w.stderr[-200:]}")
+    lines = w.stdout.decode("utf-8", "replace").splitlines()
+    return lines[-1] if lines else f"{path}.farrier-bak-?"
+
+
 def remove_key(store, items, kid: int, actor: str, dry_run: bool = False,
                factory: TransportFactory = default_transport, prober: HostProber = default_prober) -> dict:
     row = db.key(store, kid)
@@ -295,8 +323,7 @@ def remove_key(store, items, kid: int, actor: str, dry_run: bool = False,
             new_text, line_no = remove_line(text, row["line_sha256"])
         except ValueError as e:
             raise Conflict(f"{path}: {e}; collect again") from None
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        backup = f"{path}.farrier-bak-{stamp}"
+        backup = f"{path}.farrier-bak-XXXXXXXX"       # the real name is picked on the host by mktemp
         out = {"id": kid, "host": host, "port": port, "user": row["username"], "path": path, "line_no": line_no,
                "fingerprint_sha256": row["fingerprint"], "backup": backup, "dry_run": dry_run}
         where = f"{row['username']}@{host}:{port} {path} line {line_no}"
@@ -304,12 +331,7 @@ def remove_key(store, items, kid: int, actor: str, dry_run: bool = False,
             store.log(f"ssh key {row['fingerprint']} removal dry-run on {where} by {actor}")
             return out | {"removed": False}
         new = new_text.encode("utf-8", "surrogateescape")
-        header = f"{path}\n{backup}\n{hashlib.sha256(before).hexdigest()}\n".encode()
-        w = t.run(_WRITE_SCRIPT, stdin=header + new, sudo=other_user, timeout=60)
-        if w.rc == 3:
-            raise Conflict(f"{path} changed while removing; nothing was written")
-        if not w.ok:
-            raise CollectError(f"writing {path} failed (exit {w.rc}): {w.stderr[-200:]}")
+        backup = out["backup"] = write_file(t, path, row["username"] if other_user else "", before, new)
         after = _read_files(t, [path], other_user).get(0)
     finally:
         t.close()

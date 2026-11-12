@@ -1,4 +1,6 @@
 """Hosting guardrails: token scopes, no shell commands over the API, no reading Farrier's own secrets."""
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -86,3 +88,26 @@ def test_changes_are_attributed(client):
     # a header that is not a plain name is never written to the log
     c.post("/api/endpoints", json=ep | {"name": "vpn2"}, headers=ADMIN | {"x-farrier-actor": "x\nFAKE LOG LINE"})
     assert any("saved by api" in e["message"] for e in c.get("/api/events", headers=READER).json())
+
+
+def test_secret_refs_never_reach_system_files_or_farrier_and_cloud_credentials(monkeypatch, tmp_path):
+    from farrier.security.vault import check_secret_ref
+    monkeypatch.delenv("FARRIER_SECRET_ENV_PREFIX", raising=False)
+    token = tmp_path / "vault-token"
+    token.write_text("s.root")
+    monkeypatch.setenv("FARRIER_SECRET_VAULT_TOKEN_FILE", str(token))
+    monkeypatch.setenv("FARRIER_SECRET_DIRS", os.pathsep.join([str(tmp_path), "/"]))   # too broad: no help
+    for ref in ("file:/proc/self/environ", "file:/proc/1/environ", "file:/sys/class/dmi/id/product_uuid",
+                "file:/dev/fd/0", "file:/var/run/secrets/kubernetes.io/serviceaccount/token",
+                "file:/run/secrets/kubernetes.io/serviceaccount/token", f"file:{token}",
+                "env:FARRIER_DATABASE_PASSWORD", "env:FARRIER_MCP_TOKEN", "env:FARRIER_LEADER_KEY",
+                "env:AWS_SECRET_ACCESS_KEY", "env:AWS_SESSION_TOKEN", "env:AZURE_CLIENT_SECRET", "env:VAULT_TOKEN",
+                "env:ACTIONS_ID_TOKEN_REQUEST_TOKEN", "env:GOOGLE_APPLICATION_CREDENTIALS"):
+        with pytest.raises(SecretRefused):
+            check_secret_ref(ref)
+    check_secret_ref("env:FARRIER_SECRET_F5")                  # the user-secret namespace stays usable
+    check_secret_ref(f"file:{tmp_path / 'f5'}")
+    monkeypatch.setenv("FARRIER_SECRET_ENV_PREFIX", "FARRIER_CONN_")
+    check_secret_ref("env:FARRIER_CONN_F5")
+    with pytest.raises(SecretRefused):
+        check_secret_ref("env:FARRIER_SECRET_F5")

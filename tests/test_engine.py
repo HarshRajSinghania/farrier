@@ -150,3 +150,86 @@ def test_tick_scans_endpoints_concurrently(engine):
     engine.tick()
     assert time.monotonic() - t < 4          # serial would be >= 6s
     assert all(e["scan_error"] for e in engine.store.endpoints())
+
+
+def test_discovered_endpoint_is_monitor_only_until_admin_approves(engine, served, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from farrier.api.app import create_app
+    monkeypatch.delenv("FARRIER_API_TOKEN", raising=False)
+    monkeypatch.delenv("FARRIER_API_READ_TOKEN", raising=False)
+    s, _ = served
+    engine.register_scan(scan([("127.0.0.1", s.port, "app.internal.test")]))
+    eid = engine.store.endpoints()[0]["id"]
+    assert engine.plan(now=_due_now(engine, eid)) == []           # the planner skips it
+    c = TestClient(create_app(engine))
+    r = c.post(f"/api/endpoints/{eid}/renew")
+    assert r.status_code == 409 and "approve this discovered endpoint first" in r.json()["detail"]
+    assert engine.store.renewals() == []                           # no cert, no key, no pack
+    assert c.post(f"/api/endpoints/{eid}/approve", headers={"x-farrier-actor": "alice"}).json() == {"ok": True}
+    assert "discovered" not in engine.store.endpoint(eid)["tags"]
+    assert any("approved for renewal by alice" in e["message"] for e in engine.store.q("SELECT message FROM events"))
+    assert c.post(f"/api/endpoints/{eid}/renew").json()["state"] == "awaiting_manual"
+
+
+def test_verify_rollback_skipped_when_renewal_was_claimed_meanwhile(engine, monkeypatch):
+    eid = engine.store.upsert_endpoint({"name": "app9", "host": "127.0.0.1", "port": 1, "connector": "files",
+                                        "connector_config": {"cert_path": "/x/c.pem", "key_path": "/x/k.pem"}})
+    rid = engine.store.create_renewal(eid, "2020-01-01T00:00:00+00:00", None, None, "test")
+    engine.store.update_renewal(rid, state="verifying", new_fingerprint="ab" * 32, rollback={"backup": "x"})
+    engine.settings["verify_max_attempts"] = 1
+    rolled = []
+
+    class Conn:
+        def rollback(self, token):
+            rolled.append(token)
+
+    monkeypatch.setattr(engine, "connector", lambda ep: Conn())
+
+    def observe(ep):  # an operator cancels while the verify handshake is in flight
+        engine.store.update_renewal(rid, expect_state="verifying", state="cancelled")
+        return None
+
+    monkeypatch.setattr(engine, "observe", observe)
+    engine.advance(rid)
+    assert rolled == []
+    assert engine.store.renewal(rid)["state"] == "cancelled"
+
+
+def test_sweep_keeps_pack_of_renewal_still_issued(engine):
+    eid = engine.store.upsert_endpoint({"name": "vpn", "host": "127.0.0.1", "port": 1, "connector": "manual"})
+    rid = engine.store.create_renewal(eid, "2020-01-01T00:00:00+00:00", None, None, "test")
+    engine.store.update_renewal(rid, state="issued")
+    pack = engine.data_dir / "packs" / str(rid)
+    pack.mkdir(parents=True)
+    (pack / "key.pem").write_text("secret")   # written by deploy, just before issued -> awaiting_manual
+    assert engine.sweep_packs() == 0
+    assert pack.exists()
+
+
+def test_expand_targets_refuses_before_materialising_huge_ranges():
+    import time
+
+    import pytest
+
+    from farrier.core.discovery import expand_targets
+    spec = "10.0.0.0/16:" + "|".join(str(p) for p in range(1, 400))   # 26M targets from ~2 KB
+    t = time.monotonic()
+    with pytest.raises(ValueError, match="more than 4096 targets"):
+        expand_targets(spec)
+    assert time.monotonic() - t < 1
+    assert len(expand_targets("10.0.0.0/20")) == 4094                  # at the cap is fine
+    with pytest.raises(ValueError, match="more than 64 targets"):
+        expand_targets("10.0.0.0/25", limit=64)
+
+
+def test_discovery_never_overwrites_an_endpoint_that_shares_its_name(engine, served):
+    """An endpoint an admin configured under the name discovery would pick keeps its address, names and connector."""
+    s, _ = served
+    name = f"app.internal.test:{s.port}"
+    eid = engine.store.upsert_endpoint({"name": name, "host": "10.9.9.9", "port": 443, "connector": "files",
+                                        "sans": ["real.example"], "connector_config": {"cert_path": "/x/c.pem", "key_path": "/x/k.pem"}})
+    engine.register_scan(scan([("127.0.0.1", s.port, "app.internal.test")]))
+    kept = engine.store.endpoint(eid)
+    assert (kept["host"], kept["connector"], kept["sans"]) == ("10.9.9.9", "files", ["real.example"])
+    assert any(e["name"] == f"{name} (2)" and "discovered" in e["tags"] for e in engine.store.endpoints())

@@ -215,8 +215,8 @@ def test_issuer_validation_errors_are_clear(env):
     assert "unknown keys" in err({"preset": "letsencrypt", "dns": "auto", "emial": "x@y.z"})
     assert "no DNS account named 'cf'" in err({"preset": "letsencrypt", "dns": "cf"})
     assert "\"dns\"" in err({"preset": "letsencrypt"})
-    assert "not set" in err({"preset": "zerossl", "dns": "auto", "eab_kid": "env:FARRIER_TEST_UNSET_KID",
-                             "eab_hmac_key": "env:FARRIER_TEST_UNSET_HMAC"})
+    assert "not set" in err({"preset": "zerossl", "dns": "auto", "eab_kid": "env:FARRIER_SECRET_TEST_UNSET_KID",
+                             "eab_hmac_key": "env:FARRIER_SECRET_TEST_UNSET_HMAC"})
 
 
 def test_issuer_round_trip_and_eab_refs(env):
@@ -313,9 +313,9 @@ def test_dns_account_test_is_read_only(env, monkeypatch):
                                       "zones": ["me.duckdns.org"]})
     r = c.post("/api/dns-accounts/duck/test", headers=ADMIN).json()
     assert r["ok"] is True and r["zones"] == ["me.duckdns.org"]
-    put(c, "/api/dns-accounts/cf", {"provider": "cloudflare", "credentials": {"api_token": "env:FARRIER_TEST_NO_SUCH"}})
+    put(c, "/api/dns-accounts/cf", {"provider": "cloudflare", "credentials": {"api_token": "env:FARRIER_SECRET_TEST_NO_SUCH"}})
     r = c.post("/api/dns-accounts/cf/test", headers=ADMIN).json()
-    assert r["ok"] is False and "FARRIER_TEST_NO_SUCH" in r["detail"]
+    assert r["ok"] is False and "FARRIER_SECRET_TEST_NO_SUCH" in r["detail"]
 
     # Cloudflare: zones are listed (GET only) and compared
     from farrier.dns.providers import cloudflare

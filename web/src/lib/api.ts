@@ -107,6 +107,7 @@ export const api = {
   // a live TLS probe: read-only, so no cache refresh afterwards
   health: (id: number) => request<HealthReport>(`/endpoints/${id}/health?caa=false`),
   renew: (id: number) => act<{ renewal_id: number; state: string }>(`/endpoints/${id}/renew`, { method: "POST" }),
+  approve: (id: number) => act<{ ok: true }>(`/endpoints/${id}/approve`, { method: "POST" }),
   addEndpoint: (ep: EndpointInput) => act<{ id: number }>("/endpoints", { method: "POST", body: JSON.stringify(ep) }),
   deleteEndpoint: (id: number) => act<{ ok: true }>(`/endpoints/${id}`, { method: "DELETE" }),
   advance: (id: number) => act<{ state: string }>(`/renewals/${id}/advance`, { method: "POST" }),

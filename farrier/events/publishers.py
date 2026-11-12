@@ -31,6 +31,8 @@ TIMEOUT = 5.0
 ATTEMPTS = 2
 BUS_ARN = re.compile(r"^arn:aws[a-z-]*:events:(?P<region>[a-z0-9-]+):\d{12}:event-bus/[A-Za-z0-9/._-]+$")
 BUS_NAME = re.compile(r"^[A-Za-z0-9/._-]{1,256}$")
+# Without a key, Farrier sends its own Azure identity token: only to Event Grid itself.
+EVENTGRID_HOSTS = (".eventgrid.azure.net", ".eventgrid.azure.us", ".eventgrid.chinacloudapi.cn")
 TOPIC = re.compile(r"^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$")
 
 
@@ -50,6 +52,10 @@ def check(cfg: dict) -> None:
         u = urlsplit(str(cfg.get("endpoint") or ""))
         if u.scheme != "https" or not u.hostname:
             raise ValueError("endpoint must be the topic's https:// endpoint")
+        if not cfg.get("key") and not u.hostname.lower().endswith(EVENTGRID_HOSTS):
+            raise ValueError("endpoint must be an Event Grid host (*.eventgrid.azure.net, *.eventgrid.azure.us or "
+                             "*.eventgrid.chinacloudapi.cn) when no key is set: Farrier's Azure identity token is sent "
+                             "to it")
 
 
 def publish(cfg: dict, event: dict) -> None:
@@ -89,6 +95,10 @@ def _eventgrid(cfg: dict, event: dict) -> None:
     if cfg.get("key"):
         h = {"aeg-sas-key": resolve_secret(cfg["key"])}
     else:
+        try:
+            check(cfg)                      # a channel saved before the host rule must not get the token either
+        except ValueError as e:
+            raise CloudConfigError(str(e)) from None
         h = {"Authorization": f"Bearer {azure.default_provider().token(azure.EVENTGRID_SCOPE)}"}
     h["Content-Type"] = "application/cloudevents-batch+json; charset=utf-8"
     request("POST", cfg["endpoint"], what="Event Grid publish", content=json.dumps([event]).encode(), headers=h,

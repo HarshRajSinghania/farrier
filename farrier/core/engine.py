@@ -60,6 +60,15 @@ DEFAULT_SETTINGS = {
 }
 
 
+class NotApproved(ValueError):
+    """A renewal was asked for an endpoint discovery added that no admin has approved yet."""
+
+
+def discovered(ep: dict | None) -> bool:
+    """Added by discovery and not yet approved: names come from whatever the host served, so monitor only."""
+    return bool(ep) and "discovered" in (ep.get("tags") or [])
+
+
 class Engine:
     def __init__(self, data_dir: str | Path, issuers: dict | None = None, settings: dict | None = None):
         self.data_dir = Path(data_dir)
@@ -214,14 +223,22 @@ class Engine:
         return len(eps)
 
     def register_scan(self, results) -> dict:
-        """Persist discovery results; unknown host:port pairs become manual endpoints."""
+        """Persist discovery results; unknown host:port pairs become manual endpoints tagged `discovered`.
+        Their names come from whatever certificate the host served, so they are monitor-only (never
+        planned or renewed) until an admin approves them."""
         new = seen = 0
         for r in results:
             ep = self.store.endpoint_by_addr(r.host, r.port, r.sni)
             if ep is None:
                 if r.cert is None:
                     continue
-                name = f"{r.sni or r.host}:{r.port}"
+                # never reuse an existing name: upsert would rewrite that endpoint with scanned data
+                base = name = f"{r.sni or r.host}:{r.port}"
+                taken = {e["name"] for e in self.store.endpoints()}
+                n = 1
+                while name in taken:
+                    n += 1
+                    name = f"{base} ({n})"
                 eid = self.store.upsert_endpoint({
                     "name": name, "host": r.host, "port": r.port, "sni": r.sni,
                     "common_name": r.cert.subject_cn, "sans": r.cert.sans, "connector": "manual",
@@ -243,7 +260,7 @@ class Engine:
             load["auto" if is_automated(r["connector"]) else "manual"][r["scheduled_for"][:10]] += 1
 
         for ep in self.store.endpoints():
-            if not ep["enabled"] or not ep["fingerprint"] or self.store.open_renewal(ep["id"]):
+            if not ep["enabled"] or not ep["fingerprint"] or discovered(ep) or self.store.open_renewal(ep["id"]):
                 continue
             nb, na = parse_dt(ep["not_before"]), parse_dt(ep["not_after"])
             lifetime = min(max(1, (na - nb).days), policy.max_lifetime_days(now))
@@ -295,6 +312,8 @@ class Engine:
         return start + (end - start) * frac
 
     def force_renewal(self, eid: int, reason: str = "requested") -> int:
+        if discovered(self.store.endpoint(eid)):
+            raise NotApproved("approve this discovered endpoint first")
         if (r := self.store.open_renewal(eid)):
             if r["state"] == "planned":   # pull a window-scheduled renewal forward to now
                 if self.store.update_renewal(r["id"], expect_state="planned", scheduled_for=now_iso(),
@@ -305,6 +324,13 @@ class Engine:
         rid = self.store.create_renewal(eid, now_iso(), None, obs["fingerprint"] if obs else None, reason)
         self.store.log(f"renewal requested ({reason})", eid, rid)
         return rid
+
+    def approve(self, eid: int, actor: str = "api") -> None:
+        """Let a discovered endpoint be renewed: drop its `discovered` tag (an admin decision)."""
+        ep = self.store.endpoint(eid)
+        tags = [t for t in (ep.get("tags") or []) if t != "discovered"]
+        self.store.x("UPDATE endpoints SET tags=? WHERE id=?", (json.dumps(tags), eid))
+        self.store.log(f"discovered endpoint {ep['name']} approved for renewal by {actor}", eid)
 
     # ---- advance -----------------------------------------------------------
     def advance(self, rid: int, now: datetime | None = None) -> str:
@@ -402,14 +428,15 @@ class Engine:
         removed = 0
         for rid in pack_store(self.data_dir).ids():
             r = self.store.renewal(rid)
-            if r is None or r["state"] != "awaiting_manual":
+            # issued: the pack is written just before issued -> awaiting_manual; don't race that
+            if r is None or r["state"] not in ("issued", "awaiting_manual"):
                 self._discard_pack(rid, None)
                 removed += 1
         return removed
 
     def _step_planned(self, r, ep, now):
-        if parse_dt(r["scheduled_for"]) > now:
-            return
+        if parse_dt(r["scheduled_for"]) > now or discovered(ep):
+            return  # not yet, or a discovered endpoint planned before approval existed: wait for an admin
         try:
             issuer = self.issuers.get(ep["issuer"]) or self.issuers["default"]
             obs = self.store.latest_cert_observation(ep["id"])
@@ -495,12 +522,21 @@ class Engine:
             self.store.update_renewal(r["id"], expect_state="verifying", attempts=attempts,
                                       error=f"verify: {problem}" if problem else f"verify: endpoint serving {seen}")
             return
+        # Claim the renewal before touching the device (verifying -> failed, then -> rolled_back once it
+        # worked): a concurrent cancel or another replica must not see its renewal rolled back under it.
+        if not self.store.update_renewal(r["id"], expect_state="verifying", state="failed",
+                                         error=f"new cert never went live (serving {seen}); rolling back"):
+            return
         try:
             if r["rollback"]:
                 self.connector(ep).rollback(r["rollback"])
-            self._fail(r, ep, f"new cert never went live (serving {seen}); rolled back", state="rolled_back")
+            msg = f"new cert never went live (serving {seen}); rolled back"
+            self.store.update_renewal(r["id"], expect_state="failed", state="rolled_back", error=msg)
         except Exception as e:  # noqa: BLE001
-            self._fail(r, ep, f"new cert never went live and rollback failed: {e}")
+            msg = f"new cert never went live and rollback failed: {e}"
+            self.store.update_renewal(r["id"], expect_state="failed", error=msg)
+        self.store.log(msg, ep["id"], r["id"], level="error")
+        self._discard_pack(r["id"], ep)
 
     def _deep_verify(self, r, ep) -> str | None:
         """Chain, hostname and every-VIP checks once the new fingerprint is seen. None means good."""

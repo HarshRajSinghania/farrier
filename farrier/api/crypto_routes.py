@@ -47,7 +47,7 @@ def mount(app, engine, auth, actor) -> None:
     @app.post("/api/crypto/scan", dependencies=dep)
     def crypto_scan(body: CryptoScanIn, request: Request):
         try:
-            targets = expand_targets(body.targets)
+            targets = expand_targets(body.targets, limit=service.MAX_TARGETS)
         except ValueError as e:
             raise HTTPException(400, str(e))
         if not targets:

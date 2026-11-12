@@ -172,13 +172,17 @@ Renew now. Creates a renewal scheduled for now, or pulls an existing `planned` o
 { "renewal_id": 21, "state": "done" }
 ```
 
-Errors: `404`.
+Errors: `404`; `409` for an endpoint discovery added that no admin has approved yet.
+
+### `POST /api/endpoints/{id}/approve`
+
+Admin only. Approves an endpoint discovery added: removes its `discovered` tag so it can be planned and renewed. Response: `{ "ok": true }`. Errors: `404`.
 
 ## Discovery
 
 ### `POST /api/discover`
 
-Handshake with every target, then register each unknown listener that serves TLS as a `manual` endpoint tagged `discovered`. The call is synchronous, so large ranges take a while.
+Handshake with every target, then register each unknown listener that serves TLS as a `manual` endpoint tagged `discovered`. The call is synchronous, so large ranges take a while. Discovered endpoints are monitored but never renewed until an admin approves them (`POST /api/endpoints/{id}/approve`), because their names come from whatever certificate the host served.
 
 ```json
 { "targets": "10.20.0.0/24:443|8443, vpn.example.com, www.example.com@10.20.1.10:443" }

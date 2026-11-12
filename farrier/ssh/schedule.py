@@ -70,7 +70,11 @@ def run_due(engine, now: datetime, background: bool = True) -> str | None:
         return None
     what = "+".join(k for k, v in (("scan", do_scan), ("collect", do_collect)) if v)
     if background:
-        threading.Thread(target=_run, args=(engine, do_scan, do_collect), daemon=True, name="farrier-ssh").start()
+        try:
+            threading.Thread(target=_run, args=(engine, do_scan, do_collect), daemon=True, name="farrier-ssh").start()
+        except BaseException:
+            _running.release()          # the thread never ran, so its finally never will
+            raise
     else:
         _run(engine, do_scan, do_collect)
     return what

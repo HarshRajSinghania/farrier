@@ -293,7 +293,7 @@ export function CertificateView() {
   const { data: renewals } = useRenewals();
   const { data: zombies } = useZombies();
   const { can } = useAccess();
-  const [busy, setBusy] = useState<"renew" | "health" | null>(null);
+  const [busy, setBusy] = useState<"renew" | "health" | "approve" | null>(null);
   const [report, setReport] = useState<HealthReport | null>(null);
 
   const ep = endpoints?.find((e) => e.id === id);
@@ -303,6 +303,8 @@ export function CertificateView() {
     const s = (["critical", "warning", "healthy"] as const).find((k) => groups[k].length);
     return s ? { severity: s, reason: groups[s][0].reason } : null;
   }, [ep, renewals, zombies]);
+  // added by discovery: its names came from whatever the host served, so it is monitor-only until approved
+  const isDiscovered = ep?.tags?.includes("discovered") ?? false;
   const awaiting = renewals?.find((r) => r.endpoint_id === id && r.state === "awaiting_manual");
   const missing = error instanceof ApiError && error.status === 404;
 
@@ -335,6 +337,18 @@ export function CertificateView() {
       toast.success(`Renewal started for ${ep.name}`, { description: `State: ${r.state.replace("_", " ")}` });
     } catch (e) {
       toast.error("Could not start renewal", { description: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const approve = async () => {
+    if (!ep) return;
+    setBusy("approve");
+    try {
+      await api.approve(ep.id);
+      toast.success(`${ep.name} approved for renewal`);
+    } catch (e) {
+      toast.error("Could not approve", { description: (e as Error).message });
     } finally {
       setBusy(null);
     }
@@ -383,7 +397,7 @@ export function CertificateView() {
             <Button variant="secondary" onClick={check} disabled={busy !== null}>
               <ShieldCheck className={busy === "health" ? "animate-pulse" : undefined} /> Check health
             </Button>
-            {ep && can("POST", `endpoints/${ep.id}/renew`) && (
+            {ep && !isDiscovered && can("POST", `endpoints/${ep.id}/renew`) && (
               <Button onClick={renew} disabled={busy !== null}>
                 <RefreshCw className={busy === "renew" ? "animate-spin" : undefined} /> Renew now
               </Button>
@@ -408,6 +422,18 @@ export function CertificateView() {
           </Link>
         )}
       </div>
+
+      {ep && isDiscovered && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-fg">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          <span className="flex-1">Discovered — not renewed until approved.</span>
+          {can("POST", `endpoints/${ep.id}/approve`) && (
+            <Button size="sm" variant="secondary" onClick={approve} disabled={busy !== null}>
+              <Check /> Approve
+            </Button>
+          )}
+        </div>
+      )}
 
       {!missing && <ErrorNotice error={error} />}
 

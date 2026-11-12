@@ -93,7 +93,7 @@ def cmd_demo(args):
 
 def cmd_scan(args):
     from farrier.core.discovery import expand_targets, scan
-    results = scan(expand_targets(" ".join(args.targets)), timeout=args.timeout)
+    results = scan(expand_targets(" ".join(args.targets), limit=1 << 18), timeout=args.timeout)
     now = policy.utcnow()
     for r in sorted(results, key=lambda r: (r.cert is None, r.cert and r.cert.not_after)):
         if r.cert:

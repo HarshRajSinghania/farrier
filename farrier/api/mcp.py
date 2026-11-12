@@ -299,7 +299,10 @@ class MCPServer:
             if not self.S.endpoint(eid):
                 raise ToolError(f"no endpoint with id {eid}")
             with self.lock:
-                rid = self.engine.force_renewal(eid, f"requested by {s.actor}")
+                try:
+                    rid = self.engine.force_renewal(eid, f"requested by {s.actor}")
+                except ValueError as e:
+                    raise ToolError(str(e)) from None
                 state = self.engine.advance(rid)
             return {"renewal_id": rid, "state": state}
 
