@@ -36,6 +36,9 @@ const NAV = [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/dashboard/renewals", label: "Renewals", icon: CalendarClock, badge: true },
       { href: "/dashboard/discovery", label: "Discovery", icon: Radar },
+      { href: "/dashboard/health", label: "Health", icon: ShieldCheck },
+      { href: "/dashboard/forecast", label: "Forecast", icon: Gauge },
+      { href: "/dashboard/activity", label: "Activity", icon: Activity },
     ],
   },
   {
@@ -47,24 +50,11 @@ const NAV = [
     ],
   },
   {
-    group: "Insights",
-    items: [
-      { href: "/dashboard/forecast", label: "Forecast", icon: Gauge },
-      { href: "/dashboard/health", label: "Health", icon: ShieldCheck },
-      { href: "/dashboard/activity", label: "Activity", icon: Activity },
-    ],
-  },
-  {
-    group: "Integrations",
+    group: "Setup",
     items: [
       { href: "/dashboard/integrations/authorities", label: "Authorities", icon: Landmark },
       { href: "/dashboard/integrations/dns", label: "DNS accounts", icon: Globe },
       { href: "/dashboard/integrations/alerts", label: "Alerts", icon: BellRing },
-    ],
-  },
-  {
-    group: "Configure",
-    items: [
       { href: "/dashboard/connectors", label: "Connectors", icon: Plug },
       { href: "/dashboard/settings", label: "Settings", icon: Settings },
     ],

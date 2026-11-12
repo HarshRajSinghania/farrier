@@ -11,7 +11,7 @@ SSH keys, cryptographic assets and post-quantum (PQC) readiness. Your team overs
 No agents. No manual renewals. No missed expirations. Open source, self-hosted, no account.
 
 [![CI](https://github.com/gagankarthik/farrier/actions/workflows/ci.yml/badge.svg)](https://github.com/gagankarthik/farrier/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-c5f04a?labelColor=141414)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2563eb?labelColor=141414)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-141414)
 
 [Quickstart](web/src/app/docs/quickstart/page.mdx) · [Docs](web/src/app/docs) · [Deploy](web/src/app/docs/deploy/page.mdx) · [Security](web/src/app/docs/security/page.mdx)

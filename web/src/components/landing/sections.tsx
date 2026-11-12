@@ -33,9 +33,9 @@ function H2({ children, className }: { children: React.ReactNode; className?: st
 export function Hero() {
   return (
     <section id="hero" className="relative isolate overflow-hidden bg-[#0b0b0b] pt-36 text-[#f5f5f3] sm:pt-44">
-      {/* ground: a lime glow and film grain, edge to edge behind the bar, the words and the product */}
+      {/* ground: a blue glow and film grain, edge to edge behind the bar, the words and the product */}
       <div aria-hidden className="absolute inset-0 -z-10">
-        <div className="absolute left-1/2 top-[-20%] h-[720px] w-[1100px] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(197,240,74,0.28),rgba(197,240,74,0))]" />
+        <div className="absolute left-1/2 top-[-20%] h-[720px] w-[1100px] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(37,99,235,0.28),rgba(37,99,235,0))]" />
         <div className="absolute bottom-0 right-[-10%] h-[520px] w-[720px] rounded-full bg-[radial-gradient(closest-side,rgba(42,120,214,0.18),rgba(42,120,214,0))]" />
         <div className="absolute inset-0 opacity-[0.12] mix-blend-overlay [background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22160%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%222%22 stitchTiles=%22stitch%22/></filter><rect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/></svg>')]" />
       </div>
@@ -45,7 +45,7 @@ export function Hero() {
           href="#lifetimes"
           className="enter inline-flex items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-4 text-sm text-white/80 ring-1 ring-white/12 ring-inset transition-colors hover:bg-white/10"
         >
-          <span className="rounded-full bg-[#c5f04a] px-2 py-1 text-xs font-semibold text-[#141414]">2029</span>
+          <span className="rounded-full bg-[#2563eb] px-2 py-1 text-xs font-semibold text-white">2029</span>
           47-day certificates are coming <ArrowRight className="size-3.5" />
         </a>
         <h1 className="enter [--d:80ms] mx-auto mt-8 max-w-4xl text-4xl font-semibold tracking-[-0.03em] text-balance">
@@ -58,7 +58,7 @@ export function Hero() {
         <div className="enter [--d:240ms] mt-10 flex flex-wrap justify-center gap-4">
           <Link
             href="/docs/quickstart"
-            className="inline-flex h-12 items-center gap-2 rounded-full bg-[#c5f04a] px-6 font-semibold text-[#141414] transition-colors hover:bg-[#d4f76e]"
+            className="inline-flex h-12 items-center gap-2 rounded-full bg-[#2563eb] px-6 font-semibold text-white transition-colors hover:bg-[#1d4ed8]"
           >
             Install Farrier <ArrowRight className="size-4" />
           </Link>
@@ -67,8 +67,8 @@ export function Hero() {
             className="inline-flex h-12 items-center gap-2 rounded-full bg-white/[0.06] px-6 font-medium text-white ring-1 ring-white/20 ring-inset transition-colors hover:bg-white/10"
           >
             <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#c5f04a] opacity-60 motion-reduce:hidden" />
-              <span className="relative inline-flex size-2 rounded-full bg-[#c5f04a]" />
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#2563eb] opacity-60 motion-reduce:hidden" />
+              <span className="relative inline-flex size-2 rounded-full bg-[#2563eb]" />
             </span>
             Live demo
           </Link>
@@ -139,7 +139,7 @@ export function How() {
               <span
                 className={cn(
                   "relative z-10 flex size-12 items-center justify-center rounded-full font-mono text-sm font-medium ring-1 ring-border",
-                  k === 3 ? "bg-[#c5f04a] text-[#141414] ring-[#c5f04a]" : "bg-background",
+                  k === 3 ? "bg-[#2563eb] text-white ring-[#2563eb]" : "bg-background",
                 )}
               >
                 {s.n}
@@ -186,7 +186,7 @@ export function Features() {
             <div className="space-y-4 rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/10 sm:p-6">
               <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">What expires before the 20 December change freeze?</div>
               <div className="flex gap-4">
-                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#c5f04a] text-[#141414]">
+                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2563eb] text-white">
                   <Bot className="size-4" />
                 </span>
                 <div className="text-sm leading-relaxed text-white/85">
@@ -203,11 +203,11 @@ export function Features() {
               </div>
               <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-white/10 px-4 py-2 text-sm">Check jira-app&rsquo;s chain too.</div>
               <div className="flex gap-4">
-                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#c5f04a] text-[#141414]">
+                <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2563eb] text-white">
                   <Bot className="size-4" />
                 </span>
                 <p className="text-sm leading-relaxed text-white/85">
-                  Grade <b className="text-[#c5f04a]">C</b>. The server doesn&rsquo;t send the R11 intermediate, so older Java clients will fail.
+                  Grade <b className="text-[#60a5fa]">C</b>. The server doesn&rsquo;t send the R11 intermediate, so older Java clients will fail.
                 </p>
               </div>
             </div>
@@ -216,7 +216,7 @@ export function Features() {
           {/* health */}
           <Cell className="md:col-span-2" title="Domain health" desc="An A–F grade for every endpoint.">
             <div className="flex items-center gap-4">
-              <span className="flex size-16 items-center justify-center rounded-2xl bg-[#c5f04a] text-3xl font-semibold text-[#141414]">A</span>
+              <span className="flex size-16 items-center justify-center rounded-2xl bg-[#2563eb] text-3xl font-semibold text-white">A</span>
               <ul className="space-y-1 text-sm">
                 {["Chain complete", "Names covered", "TLS 1.2+ only", "OCSP stapled"].map((c) => (
                   <li key={c} className="flex items-center gap-2">
@@ -252,7 +252,7 @@ export function Features() {
                   <span
                     className={cn(
                       "rounded-full px-2 py-1 text-xs font-medium",
-                      k === 0 ? "bg-[#c5f04a] text-[#141414]" : "bg-muted text-muted-foreground",
+                      k === 0 ? "bg-[#2563eb] text-white" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {k === 0 ? "leader" : "follower"}
@@ -358,7 +358,7 @@ export function Features() {
                   {f ? (
                     <img src={icon(f)} alt="" className="size-4 rounded-sm bg-white object-contain" />
                   ) : (
-                    <span aria-hidden className="flex size-4 items-center justify-center rounded-sm bg-[#141414] text-[10px] font-semibold text-[#c5f04a]">
+                    <span aria-hidden className="flex size-4 items-center justify-center rounded-sm bg-[#141414] text-[10px] font-semibold text-[#60a5fa]">
                       S
                     </span>
                   )}
@@ -452,7 +452,7 @@ export function Integrations() {
                   {f ? (
                     <img src={icon(f)} alt="" className="size-8 object-contain" />
                   ) : (
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-[#141414] text-[#c5f04a]">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-[#141414] text-[#60a5fa]">
                       <Lock className="size-4" />
                     </span>
                   )}
@@ -502,7 +502,7 @@ export function Lifetimes() {
                 <span className="text-sm text-white/60">{l.when}</span>
                 <div className="flex items-center gap-4">
                   <div
-                    className={cn("grow-x h-10 origin-left rounded-r-md rounded-l-sm", k === 3 ? "bg-[#c5f04a]" : "bg-white/85")}
+                    className={cn("grow-x h-10 origin-left rounded-r-md rounded-l-sm", k === 3 ? "bg-[#2563eb]" : "bg-white/85")}
                     style={{ width: `${(l.days / 398) * 100}%`, minWidth: "3.5rem" }}
                   />
                   <span className="whitespace-nowrap text-sm tabular-nums">
@@ -558,7 +558,7 @@ export function Deploy() {
             <span className="text-white/50"> ✔ farrier-web      started   :3000</span>
             {"\n"}
             <span className="text-white/40">$</span> farrier discover 10.20.0.0/24 --ports 443,8443{"\n"}
-            <span className="text-[#c5f04a]"> 41 endpoints found, 18 automated, 23 change packs</span>
+            <span className="text-[#60a5fa]"> 41 endpoints found, 18 automated, 23 change packs</span>
           </pre>
         </div>
       </div>
@@ -590,7 +590,7 @@ export function Security() {
             const Ico = I as typeof Lock;
             return (
               <li key={t as string} className="reveal rounded-3xl bg-card p-6 ring-1 ring-border">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-[#141414] text-[#c5f04a]">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-[#141414] text-[#60a5fa]">
                   <Ico className="size-5" />
                 </span>
                 <h3 className="mt-6 font-semibold tracking-tight">{t as string}</h3>

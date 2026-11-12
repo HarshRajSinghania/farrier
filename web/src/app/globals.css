@@ -10,7 +10,7 @@
  * Signal palette, shared with the landing page (public/index.html), 60-30-10:
  *   60  white and warm grey (grounds, cards, trays)
  *   30  near-black #141414 (text, primary buttons, dark grounds)
- *   10  signal lime #c5f04a, only under black text or as a mark; never text on white
+ *   10  signal blue #2563eb (dark #3b82f6), under white text or as a mark
  * Data language: blue = renewed automatically, teal = needs a person
  * (a validated categorical pair). Status hues are reserved for state and
  * always ship with an icon and a label.
@@ -29,11 +29,11 @@
   --input: #d9d7d1;
   --ring: #141414;
 
-  --brand: #c5f04a;
-  --brand-hover: #b6e332;
-  --brand-foreground: #141414;
-  --brand-soft: #eef9cf;
-  --brand-ink: #141414;
+  --brand: #2563eb;
+  --brand-hover: #1d4ed8;
+  --brand-foreground: #ffffff;
+  --brand-soft: #e8efff;
+  --brand-ink: #1d4ed8;
 
   /* data series */
   --series-auto: #2a78d6;
@@ -66,13 +66,13 @@
   --muted-foreground: #b4b3ae;
   --border: #2a2a28;
   --input: #363633;
-  --ring: #c5f04a;
+  --ring: #3b82f6;
 
-  --brand: #c5f04a;
-  --brand-hover: #d4f76e;
-  --brand-foreground: #141414;
-  --brand-soft: #26300f;
-  --brand-ink: #d4f76e;
+  --brand: #3b82f6;
+  --brand-hover: #60a5fa;
+  --brand-foreground: #ffffff;
+  --brand-soft: #14254a;
+  --brand-ink: #93b4fd;
 
   --series-auto: #3987e5;
   --series-manual: #199e70;
@@ -166,7 +166,7 @@
     font-family: var(--font-sans);
   }
   ::selection {
-    background: color-mix(in oklab, #c5f04a 55%, transparent);
+    background: color-mix(in oklab, #3b82f6 35%, transparent);
   }
   :focus-visible {
     outline: 2px solid var(--ring);

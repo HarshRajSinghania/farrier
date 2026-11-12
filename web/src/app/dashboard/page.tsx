@@ -3,15 +3,13 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { AlertOctagon, ArrowRight, CalendarClock, Hand, Server, ShieldAlert } from "lucide-react";
-import { ExpiryBar } from "@/components/charts/expiry-bar";
-import { ForecastChart } from "@/components/charts/forecast-chart";
 import { Legend, StackedBars } from "@/components/charts/stacked-bars";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { RenewalActions } from "@/components/dashboard/renewal-actions";
 import { CertificateHealth } from "@/components/dashboard/certificate-health";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { RunCycle } from "@/components/dashboard/topbar";
-import { SplitBar, StatTile } from "@/components/dashboard/widgets";
+import { StatTile } from "@/components/dashboard/widgets";
 import { CONNECTOR_LABEL, StateBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +42,6 @@ export default function OverviewPage() {
     [s?.calendar],
   );
 
-  const currentStep = s?.policy.schedule.filter((p) => p.from <= s.now.slice(0, 10)).at(-1)?.from;
   const nextStep = s?.policy.schedule.find((p) => p.from > s.now.slice(0, 10));
   const soon = (s?.expiry.expired ?? 0) + (s?.expiry["7d"] ?? 0) + (s?.expiry["30d"] ?? 0);
   const open = Object.entries(s?.renewal_states ?? {})
@@ -116,32 +113,6 @@ export default function OverviewPage() {
 
       <CertificateHealth />
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div>
-              <CardTitle>Renewal calendar</CardTitle>
-              <CardDescription>Next 90 days: scheduled renewals and projected due dates, leveled into change windows.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {isLoading ? <Skeleton className="h-[220px] w-full" /> : <StackedBars data={calendar} series={CAL_SERIES} ariaLabel="Renewals per day over the next 90 days" />}
-            <div className="mt-4">
-              <Legend items={CAL_SERIES} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Time to expiry</CardTitle>
-              <CardDescription>What each endpoint is serving right now.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-4">{s ? <ExpiryBar expiry={s.expiry} /> : <Skeleton className="h-32 w-full" />}</CardContent>
-        </Card>
-      </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -185,53 +156,6 @@ export default function OverviewPage() {
           </div>
         </Card>
 
-        <div className="grid gap-4">
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Coverage</CardTitle>
-                <CardDescription>Endpoints Farrier can renew end to end.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-4">
-              {s ? (
-                <>
-                  <SplitBar a={s.automated} b={s.manual} labelA="Automated" labelB="Manual" />
-                  <ul className="space-y-2 text-sm">
-                    {Object.entries(s.by_connector)
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([k, v]) => (
-                        <li key={k} className="flex items-center justify-between">
-                          <span className="text-muted-foreground">{CONNECTOR_LABEL[k] ?? k}</span>
-                          <span className="tabular font-medium">{v}</span>
-                        </li>
-                      ))}
-                  </ul>
-                </>
-              ) : (
-                <Skeleton className="h-28" />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Renewals per working day</CardTitle>
-              <CardDescription>For this estate, as each CA/B Forum step lands.</CardDescription>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/dashboard/forecast">
-                Forecast <ArrowRight />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-4">{s ? <ForecastChart rows={s.forecast} current={currentStep} /> : <Skeleton className="h-40" />}</CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle>Recent activity</CardTitle>
@@ -264,6 +188,24 @@ export default function OverviewPage() {
             ))}
           </ul>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Renewal calendar</CardTitle>
+              <CardDescription>Next 90 days: scheduled renewals and projected due dates, leveled into change windows.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? <Skeleton className="h-[220px] w-full" /> : <StackedBars data={calendar} series={CAL_SERIES} ariaLabel="Renewals per day over the next 90 days" />}
+            <div className="mt-4">
+              <Legend items={CAL_SERIES} />
+            </div>
+          </CardContent>
+        </Card>
+
       </div>
     </>
   );

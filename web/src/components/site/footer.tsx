@@ -5,7 +5,7 @@ import { site } from "@/lib/site";
 import { FOOTER_COLUMNS } from "./nav-data";
 
 function FLink({ href, children }: { href: string; children: React.ReactNode }) {
-  const cls = "inline-flex min-h-8 items-center text-base text-white/75 transition-colors hover:text-[#c5f04a]";
+  const cls = "inline-flex min-h-8 items-center text-base text-white/75 transition-colors hover:text-[#60a5fa]";
   return href.startsWith("http") ? (
     <a href={href} target="_blank" rel="noreferrer" className={cls}>
       {children}
@@ -20,28 +20,28 @@ function FLink({ href, children }: { href: string; children: React.ReactNode }) 
 /** The closing call to action and the footer, on every marketing and docs page. */
 export function SiteFooter({ cta = true }: { cta?: boolean }) {
   return (
-    <footer className="relative overflow-hidden bg-[#0b0b0b] text-[#f5f5f3] [&_:focus-visible]:outline-[#c5f04a]">
+    <footer className="relative overflow-hidden bg-[#0b0b0b] text-[#f5f5f3] [&_:focus-visible]:outline-[#60a5fa]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         {cta && (
-          // the one lime surface on the page: the pitch on the left, the three commands that prove it on the right
-          <div className="mt-20 grid overflow-hidden rounded-[32px] bg-[#c5f04a] text-[#141414] lg:grid-cols-2">
+          // the one blue surface on the page: the pitch on the left, the three commands that prove it on the right
+          <div className="mt-20 grid overflow-hidden rounded-[32px] bg-[#2563eb] text-white lg:grid-cols-2">
             <div className="min-w-0 p-8 sm:p-12 lg:py-16">
               <h2 className="max-w-[14ch] text-3xl font-semibold tracking-[-0.02em]">
                 Renew your first appliance tonight
               </h2>
-              <p className="mt-6 max-w-md text-lg text-[#141414]/75">
+              <p className="mt-6 max-w-md text-lg text-white/80">
                 Open source and self-hosted. Running in five minutes.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 <Link
                   href="/docs/quickstart"
-                  className="inline-flex h-12 items-center gap-2 rounded-full bg-[#141414] px-6 font-semibold text-[#f5f5f3] hover:bg-[#2b2b29]"
+                  className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-semibold text-[#2563eb] hover:bg-white/90"
                 >
                   Install Farrier <ArrowRight className="size-4" />
                 </Link>
                 <Link
                   href="/dashboard"
-                  className="inline-flex h-12 items-center rounded-full px-6 font-semibold ring-1 ring-[#141414]/30 ring-inset hover:ring-[#141414]"
+                  className="inline-flex h-12 items-center rounded-full px-6 font-semibold ring-1 ring-white/40 ring-inset hover:ring-white"
                 >
                   Open the live demo
                 </Link>
@@ -52,7 +52,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
                 <span className="text-white/40">$</span> <span className="text-white">pip install farrier-tls</span>
                 {"\n"}
                 <span className="text-white/40">$</span> <span className="text-white">farrier demo</span>
-                {"\n"}  41 endpoints on 127.0.0.1, 18 automated{"\n"}  <span className="text-[#c5f04a]">✔</span> nginx-01   renewed   verified live{"\n"}  <span className="text-[#c5f04a]">✔</span> tomcat-03  renewed   verified live{"\n"}  <span className="text-[#c5f04a]">●</span> asa-dc1    change pack, ticket opened{"\n"}
+                {"\n"}  41 endpoints on 127.0.0.1, 18 automated{"\n"}  <span className="text-[#60a5fa]">✔</span> nginx-01   renewed   verified live{"\n"}  <span className="text-[#60a5fa]">✔</span> tomcat-03  renewed   verified live{"\n"}  <span className="text-[#60a5fa]">●</span> asa-dc1    change pack, ticket opened{"\n"}
                 <span className="text-white/40">$</span> <span className="text-white">open http://localhost:3000/dashboard</span>
               </pre>
             </div>
@@ -64,7 +64,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
             <Link href="/" className="inline-flex items-center gap-2 text-xl font-semibold tracking-tight">
               <LogoMark className="size-6" /> Farrier
             </Link>
-            <p className="mt-4 max-w-xs text-white/60">Certificate renewal for firewalls, load balancers and appliances.</p>
+            <p className="mt-4 max-w-xs text-white/60">Agentless machine identity automation: TLS certificates, SSH keys and PQC readiness.</p>
             <a
               href={site.github}
               target="_blank"

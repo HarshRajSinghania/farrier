@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 type Tone = "default" | "good" | "warning" | "serious" | "critical";
 
-// one colour code across the dashboard: lime = neutral/brand, green = good, amber = warning, red = critical
+// one colour code across the dashboard: blue = brand/primary, green = good, amber = warning, red = critical
 const TONE_BADGE: Record<Tone, string> = {
   default: "bg-brand-soft text-brand-ink",
   good: "bg-good/12 text-good-fg",
@@ -77,27 +77,6 @@ export function StatTile({
 }
 
 /** Two-segment proportion bar (automated vs manual). */
-export function SplitBar({ a, b, labelA, labelB }: { a: number; b: number; labelA: string; labelB: string }) {
-  const total = a + b || 1;
-  return (
-    <div>
-      <div className="flex h-2 gap-1 overflow-hidden rounded-full" role="img" aria-label={`${labelA} ${a}, ${labelB} ${b}`}>
-        <div style={{ width: `${(a / total) * 100}%`, background: "var(--series-auto)" }} />
-        <div style={{ width: `${(b / total) * 100}%`, background: "var(--series-manual)" }} />
-      </div>
-      <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-        <span className="flex items-center gap-2">
-          <span className="size-2 rounded-[2px] bg-series-auto" />
-          {labelA} <span className="tabular font-medium text-foreground">{a}</span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="size-2 rounded-[2px] bg-series-manual" />
-          {labelB} <span className="tabular font-medium text-foreground">{b}</span>
-        </span>
-      </div>
-    </div>
-  );
-}
 
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (

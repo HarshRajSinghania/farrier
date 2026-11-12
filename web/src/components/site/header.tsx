@@ -110,7 +110,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
           </a>
           <Link
             href="/docs/quickstart"
-            className="flex h-10 items-center gap-2 rounded-full bg-[#c5f04a] px-6 text-base font-semibold text-[#141414] transition-colors hover:bg-[#d4f76e]"
+            className="flex h-10 items-center gap-2 rounded-full bg-[#2563eb] px-6 text-base font-semibold text-white transition-colors hover:bg-[#1d4ed8]"
           >
             Install Farrier <ArrowRight className="size-4" />
           </Link>
@@ -157,12 +157,12 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
               onClick={() => setOpen(null)}
               className="col-span-4 flex flex-col justify-between rounded-2xl bg-[#141414] p-6 text-[#f5f5f3] transition-transform hover:-translate-y-0.5"
             >
-              <span className="font-mono text-xs uppercase tracking-widest text-[#c5f04a]">Live demo</span>
+              <span className="font-mono text-xs uppercase tracking-widest text-[#60a5fa]">Live demo</span>
               <span>
                 <span className="block text-xl font-semibold tracking-tight">Watch 41 endpoints renew</span>
                 <span className="mt-1 block text-sm text-white/65">The real dashboard on demo data. Nothing to install.</span>
               </span>
-              <span className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#c5f04a]">
+              <span className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#60a5fa]">
                 Open the demo <ArrowRight className="size-4" />
               </span>
             </Link>
@@ -194,7 +194,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
             Deploy
           </Link>
           <div className="mt-6 grid gap-4">
-            <Link href="/docs/quickstart" className="flex h-12 items-center justify-center rounded-full bg-[#c5f04a] font-semibold text-[#141414]">
+            <Link href="/docs/quickstart" className="flex h-12 items-center justify-center rounded-full bg-[#2563eb] font-semibold text-white">
               Install Farrier
             </Link>
             <a href={site.github} className="flex h-12 items-center justify-center gap-2 rounded-full border font-medium">
