@@ -1,0 +1,25 @@
+name: Feature or connector request
+description: A device, DNS provider, CA or feature Farrier should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to renew or automate, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: For a new device, name the model and firmware and link its API docs if you can.
+    validations:
+      required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I can test against a real device or account
+        - label: I'd like to send a pull request

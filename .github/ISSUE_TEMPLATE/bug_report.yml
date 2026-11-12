@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in Farrier doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems go through the [security policy](https://github.com/gagankarthik/farrier/security/policy), not here.**
+        Remove hostnames, tokens and keys from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. farrier demo
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Engine / renewals, Connector (F5, FortiGate, PAN-OS, keystore, files), ACME or CA, DNS provider, Dashboard, Docs, Deployment, MCP / AI agents, Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Farrier version
+      description: Shown in the dashboard sidebar, or `pip show farrier-tls`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: deploy
+    attributes:
+      label: How it runs
+      placeholder: Docker Compose on Ubuntu 24.04, PostgreSQL 16
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: text
