@@ -138,18 +138,20 @@ function SearchTrigger({ onOpen }: { onOpen: () => void }) {
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
-  const current = DOCS_NAV.find((g) => g.items.some((i) => i.href === path))?.title;
-  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const current = DOCS_NAV.find((g) => g.items.some((i) => i.href === path))?.title ?? DOCS_NAV[0].title;
+  // one group open at a time: the current page's group until the reader picks another (reset on navigation)
+  const [picked, setPicked] = useState<{ path: string; open: string | null }>({ path, open: current });
+  const openGroup = picked.path === path ? picked.open : current;
   return (
     <nav aria-label="Documentation" className="space-y-1">
       {DOCS_NAV.map((g) => {
-        const isOpen = g.title === current || !closed[g.title];
+        const isOpen = g.title === openGroup;
         return (
           <div key={g.title}>
             <button
               type="button"
               aria-expanded={isOpen}
-              onClick={() => setClosed((c) => ({ ...c, [g.title]: isOpen }))}
+              onClick={() => setPicked({ path, open: isOpen ? null : g.title })}
               className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm font-semibold hover:bg-muted"
             >
               {g.title}
@@ -265,22 +267,29 @@ export function DocsToc() {
     const hs = [...document.querySelectorAll<HTMLHeadingElement>("article h2[id], article h3[id]")];
     // eslint-disable-next-line react-hooks/set-state-in-effect -- headings only exist after render
     setItems(hs.map((h) => ({ id: h.id, text: h.textContent ?? "", depth: h.tagName === "H3" ? 3 : 2 })));
-    const io = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActive(visible[0].target.id);
-      },
-      { rootMargin: "-80px 0px -70% 0px" },
-    );
-    hs.forEach((h) => io.observe(h));
-    return () => io.disconnect();
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      const passed = hs.filter((h) => h.getBoundingClientRect().top <= 120);
+      setActive((atBottom ? hs.at(-1) : passed.at(-1) ?? hs[0])?.id ?? null);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
   }, [path]);
 
   if (items.length < 2) return null;
   return (
     <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-52 shrink-0 overflow-y-auto py-8 xl:block">
       <p className="mb-4 text-xs font-semibold">On this page</p>
-      <ul className="space-y-2 border-l text-sm">
+      <ul className="space-y-2 border-l text-sm">{/* the active entry follows the scroll position */}
         {items.map((i) => (
           <li key={i.id}>
             <a
@@ -288,7 +297,7 @@ export function DocsToc() {
               className={cn(
                 "-ml-px block border-l-2 border-transparent text-muted-foreground transition-colors hover:text-foreground",
                 i.depth === 3 ? "pl-6" : "pl-4",
-                active === i.id && "border-foreground text-foreground",
+                active === i.id && "border-[#2563eb] font-medium text-[#2563eb] dark:border-[#60a5fa] dark:text-[#60a5fa]",
               )}
             >
               {i.text}
