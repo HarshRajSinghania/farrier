@@ -1,0 +1,4 @@
+# Installed by Cloud Build at deploy time. farrier_events is vendored by build.sh, not installed.
+functions-framework>=3.8,<4
+google-auth>=2.30,<3
+requests>=2.32,<3

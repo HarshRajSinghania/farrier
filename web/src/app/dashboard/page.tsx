@@ -8,6 +8,7 @@ import { ForecastChart } from "@/components/charts/forecast-chart";
 import { Legend, StackedBars } from "@/components/charts/stacked-bars";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { RenewalActions } from "@/components/dashboard/renewal-actions";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { RunCycle } from "@/components/dashboard/topbar";
 import { SplitBar, StatTile } from "@/components/dashboard/widgets";
 import { CONNECTOR_LABEL, StateBadge } from "@/components/status";
@@ -72,6 +73,7 @@ export default function OverviewPage() {
         actions={<RunCycle />}
       />
       <ErrorNotice error={error} />
+      <SetupChecklist />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile

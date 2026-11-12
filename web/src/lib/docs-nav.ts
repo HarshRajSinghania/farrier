@@ -32,6 +32,7 @@ export const DOCS_NAV: DocsGroup[] = [
     items: [
       { href: "/docs/health", label: "Health and zombie certs" },
       { href: "/docs/mcp", label: "AI agents (MCP)" },
+      { href: "/docs/events", label: "Events and triggers" },
     ],
   },
   {

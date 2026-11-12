@@ -1,0 +1,16 @@
+{
+  "specversion": "1.0",
+  "id": "c1d2e3f4-0000-4a4b-9a55-0d6f4c3f2a11",
+  "source": "farrier://prod-eu-1",
+  "type": "dev.farrier.renewal.failed",
+  "time": "2026-11-12T09:31:00Z",
+  "subject": "vpn-fw",
+  "datacontenttype": "application/json",
+  "data": {
+    "schema_version": 1,
+    "endpoint": {"id": 7, "name": "vpn-fw", "host": "10.20.9.1", "port": 443, "connector": "fortigate", "tags": ["prod"]},
+    "renewal": {"id": 2042, "state": "failed", "reason": "due", "not_after": null, "fingerprint_sha256": null},
+    "certificate": null,
+    "private_key_ref": null
+  }
+}

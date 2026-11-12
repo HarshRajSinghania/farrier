@@ -1,0 +1,16 @@
+{
+  "specversion": "1.0",
+  "id": "7b0c3f0e-2d7a-4a4b-9a55-0d6f4c3f2a10",
+  "source": "farrier://prod-eu-1",
+  "type": "dev.farrier.renewal.done",
+  "time": "2026-11-12T09:30:00Z",
+  "subject": "www-lb",
+  "datacontenttype": "application/json",
+  "data": {
+    "schema_version": 1,
+    "endpoint": {"id": 12, "name": "www-lb", "host": "10.20.1.10", "port": 443, "connector": "f5", "tags": ["prod", "acm:new"]},
+    "renewal": {"id": 2041, "state": "done", "reason": "due", "not_after": "2027-02-10T09:29:59Z", "fingerprint_sha256": "4f2c1a0b9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b"},
+    "certificate": {"names": ["www.example.com"], "issuer": "CN=R11,O=Let's Encrypt,C=US", "chain_ref": "s3://farrier-certs/prod/2041/fullchain.pem"},
+    "private_key_ref": "aws-sm:arn:aws:secretsmanager:eu-west-1:123456789012:secret:farrier/keys/2041-AbCdEf"
+  }
+}

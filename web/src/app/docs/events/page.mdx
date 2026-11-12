@@ -1,0 +1,131 @@
+export const metadata = {
+  title: "Events and triggers",
+  description: "React to Farrier renewals in AWS, Google Cloud and Azure: the CloudEvents contract, the three transports, the shipped functions and how to write your own.",
+};
+
+# Events and triggers
+
+Every time a renewal changes state, Farrier publishes an event. Use it to push the new certificate into a cloud certificate store, open a ticket when a renewal fails, or run anything else that should follow a renewal. Farrier ships four serverless functions for the common cases, and the contract is small enough to write your own in an afternoon.
+
+| You want to | Use |
+| --- | --- |
+| Rotate an ACM certificate behind an ALB, NLB or CloudFront | `functions/aws/acm_import` |
+| Post failed, rolled back or manual renewals to Slack or a webhook | `functions/aws/notify_router` |
+| Update a Google Certificate Manager certificate | `functions/gcp/cert_manager_import` |
+| Import into Azure Key Vault for App Gateway or Front Door | `functions/azure/keyvault_import` |
+
+## The event
+
+Events are [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) in JSON structured mode. The schema lives in the repository at `events/schema/renewal-event.schema.json` (JSON Schema 2020-12) and is the source of truth.
+
+```json
+{
+  "specversion": "1.0",
+  "id": "7b0c3f0e-2d7a-4a4b-9a55-0d6f4c3f2a10",
+  "source": "farrier://prod-eu-1",
+  "type": "dev.farrier.renewal.done",
+  "time": "2026-11-12T09:30:00Z",
+  "subject": "www-lb",
+  "datacontenttype": "application/json",
+  "data": {
+    "schema_version": 1,
+    "endpoint": { "id": 12, "name": "www-lb", "host": "10.20.1.10", "port": 443, "connector": "f5", "tags": ["prod", "acm:new"] },
+    "renewal": { "id": 2041, "state": "done", "reason": "due", "not_after": "2027-02-10T09:29:59Z", "fingerprint_sha256": "4f2c…" },
+    "certificate": { "names": ["www.example.com"], "issuer": "CN=R11,O=Let's Encrypt,C=US", "chain_ref": "s3://farrier-certs/prod/2041/fullchain.pem" },
+    "private_key_ref": "aws-sm:arn:aws:secretsmanager:eu-west-1:123456789012:secret:farrier/keys/2041-AbCdEf"
+  }
+}
+```
+
+- **`type`** is `dev.farrier.renewal.` followed by the state: `planned`, `issued`, `deploying`, `verifying`, `done`, `failed`, `rolled_back`, `awaiting_manual` or `cancelled`.
+- **`renewal.fingerprint_sha256`** is the SHA-256 of the new leaf certificate (DER, lowercase hex). Functions check the chain they fetch against it, and use it to spot duplicates.
+- **`certificate`**, `not_after` and the fingerprint are `null` until a certificate is issued.
+- **`chain_ref`** points to the full chain, leaf first. **`private_key_ref`** is present only when you enable key export for the endpoint.
+- **`endpoint.tags`** are your tags. The shipped functions select endpoints with prefixed tags: `acm:`, `gcp-cm:`, `akv:`.
+
+### Versioning
+
+`data.schema_version` is the major version. Within a major version Farrier only adds optional fields, so consumers must ignore fields they do not know. A breaking change bumps `schema_version`, and a consumer that receives a major version it does not support sends the event to its dead-letter queue instead of guessing.
+
+### Delivery
+
+Delivery is **at least once**: the same event can arrive twice and, rarely, out of order. Handlers must be idempotent by the CloudEvent `id`, not the transport's message id. Prefer comparing the target's current state with the event: the shipped functions skip when the target certificate already has the event's fingerprint, and skip stale events when the target carries a newer renewal id.
+
+## Transports
+
+| Cloud | Farrier publishes to | Shape |
+| --- | --- | --- |
+| AWS | EventBridge custom bus `farrier` | `Source` `farrier`, `DetailType` = the CloudEvent `type`, `Detail` = the whole CloudEvent |
+| Google Cloud | Pub/Sub topic | message data = the CloudEvent JSON; attributes `ce-type`, `ce-id`, `ce-source` |
+| Azure | Event Grid custom topic, CloudEvents v1.0 input schema | the CloudEvent, unchanged |
+
+On AWS, match events with a rule pattern such as:
+
+```json
+{ "source": ["farrier"], "detail-type": ["dev.farrier.renewal.done"] }
+```
+
+On Google Cloud, filter a subscription with `attributes."ce-type" = "dev.farrier.renewal.done"`. On Azure, filter the event subscription on `type`.
+
+## Shipped functions
+
+All four share one small package, `farrier_events`, for validation, reference parsing, logging, retries and idempotency. Each function keeps its cloud calls behind thin adapters, so the logic is unit-tested with fakes.
+
+### ACM import (AWS Lambda)
+
+Triggered by `dev.farrier.renewal.done`. Tag an endpoint `acm:new` to import its certificate into ACM the first time and re-import into the same certificate afterwards, or `acm:<certificate ARN>` to rotate an existing certificate in place, so load balancer and CloudFront associations keep working. It reads the chain from S3 and the key from Secrets Manager, verifies the leaf against the event's fingerprint, and tags the certificate with the Farrier endpoint id, renewal id and fingerprint.
+
+### Notify router (AWS Lambda)
+
+Triggered by `failed`, `rolled_back` and `awaiting_manual`. It posts to a Slack incoming webhook (the URL is kept in Secrets Manager) and to any HTTPS webhook. Webhook requests carry the CloudEvent as the body and two headers:
+
+```
+X-Farrier-Event-Id: 7b0c3f0e-2d7a-4a4b-9a55-0d6f4c3f2a10
+X-Farrier-Signature: t=1700000000,v1=<hex HMAC-SHA256(key, "1700000000." + body)>
+```
+
+Verify the signature in constant time and reject timestamps older than five minutes. Each sink receives an event once: if one sink fails, only that sink runs again on redelivery. Adding ServiceNow, Jira or PagerDuty is one class and one registry line; `functions/README.md` has a ServiceNow example.
+
+### Certificate Manager import (Google Cloud)
+
+A 2nd gen Cloud Function with a Pub/Sub trigger. Tag an endpoint `gcp-cm:<certificate-id>` and the function creates that self-managed certificate on the first renewal and updates it in place afterwards, through the Certificate Manager REST API. It reads the key from Secret Manager and the chain from Cloud Storage.
+
+### Key Vault import (Azure)
+
+An Azure Function (Python v2 model) with an Event Grid trigger. Tag an endpoint `akv:<certificate-name>` and the function builds a PFX from the chain (Blob Storage) and key (a Key Vault secret), checks that they match, and imports it as a new version of the Key Vault certificate. App Gateway and Front Door pick it up when they reference the certificate by its versionless id.
+
+### Deploying
+
+Each function has a `build.sh` that produces a zip offline, with the shared package copied in. On AWS, the Terraform module `deploy/terraform/aws-events` creates the bus, both rules, the Lambdas, a dead-letter queue per function with alarms, and least-privilege roles; you pass the engine's role ARN and it is the only principal allowed to publish. The module's README describes the equivalent Pub/Sub and Event Grid setups.
+
+## Writing your own
+
+1. **Subscribe** to the types you need on your transport.
+2. **Unwrap and validate.** In Python, use `farrier_events`: `parse_event(from_eventbridge(event))` returns a typed event or raises a permanent error listing every problem. In other languages, validate against the JSON Schema.
+3. **Select** endpoints with a tag prefix of your own, for example `myapp:`.
+4. **Be idempotent.** Compare the target's state with the event before acting, or record the event `id` with a conditional write.
+5. **Fetch material by reference** with your function's own identity, and check the leaf against `fingerprint_sha256` before using it.
+6. **Raise on failure.** Retry transient errors with backoff, then let the platform retry; permanent errors should end on a dead-letter queue that someone is alerted about.
+
+```python
+from farrier_events import get_logger, parse_event
+from farrier_events.transports import from_eventbridge
+
+log = get_logger("my_function")
+
+def handler(event, context):
+    ev = parse_event(from_eventbridge(event))
+    if ev.state != "done" or not ev.endpoint.tag_values("myapp"):
+        return
+    log.bind(**ev.log_context()).info("deploying", target=ev.endpoint.tag_values("myapp")[0])
+    ...
+```
+
+## Security model
+
+- **References, not secrets.** Events never contain private keys or certificates, only references such as `aws-sm:…`, `gcp-sm:…`, `azure-kv:…`, `s3://…`, `gs://…` and `azblob://…`. An event that is logged, forwarded or dead-lettered discloses nothing usable.
+- **Key export is opt-in** per endpoint. Without it, `private_key_ref` is `null` and the import functions refuse the event.
+- **Least privilege.** Each function has its own identity with read access to the key secret prefix and chain prefix only, and write access to certificates only. On AWS, the engine may publish only to the Farrier bus and only with source `farrier`. Functions also refuse references outside their configured prefixes.
+- **Verify, then deploy.** The chain's leaf must match the event fingerprint, and a chain object that contains a private key is rejected.
+- **No secrets in logs.** Functions log one JSON object per line through a redactor that strips PEM blocks, webhook URLs and secret-named fields; cloud error messages are reduced to the operation and error code. The test suite checks captured logs for key material.
+- **Signed webhooks.** Outbound webhooks are HTTPS only, signed with HMAC-SHA256 over a timestamp and the body, and redirects are not followed.

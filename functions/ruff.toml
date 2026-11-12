@@ -1,0 +1,9 @@
+# Lint settings for functions/ only (the engine has its own).
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[lint.per-file-ignores]
+"**/tests/*" = ["E501"]

@@ -1,0 +1,7 @@
+# Installed by the Functions remote build. farrier_events is vendored by build.sh, not installed.
+azure-functions>=1.20,<2
+azure-identity>=1.17,<2
+azure-keyvault-secrets>=4.8,<5
+azure-keyvault-certificates>=4.8,<5
+azure-storage-blob>=12.20,<13
+cryptography>=42
