@@ -128,7 +128,7 @@ jobs:
             grep -qE "$linklocal" <<<"$out" && fail "$f: link-local opened"
           done
           grep -q 'azure.workload.identity/use: "true"' <<<"$out" || fail "aks: engine pods not labelled for workload identity"
-          out=$(render)
+          out=$(render --set secrets.existingSecret.engine=farrier-engine --set secrets.existingSecret.web=farrier-web)
           grep -qE "$linklocal" <<<"$out" && fail "default: link-local opened"
           render -f "$c/examples/values-eks.yaml" --set engine.serviceAccount.cloudIdentity.awsRoleArn= >/dev/null 2>&1 && fail "irsa without a role ARN rendered"
           render -f "$c/examples/values-eks.yaml" --set cloud.identity=pod-identity >/dev/null 2>&1 && fail "pod-identity with an IRSA ARN rendered"
