@@ -77,14 +77,14 @@ class DatabaseURL:
 
 def parse_url(url: str | None, data_dir: Path) -> DatabaseURL:
     if not url:
-        return DatabaseURL("sqlite", path=str(Path(data_dir) / "farrier.db.store"))
+        return DatabaseURL("sqlite", path=str(Path(data_dir) / "farrier.db"))
     parts = urlsplit(url)
     scheme = parts.scheme.split("+", 1)[0].lower()
     if scheme == "sqlite":
         # sqlite:///relative.db and sqlite:////abs/path.db ; on Windows sqlite:///C:/x/farrier.db
         p = unquote(url.split("://", 1)[1].split("?", 1)[0])
         p = p.removeprefix("/")
-        return DatabaseURL("sqlite", path=p or str(Path(data_dir) / "farrier.db.store"))
+        return DatabaseURL("sqlite", path=p or str(Path(data_dir) / "farrier.db"))
     if scheme in ("postgres", "postgresql", "pgsql"):
         scheme = "postgresql"
     elif scheme in ("mysql", "mariadb"):

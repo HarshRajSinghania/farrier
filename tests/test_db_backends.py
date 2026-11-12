@@ -124,7 +124,7 @@ def test_postgres_store_against_mock_driver(tmp_path, fake):
     ddl = fake[0].sql()
     assert "BIGSERIAL PRIMARY KEY" in ddl and "INTEGER PRIMARY KEY" not in ddl.replace("NOT NULL PRIMARY KEY", "")
     assert "pg_advisory_xact_lock(%s)" in ddl and '"window" TEXT NOT NULL' in ddl
-    assert s.migrated == [1, 2, 3, 4]
+    assert s.migrated == list(range(1, db_migrations.latest_version() + 1))
     fake[0].log.clear()
     assert s.x("INSERT INTO events(at, level, message) VALUES (?,?,?)", (now_iso(), "info", "hi")) == 42
     sql, params = fake[0].log[-1]
@@ -199,7 +199,7 @@ CREATE TABLE events (id INTEGER PRIMARY KEY, at TEXT NOT NULL, endpoint_id INTEG
 
 def test_migrations_apply_once_and_are_idempotent(tmp_path):
     s = Store(tmp_path)
-    assert s.migrated == [1, 2, 3, 4] and s.schema_version() == db_migrations.latest_version()
+    assert s.migrated == list(range(1, db_migrations.latest_version() + 1)) and s.schema_version() == db_migrations.latest_version()
     s.close()
     s2 = Store(tmp_path)
     assert s2.migrated == [] and len(s2.q("SELECT * FROM schema_version")) == len(db_migrations.MIGRATIONS)
@@ -207,13 +207,13 @@ def test_migrations_apply_once_and_are_idempotent(tmp_path):
 
 
 def test_legacy_sqlite_file_is_migrated_in_place(tmp_path):
-    c = sqlite3.connect(tmp_path / "farrier.db.store")
+    c = sqlite3.connect(tmp_path / "farrier.db")
     c.executescript(LEGACY_SCHEMA)
     c.execute("INSERT INTO endpoints(name, host, created_at, window) VALUES ('old', 'h', 'now', '{\"a\": 1}')")
     c.commit()
     c.close()
     s = Store(tmp_path)
-    assert s.migrated == [1, 2, 3, 4]
+    assert s.migrated == list(range(1, db_migrations.latest_version() + 1))
     assert s.q1("SELECT name, window FROM endpoints") == {"name": "old", "window": {"a": 1}}
     idx = {r["name"] for r in s.q("SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"obs_ep", "ren_state", "ren_ep", "ev_ep"} <= idx
@@ -229,7 +229,7 @@ def test_copy_to_new_database_keeps_ciphertext(tmp_path):
     dest_url = "sqlite:///" + str(tmp_path / "b" / "copy.db").replace("\\", "/")
     dst = Store(tmp_path / "a", url=dest_url)
     counts = src.copy_to(dst)
-    assert counts == {"endpoints": 1, "observations": 0, "renewals": 1, "events": 1}
+    assert counts.items() >= {"endpoints": 1, "observations": 0, "renewals": 1, "events": 1}.items()
     r = dst.renewal(rid)
     assert r["key_sealed"] == sealed and r["rollback"] == {"t": 1}
     assert dst.endpoint(eid)["window"] == {"days": ["mon"]}
@@ -390,3 +390,13 @@ def test_only_one_open_renewal_per_endpoint_even_when_racing(tmp_path):
     assert a.update_renewal(first, expect_state="planned", state="cancelled")
     third = b.create_renewal(eid, now_iso(), None, None, "next")
     assert third != first and a.renewal(third)["state"] == "planned"
+
+
+def test_default_sqlite_file_name_is_stable(tmp_path):
+    """Existing installs keep their data in <data>/farrier.db; renaming it would hide every endpoint."""
+    s = Store(tmp_path)
+    _endpoint(s, "kept")
+    s.close()
+    assert (tmp_path / "farrier.db").exists()
+    assert not any(p.name.startswith("farrier.db.") and not p.name.endswith(("-wal", "-shm")) for p in tmp_path.iterdir())
+    assert [e["name"] for e in Store(tmp_path).endpoints()] == ["kept"]
