@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BellRing, CheckCircle2, ChevronRight, CircleDashed, Globe, Landmark, Save, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronRight, CircleDashed, FolderKanban, Globe, Landmark, Save, XCircle } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,8 @@ function Policy() {
             }}
           >
             <fieldset disabled={!editable || state.busy} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {NUMBERS.map(({ key, label, help, unit }) => {
+              {/* only what this engine knows: an older engine behind a newer dashboard has fewer settings */}
+              {NUMBERS.filter(({ key }) => data.limits[key]).map(({ key, label, help, unit }) => {
                 const lim = data.limits[key];
                 return (
                   <label key={key} className="grid content-start gap-2 text-sm">
@@ -108,7 +109,7 @@ function Policy() {
               })}
             </fieldset>
             <fieldset disabled={!editable || state.busy} className="mt-6 grid gap-4 border-t pt-6 sm:grid-cols-2">
-              {TOGGLES.map(({ key, label, help }) => (
+              {TOGGLES.filter(({ key }) => data.limits[key]).map(({ key, label, help }) => (
                 <label key={key} className="flex items-start gap-4 text-sm">
                   <input
                     type="checkbox"
@@ -158,6 +159,7 @@ function IntegrationsCard() {
   const dns = useDnsAccounts();
   const channels = useNotifiers();
   const rules = useAlertRules();
+  const { status } = useAccess();
   const count = (q: { data?: unknown[]; error?: unknown }, text: (n: number) => string) =>
     q.data ? text(q.data.length) : q.error ? "Unavailable" : null;
   const links = [
@@ -171,6 +173,9 @@ function IntegrationsCard() {
         ? `${plural(rules.data.length, "rule")} · ${plural(channels.data.length, "channel")}`
         : rules.error || channels.error ? "Unavailable" : null,
     },
+    ...(status?.allProjects
+      ? [{ href: "/dashboard/settings/projects", icon: FolderKanban, label: "Projects", detail: plural(status.projects?.length ?? 0, "project") }]
+      : []),
   ];
   return (
     <Card>
