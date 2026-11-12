@@ -6,6 +6,7 @@ import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { TableSkeleton } from "@/components/dashboard/widgets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/misc";
 import { api, useEndpoints, useZombies } from "@/lib/api";
@@ -64,19 +65,14 @@ function HealthCheck() {
       <h2 className="text-lg font-semibold">Check an endpoint</h2>
       <p className="mt-1 text-sm text-muted-foreground">Chain, names, expiry, key, signature, TLS versions and OCSP, graded A to F.</p>
       <div className="mt-4 flex flex-wrap gap-2">
-        <select
+        <Select
           aria-label="Endpoint"
-          value={id}
-          onChange={(e) => setId(e.target.value ? Number(e.target.value) : "")}
-          className="h-9 min-w-64 rounded-md border bg-background px-2 text-sm"
-        >
-          <option value="">Choose an endpoint</option>
-          {(eps ?? []).map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </select>
+          value={id === "" ? "" : String(id)}
+          onValueChange={(v) => setId(Number(v))}
+          placeholder="Choose an endpoint"
+          className="w-full sm:w-72"
+          options={(eps ?? []).map((e) => ({ value: String(e.id), label: e.name, description: `${e.host}:${e.port}` }))}
+        />
         <Button onClick={run} disabled={!id || busy}>
           <Stethoscope /> {busy ? "Checking…" : "Run check"}
         </Button>

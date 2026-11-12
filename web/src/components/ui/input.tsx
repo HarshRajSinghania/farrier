@@ -11,10 +11,6 @@ export function Textarea({ className, ...props }: React.ComponentProps<"textarea
   return <textarea className={cn(field, "h-auto min-h-20 py-2 font-mono text-sm", className)} {...props} />;
 }
 
-export function NativeSelect({ className, ...props }: React.ComponentProps<"select">) {
-  return <select className={cn(field, "pr-8", className)} {...props} />;
-}
-
 export function Label({ className, ...props }: React.ComponentProps<"label">) {
   return <label className={cn("text-sm font-medium", className)} {...props} />;
 }

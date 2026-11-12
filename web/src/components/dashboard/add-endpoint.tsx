@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { CONNECTOR_LABEL } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { FieldHint, Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
+import { FieldHint, Input, Label, Textarea } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { api, useConnectors } from "@/lib/api";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -96,13 +97,16 @@ export function AddEndpointDialog({ children }: { children: React.ReactNode }) {
 
           <div className="space-y-2">
             <Label htmlFor="connector">Connector</Label>
-            <NativeSelect id="connector" value={connector} onChange={(e) => pickConnector(e.target.value)}>
-              {(connectors ?? [{ kind: "manual", automated: false }]).map((c) => (
-                <option key={c.kind} value={c.kind}>
-                  {CONNECTOR_LABEL[c.kind] ?? c.kind} {c.automated ? "· automated" : "· change pack"}
-                </option>
-              ))}
-            </NativeSelect>
+            <Select
+              id="connector"
+              value={connector}
+              onValueChange={pickConnector}
+              options={(connectors ?? [{ kind: "manual", automated: false }]).map((c) => ({
+                value: c.kind,
+                label: CONNECTOR_LABEL[c.kind] ?? c.kind,
+                description: c.automated ? "Renewed automatically" : "Change pack for a person",
+              }))}
+            />
           </div>
 
           <div className="space-y-2">

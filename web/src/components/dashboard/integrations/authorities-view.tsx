@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/misc";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { api, useCatalog, useDnsAccounts, useIssuers } from "@/lib/api";
@@ -240,14 +241,15 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
                 </>
               }
             >
-              <NativeSelect id="issuer-dns" value={dns} onChange={(e) => setDns(e.target.value)}>
-                <option value="auto">Automatic</option>
-                {(dnsAccounts ?? []).map((a) => (
-                  <option key={a.name} value={a.name}>
-                    {a.name} · {a.provider}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select
+                id="issuer-dns"
+                value={dns}
+                onValueChange={setDns}
+                options={[
+                  { value: "auto", label: "Automatic", description: "The account whose zone matches each name" },
+                  ...(dnsAccounts ?? []).map((a) => ({ value: a.name, label: a.name, description: a.provider })),
+                ]}
+              />
             </Field>
           </div>
 
@@ -274,13 +276,13 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
             <div className="grid gap-4 border-t p-4 sm:grid-cols-2">
               {base === "letsencrypt" && (
                 <Field id="issuer-profile" label="Profile" hint="Shortlived suits automated endpoints only.">
-                  <NativeSelect id="issuer-profile" value={profile} onChange={(e) => setProfile(e.target.value)}>
-                    {PROFILES.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </NativeSelect>
+                  <Select
+                    id="issuer-profile"
+                    // Radix reserves "" for "no value"; the CA-default profile is "" in the form state
+                    value={profile || "default"}
+                    onValueChange={(v) => setProfile(v === "default" ? "" : v)}
+                    options={PROFILES.map((p) => ({ value: p.id || "default", label: p.label }))}
+                  />
                 </Field>
               )}
               <Field id="issuer-chain" label="Preferred chain" optional hint="The root's common name, when the CA offers alternates.">

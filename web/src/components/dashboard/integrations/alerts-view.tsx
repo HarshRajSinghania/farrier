@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/misc";
 import { Segmented } from "@/components/ui/segmented";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -549,20 +550,15 @@ function RuleForm({ entry, taken, onDone }: { entry: AlertRule | null; taken: st
         <p className="text-sm font-medium">When</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field id="rule-type" label="Condition">
-            <NativeSelect
+            <Select
               id="rule-type"
               value={type}
-              onChange={(e) => {
-                setType(e.target.value as AlertWhen["type"]);
+              onValueChange={(v) => {
+                setType(v as AlertWhen["type"]);
                 setErrors((x) => ({ ...x, param: "" }));
               }}
-            >
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </NativeSelect>
+              options={types.map((t) => ({ value: t.id, label: t.label }))}
+            />
           </Field>
           {type === "expiring" && (
             <Field id="rule-days" label="Days before expiry" error={errors.param}>
@@ -576,13 +572,12 @@ function RuleForm({ entry, taken, onDone }: { entry: AlertRule | null; taken: st
           )}
           {type === "health" && (
             <Field id="rule-grade" label="Grade drops below">
-              <NativeSelect id="rule-grade" value={below} onChange={(e) => setBelow(e.target.value as HealthGrade)}>
-                {(["A", "B", "C", "D"] as const).map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select
+                id="rule-grade"
+                value={below}
+                onValueChange={(v) => setBelow(v as HealthGrade)}
+                options={(["A", "B", "C", "D"] as const).map((g) => ({ value: g, label: g }))}
+              />
             </Field>
           )}
         </div>
