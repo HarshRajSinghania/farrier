@@ -305,7 +305,7 @@ function UserMenu() {
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/90 px-4 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-xl backdrop-saturate-150 sm:px-6">
       <Button variant="ghost" size="icon-sm" className="lg:hidden" aria-label="Open menu" onClick={onMenu}>
         <Menu />
       </Button>

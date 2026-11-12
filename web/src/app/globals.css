@@ -217,3 +217,16 @@
     @keyframes grow-x { from { transform: scaleX(0.04); } }
   }
 }
+
+/* ---------------------------------------------------------------- dashboard
+   Geist for the product UI. Redefining the font tokens on <body> reaches every utility and
+   every portaled menu or dialog while a dashboard is mounted. The canvas is the grey the sidebar
+   sits on; the page itself is the white inset panel. */
+body:has([data-dashboard]) {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-sans);
+  letter-spacing: -0.006em;
+}
+:root { --canvas: #f2f2ef; }
+.dark { --canvas: #090909; }

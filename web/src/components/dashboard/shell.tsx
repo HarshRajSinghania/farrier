@@ -79,8 +79,9 @@ function Nav({ onNavigate, collapsed = false }: { onNavigate?: () => void; colla
                   title={collapsed ? label : undefined}
                   aria-label={collapsed ? label : undefined}
                   className={cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:h-8",
-                    active && "bg-muted text-foreground",
+                    "relative flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground lg:h-8",
+                    active &&
+                      "bg-background text-foreground shadow-xs ring-1 ring-border before:absolute before:-left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-[#c5f04a]",
                     collapsed && "relative justify-center px-0",
                   )}
                 >
@@ -161,10 +162,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   };
   const { data: status } = useStatus();
   return (
-    <div className="flex min-h-dvh bg-plane">
+    <div data-dashboard className="flex min-h-dvh bg-[var(--canvas)] lg:h-dvh lg:overflow-hidden">
       <aside
         className={cn(
-          "sticky top-0 hidden h-dvh shrink-0 flex-col gap-6 overflow-y-auto border-r bg-background py-4 transition-[width] duration-200 lg:flex",
+          "sticky top-0 hidden h-dvh shrink-0 flex-col gap-6 overflow-y-auto py-4 transition-[width] duration-200 lg:flex",
           collapsed ? "w-16 px-2" : "w-60 px-4",
         )}
       >
@@ -174,7 +175,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <LogoMark />
             </Link>
           ) : (
-            <Logo href="/" />
+            <div className="min-w-0">
+              <Logo href="/" />
+              <p className="mt-1 truncate pl-8 text-xs text-muted-foreground">
+                {status?.mode === "demo" ? "Demo estate" : (status?.upstream?.replace(/^https?:\/\//, "") ?? "Connecting…")}
+              </p>
+            </div>
           )}
           <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
             {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
@@ -200,7 +206,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-background lg:my-2 lg:mr-2 lg:overflow-y-auto lg:rounded-2xl lg:border lg:shadow-sm">
         {status?.mode === "demo" && (
           <div className="border-b bg-warning/10 px-4 py-2 text-center text-xs text-warning-fg">
             Demo mode: a simulated estate of appliances, reset on server restart.{" "}
