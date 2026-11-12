@@ -65,3 +65,6 @@ skills-lock.json
 *.swp
 .DS_Store
 Thumbs.db
+
+# Security audit reports stay private (kept outside this repository)
+security/audits/

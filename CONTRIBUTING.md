@@ -47,6 +47,20 @@ CI also runs the ACME client against Pebble, Let's Encrypt's test server (`tests
 Farrier follows [Semantic Versioning](https://semver.org/). Maintainers cut releases as described
 at the top of [CHANGELOG.md](CHANGELOG.md).
 
+## The public website
+
+The landing page, docs and live demo are the same `web/` app in site mode, with no engine behind it: the demo
+runs on simulated data. Host it on a platform with a global CDN (Vercel, Cloudflare or Netlify) with:
+
+| Setting | Value |
+|---|---|
+| Root directory | `web` |
+| Build command | `npm run build` |
+| `NEXT_PUBLIC_SITE_URL` | the public address, e.g. `https://farrier.dev` (on Vercel it is detected) |
+| `FARRIER_API_URL` | not set: the demo stays simulated |
+
+Installs never serve this site: the Docker image runs in app mode, where `/` opens the dashboard.
+
 ## License
 
 Contributions are released under the [MIT License](LICENSE), the same as the project.

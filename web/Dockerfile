@@ -11,6 +11,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# an install, not the public website: no site URL is needed at build time
+ENV FARRIER_MODE=app
 RUN npm run build
 
 FROM node:24-alpine AS run
