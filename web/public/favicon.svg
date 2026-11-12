@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <rect width="24" height="24" rx="6" fill="#141414"/>
-  <mask id="h" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-    <rect width="24" height="24" fill="#fff"/>
-    <g fill="#000" transform="translate(12 12.4) scale(.78) translate(-12 -11)"><circle cx="4.54" cy="12.28" r=".85"/><circle cx="5.26" cy="8.21" r=".85"/><circle cx="8.03" cy="5.14" r=".85"/><circle cx="12" cy="4" r=".85"/><circle cx="15.97" cy="5.14" r=".85"/><circle cx="18.74" cy="8.21" r=".85"/><circle cx="19.46" cy="12.28" r=".85"/></g>
-  </mask>
-  <path transform="translate(12 12.4) scale(.78) translate(-12 -11)" d="M7.38 17.41A7.5 7.5 0 1 1 16.62 17.41" stroke="#3b82f6" stroke-width="3.6" mask="url(#h)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="8" fill="#2563eb"/>
+  <path d="M10.2 24.2A9.4 9.4 0 1 1 21.8 24.2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#2563eb">
+    <circle cx="7.17" cy="13.59" r="1.15"/>
+    <circle cx="10.61" cy="9.10" r="1.15"/>
+    <circle cx="16.00" cy="7.40" r="1.15"/>
+    <circle cx="21.39" cy="9.10" r="1.15"/>
+    <circle cx="24.83" cy="13.59" r="1.15"/>
+  </g>
 </svg>

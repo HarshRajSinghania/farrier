@@ -1,5 +1,4 @@
 /* eslint-disable @next/next/no-img-element -- small brand SVGs and icons: next/image adds nothing for these */
-import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -85,24 +84,7 @@ export function Hero() {
         </div>
       </div>
 
-      <div className={cn(wrap, "enter [--d:300ms] mt-14 sm:mt-16")}>
-        <div className={cn(panel, "p-2 sm:p-6 lg:p-10")}>
-          <div className={cn(frame, "overflow-hidden rounded-[16px] sm:rounded-[20px]")}>
-            {/* a real capture of /dashboard on the demo engine: regenerate when the dashboard changes */}
-            <Image
-              src="/product/dashboard.png"
-              width={2880}
-              height={1800}
-              alt="The Farrier dashboard: 41 endpoints, expiring certificates, a renewal calendar and change packs awaiting a person"
-              preload
-              sizes="(min-width: 1280px) 1150px, 100vw"
-              className="h-auto w-full"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div id="integrations" className={cn(wrap, "scroll-mt-20 pt-16 sm:pt-20")}>
+      <div id="integrations" className={cn(wrap, "scroll-mt-20 pt-20 sm:pt-28")}>
         <div className="border-b border-[var(--l-line)] pb-16 sm:pb-20">
           <p className="text-center text-[13px] text-[var(--l-sub)]">Works with your certificate authorities and DNS providers</p>
           <div className="l-row mt-8 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
@@ -135,7 +117,7 @@ export function Hero() {
 /* ------------------------------------------------------------------ how: one statement, one visual */
 
 const LIFETIMES = [
-  { when: "Today", days: 398 },
+  { when: "Until 2026", days: 398 },
   { when: "Mar 2026", days: 200 },
   { when: "Mar 2027", days: 100 },
   { when: "Mar 2029", days: 47 },
@@ -194,7 +176,7 @@ const FEATURES: { t: string; d: string; Icon: LucideIcon; tone: keyof typeof TON
   { t: "Ask your agent", d: "Claude, Gemini and Codex over MCP. Read-only by default.", Icon: Bot, tone: "violet" },
   { t: "Domain health", d: "An A to F grade for every endpoint.", Icon: ShieldCheck, tone: "green" },
   { t: "Zombie scanner", d: "Certificates still alive that should not be.", Icon: Skull, tone: "red" },
-  { t: "Rolls back by itself", d: "Three failed handshakes and the old certificate is back.", Icon: RotateCcw, tone: "amber" },
+  { t: "Rolls back by itself", d: "If the new certificate never shows up live, the old one goes back.", Icon: RotateCcw, tone: "amber" },
   { t: "Change windows", d: "Each device renews in its own window, with daily caps.", Icon: CalendarClock, tone: "blue" },
   { t: "Change packs", d: "Files, a runbook and a ticket for devices without an API.", Icon: FileArchive, tone: "teal" },
   { t: "Single sign-on", d: "OIDC with viewer, operator and admin roles.", Icon: Users, tone: "violet" },
@@ -396,10 +378,10 @@ export function Devices() {
               <span className="ml-2 font-mono text-xs text-[var(--l-sub)]">farrier</span>
             </div>
             <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px] sm:leading-7">
-              <span className="text-[var(--l-sub)]">$</span> farrier discover 10.20.0.0/24{"\n"}
+              <span className="text-[var(--l-sub)]">$</span> farrier scan 10.20.0.0/24{"\n"}
               <span className="text-[var(--l-sub)]">  41 endpoints, 18 automated, 23 change packs</span>
               {"\n"}
-              <span className="text-[var(--l-sub)]">$</span> farrier renew --due{"\n"}
+              <span className="text-[var(--l-sub)]">$</span> farrier tick{"\n"}
               {"  "}<span className="text-[var(--status-good-fg)]">✔</span> www-lb    F5 BIG-IP   verified live{"\n"}
               {"  "}<span className="text-[var(--status-good-fg)]">✔</span> vpn-fgt   FortiGate   verified live{"\n"}
               {"  "}<span className="text-[var(--status-good-fg)]">✔</span> edge-pa   Palo Alto   verified live{"\n"}
@@ -416,10 +398,10 @@ export function Devices() {
 /* ------------------------------------------------------------------ deploy */
 
 const PLATFORMS = [
-  { logo: "aws.svg", t: "AWS", d: "EKS or EC2 with Secrets Manager." },
-  { logo: "google-cloud.svg", t: "Google Cloud", d: "GKE with Cloud SQL." },
-  { logo: "microsoft-azure.svg", t: "Azure", d: "AKS or a VM with Key Vault." },
-  { logo: "docker.svg", t: "On-prem", d: "Compose, Kubernetes or air-gapped." },
+  { logo: "aws.svg", t: "AWS", d: "ECS Fargate with Secrets Manager and RDS." },
+  { logo: "google-cloud.svg", t: "Google Cloud", d: "Cloud Run with Cloud SQL and Secret Manager." },
+  { logo: "microsoft-azure.svg", t: "Azure", d: "Container Apps with Key Vault and Front Door." },
+  { logo: "docker.svg", t: "On-prem", d: "Docker Compose, Helm on Kubernetes, or air-gapped." },
 ];
 
 export function Deploy() {
