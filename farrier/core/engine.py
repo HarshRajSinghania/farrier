@@ -32,6 +32,7 @@ from farrier.core.scheduler import level, next_window_start
 from farrier.core.x509util import build_csr, generate_key, key_to_pem, parse_pem
 from farrier.db.store import OPEN_STATES, Store, now_iso, parse_dt
 from farrier.issuers import build_issuer, load_issuers
+from farrier.itsm.tickets import Itsm
 from farrier.monitoring.alerts import Alerts
 from farrier.monitoring.notify import Notifier
 from farrier.security.secrets_store import SecretStore
@@ -51,6 +52,11 @@ DEFAULT_SETTINGS = {
     # probe every A/AAAA record of the host too (catches one stale node behind round-robin DNS;
     # leave off where the engine can't reach every address, e.g. IPv6 it has no route to)
     "verify_all_addresses": False,
+    # re-probe each reachable inventory endpoint's TLS crypto / PQC readiness this often (0 = never)
+    "crypto_scan_hours": 24,
+    # agentless SSH inventory: unauthenticated probe / authorized_keys collection cadence (0 = never)
+    "ssh_scan_hours": 24,
+    "ssh_collect_hours": 24,
 }
 
 
@@ -75,7 +81,8 @@ class Engine:
         self._config_version = self.items.version()
         self.notifier = self._build_notifier()
         self.alerts = Alerts(self)
-        self._lease = None                     # leader lease, opened on the first tick
+        self.itsm = Itsm(self)                  # ServiceNow / Jira ticket lifecycle, Datadog / Splunk telemetry
+        self._lease = None                    # leader lease, opened on the first tick
         self._tick_lock = threading.Lock()      # held for the duration of a tick
         self._stopping = threading.Event()
 
@@ -317,6 +324,7 @@ class Engine:
             self.alerts.on_event(event, r, ep)
         except Exception as e:  # noqa: BLE001 - alerting must never break a renewal
             self.store.log(f"alert rules for {event} failed: {type(e).__name__}: {e}", level="warning")
+        self.itsm.on_event(event, r, ep)        # queues ticket work; never raises
 
     def _advance(self, rid: int, now: datetime | None = None) -> str:
         now = now or policy.utcnow()
@@ -558,6 +566,19 @@ class Engine:
             states[self.advance(r["id"], now)] += 1
         self.sweep_packs()
         out = {"planned": len(planned), "states": dict(states)}
+        if scan:
+            try:   # after renewals, so a slow probe never delays a change; wall-clock cadence (stored times are real)
+                from farrier.crypto.service import rescan_due
+                if crypto := rescan_due(self):
+                    out["crypto_scanned"] = crypto
+            except Exception as e:  # noqa: BLE001
+                self.store.log(f"crypto re-scan failed: {type(e).__name__}: {e}", level="error")
+            try:   # SSH re-scan/collection: started in the background when due (farrier.ssh.schedule)
+                from farrier.ssh.schedule import run_due as ssh_run_due
+                if ssh := ssh_run_due(self, parse_dt(now_iso())):
+                    out["ssh"] = ssh
+            except Exception as e:  # noqa: BLE001
+                self.store.log(f"ssh periodic run failed: {type(e).__name__}: {e}", level="error")
         try:
             alerts = self.alerts.evaluate(now)
         except Exception as e:  # noqa: BLE001
@@ -565,4 +586,5 @@ class Engine:
             alerts = 0
         if alerts:
             out["alerts"] = alerts
+        self.itsm.tick(now)                     # ticket retries, Datadog metrics, Splunk inventory; never raises
         return out

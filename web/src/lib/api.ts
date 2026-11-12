@@ -5,6 +5,9 @@ import type {
   AlertRule,
   AlertRuleInput,
   BackendStatus,
+  CertificateDetail,
+  CryptoAsset,
+  CryptoSummary,
   ConnectorInfo,
   DiscoverResult,
   DnsAccount,
@@ -22,6 +25,12 @@ import type {
   NotifierInput,
   Renewal,
   SecretInfo,
+  SshAccess,
+  SshAccessInput,
+  SshHost,
+  SshKey,
+  SshRemoveResult,
+  SshSummary,
   Summary,
   TestResult,
   ZombieReport,
@@ -72,6 +81,14 @@ export const useIssuers = () => useSWR<Issuer[]>("/issuers", fetcher);
 export const useDnsAccounts = () => useSWR<DnsAccount[]>("/dns-accounts", fetcher);
 export const useNotifiers = () => useSWR<NotifierChannel[]>("/notifiers", fetcher);
 export const useAlertRules = () => useSWR<AlertRule[]>("/alert-rules", fetcher);
+export const useCertificate = (id: number | null) =>
+  useSWR<CertificateDetail>(id ? `/endpoints/${id}/certificate` : null, fetcher, live);
+export const useSshSummary = () => useSWR<SshSummary>("/ssh/summary", fetcher, live);
+export const useSshKeys = () => useSWR<SshKey[]>("/ssh/keys", fetcher, live);
+export const useSshHosts = () => useSWR<SshHost[]>("/ssh/hosts", fetcher, live);
+export const useSshAccess = () => useSWR<SshAccess[]>("/ssh/access", fetcher);
+export const useCryptoSummary = () => useSWR<CryptoSummary>("/crypto/summary", fetcher, live);
+export const useCryptoAssets = () => useSWR<CryptoAsset[]>("/crypto/assets", fetcher, live);
 export const useStatus = () => useSWR<BackendStatus>("/_status", fetcher, { refreshInterval: 60_000 });
 
 /** Revalidate every cached query after a mutation. */
@@ -119,6 +136,25 @@ export const api = {
   saveAlertRule: (name: string, body: AlertRuleInput) =>
     act<AlertRule>(`/alert-rules/${enc(name)}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteAlertRule: (name: string) => act<{ ok: true }>(`/alert-rules/${enc(name)}`, { method: "DELETE" }),
+
+  // SSH keys
+  sshScan: (targets: string) => act<Record<string, unknown>>("/ssh/scan", { method: "POST", body: JSON.stringify({ targets }) }),
+  sshCollect: (access?: string) =>
+    act<Record<string, unknown>>("/ssh/collect", { method: "POST", body: JSON.stringify(access ? { access } : {}) }),
+  /** dry_run first: the server says what it would change and changes nothing */
+  sshRemoveKey: (id: number | string, dryRun: boolean) => {
+    const call = dryRun ? request : act;
+    return call<SshRemoveResult>(`/ssh/keys/${enc(String(id))}/remove`, { method: "POST", body: JSON.stringify({ dry_run: dryRun }) });
+  },
+  saveSshAccess: (name: string, body: SshAccessInput) =>
+    act<SshAccess>(`/ssh/access/${enc(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteSshAccess: (name: string) => act<{ ok: true }>(`/ssh/access/${enc(name)}`, { method: "DELETE" }),
+  testSshAccess: (name: string) => request<TestResult>(`/ssh/access/${enc(name)}/test`, { method: "POST" }),
+
+  // crypto discovery
+  cryptoScan: (targets: string) => act<Record<string, unknown>>("/crypto/scan", { method: "POST", body: JSON.stringify({ targets }) }),
+  cbomUrl: () => `${BASE}/crypto/cbom`,
+
   testAlertRule: (name: string) => request<{ ok: boolean; sent: number }>(`/alert-rules/${enc(name)}/test`, { method: "POST" }),
 };
 

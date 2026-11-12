@@ -2,19 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
   Activity,
+  Atom,
   BellRing,
   BookOpen,
   CalendarClock,
+  FileBadge,
   Gauge,
   Globe,
+  KeyRound,
   Landmark,
   LayoutDashboard,
   Plug,
   Radar,
-  Server,
   Settings,
   ShieldCheck,
   X,
@@ -33,8 +35,15 @@ const NAV = [
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/dashboard/renewals", label: "Renewals", icon: CalendarClock, badge: true },
-      { href: "/dashboard/endpoints", label: "Endpoints", icon: Server },
       { href: "/dashboard/discovery", label: "Discovery", icon: Radar },
+    ],
+  },
+  {
+    group: "Inventory",
+    items: [
+      { href: "/dashboard/endpoints", label: "Certificates", icon: FileBadge },
+      { href: "/dashboard/ssh", label: "SSH keys", icon: KeyRound },
+      { href: "/dashboard/crypto", label: "Crypto & PQC", icon: Atom },
     ],
   },
   {
@@ -62,8 +71,25 @@ const NAV = [
   },
 ];
 
-function Nav({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
-  const path = usePathname();
+type NavProps = { onNavigate?: () => void; collapsed?: boolean };
+
+/**
+ * The pathname is only known at request time on dynamic routes (/dashboard/endpoints/[id]),
+ * so the active highlight streams in behind Suspense there; static routes prerender it.
+ */
+function Nav(props: NavProps) {
+  return (
+    <Suspense fallback={<NavLinks {...props} path="" />}>
+      <ActiveNav {...props} />
+    </Suspense>
+  );
+}
+
+function ActiveNav(props: NavProps) {
+  return <NavLinks {...props} path={usePathname()} />;
+}
+
+function NavLinks({ onNavigate, collapsed = false, path }: NavProps & { path: string }) {
   const { data } = useSummary();
   const pending = (data?.awaiting_manual ?? 0) + (data?.attention ?? 0);
   return (

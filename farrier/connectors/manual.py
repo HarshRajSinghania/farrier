@@ -8,6 +8,8 @@ config:
   runbook   "generic" | "cisco-asa" | "citrix-adc" | "windows-iis" | "vmware-vcenter"
   ticket    optional {"url": ..., "headers": {...}, "template": {...}, "ref_field": "result.number"}
             template values may use {summary} {description} {due} {endpoint} {renewal_id}
+            (a generic webhook; for ServiceNow or Jira with the full ticket lifecycle use an alert
+            channel of type servicenow / jira with "tickets": true, see farrier.itsm.tickets)
 """
 from __future__ import annotations
 
@@ -53,6 +55,13 @@ RUNBOOKS = {
 }
 
 
+def runbook_steps(cfg: dict | None, object_name: str, addr: str, fingerprint: str) -> str:
+    """The device steps of a change pack's runbook, without reading the pack (which holds the key). Used
+    for ticket bodies (farrier.itsm.tickets): the text names files and never carries key material."""
+    name = (cfg or {}).get("runbook", "generic")
+    return RUNBOOKS.get(name, RUNBOOKS["generic"]).format(obj=object_name, addr=addr, fp_short=(fingerprint or "")[:16])
+
+
 def _fmt(obj, ctx: dict):
     if isinstance(obj, str):
         return obj.format(**ctx)
@@ -89,8 +98,7 @@ class ManualConnector(Connector):
             cas or None, serialization.BestAvailableEncryption(passphrase.encode()))
         files = {"cert.pem": b.cert_pem, "chain.pem": b.chain_pem, "fullchain.pem": b.fullchain_pem,
                  "key.pem": b.key_pem, "passphrase.txt": passphrase + "\n", "bundle.pfx": pfx}
-        steps = RUNBOOKS.get(self.cfg.get("runbook", "generic"), RUNBOOKS["generic"]).format(
-            obj=b.object_name, addr=addr, fp_short=fingerprint[:16])
+        steps = runbook_steps(self.cfg, b.object_name, addr, fingerprint)
         summary = f"Install renewed TLS certificate on {b.name}"
         runbook = (f"# {summary}\n\n- Endpoint: `{addr}`\n- Install before: **{due}**\n"
                    f"- New cert expires: {b.not_after}\n- SHA-256: `{fingerprint}`\n\n## Steps\n\n{steps}\n")

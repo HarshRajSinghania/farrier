@@ -154,11 +154,139 @@ def _m4_ui_config(d: Dialect) -> list[str]:
     ]
 
 
+def _m5_certificates_and_crypto(d: Dialect) -> list[str]:
+    """Served certificates (PEM, once per fingerprint) and agentless cryptographic discovery.
+
+    certificates   leaf PEM and the chain the server sent, keyed by the observation fingerprint
+                   (observations reference it by fingerprint; older observations simply have no row)
+    crypto_assets  one row per probed TLS target with its latest probe result (JSON) and PQC status
+    crypto_scans   every probe result, for history
+    """
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE certificates (
+  id {d.pk},
+  fingerprint {d.key} NOT NULL,
+  cert_pem {d.text} NOT NULL,
+  chain_pem {d.text},
+  first_seen {d.key} NOT NULL
+){s}""",
+        d.create_index("cert_fp", "certificates", "fingerprint", unique=True),
+        f"""CREATE TABLE crypto_assets (
+  id {d.pk},
+  kind {d.key} NOT NULL,
+  target {d.key} NOT NULL,
+  host {d.key} NOT NULL,
+  port {d.int_} NOT NULL,
+  sni {d.key},
+  status {d.key} NOT NULL,
+  result {d.text} NOT NULL,
+  observed_at {d.key} NOT NULL,
+  created_at {d.key} NOT NULL
+){s}""",
+        d.create_index("ca_target", "crypto_assets", "kind, target", unique=True),
+        f"""CREATE TABLE crypto_scans (
+  id {d.pk},
+  asset_id {d.ref} NOT NULL,
+  observed_at {d.key} NOT NULL,
+  status {d.key} NOT NULL,
+  result {d.text} NOT NULL,
+  FOREIGN KEY (asset_id) REFERENCES crypto_assets(id) ON DELETE CASCADE
+){s}""",
+        d.create_index("cs_asset", "crypto_scans", "asset_id, id"),
+    ]
+
+
+def _m6_ssh(d: Dialect) -> list[str]:
+    """Agentless SSH inventory (farrier.ssh).
+
+    ssh_hosts        latest unauthenticated probe per host:port (banner, algorithms, host keys, findings)
+    ssh_host_pins    host keys Farrier trusts per host:port (TOFU or explicitly trusted); a different key
+                     on a later contact is an error, never silently accepted
+    ssh_keys         authorized_keys entries found by collection; uid identifies host/user/file/line
+    ssh_runs         when the periodic scan and collection last ran (survives leader failover)
+    """
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE ssh_hosts (
+  id {d.pk},
+  host {d.key} NOT NULL,
+  port {d.int_} NOT NULL,
+  banner {d.text},
+  data {d.text} NOT NULL,
+  pqc_kex {d.int_} NOT NULL DEFAULT 0,
+  error {d.text},
+  observed_at {d.key} NOT NULL
+){s}""",
+        d.create_index("ssh_host_addr", "ssh_hosts", "host, port", unique=True),
+        f"""CREATE TABLE ssh_host_pins (
+  host {d.key} NOT NULL,
+  port {d.int_} NOT NULL,
+  key_type {d.key} NOT NULL,
+  key_b64 {d.text} NOT NULL,
+  fingerprint {d.key} NOT NULL,
+  source {d.key} NOT NULL,
+  pinned_at {d.key} NOT NULL,
+  PRIMARY KEY (host, port, key_type)
+){s}""",
+        f"""CREATE TABLE ssh_keys (
+  id {d.pk},
+  uid {d.key} NOT NULL,
+  host {d.key} NOT NULL,
+  port {d.int_} NOT NULL,
+  access {d.key} NOT NULL,
+  username {d.key} NOT NULL,
+  path {d.text} NOT NULL,
+  line_sha256 {d.key} NOT NULL,
+  data {d.text} NOT NULL,
+  fingerprint {d.key} NOT NULL,
+  first_seen {d.key} NOT NULL,
+  last_seen {d.key} NOT NULL
+){s}""",
+        d.create_index("ssh_key_uid", "ssh_keys", "uid", unique=True),
+        d.create_index("ssh_key_host", "ssh_keys", "host, port"),
+        d.create_index("ssh_key_fp", "ssh_keys", "fingerprint"),
+        f"CREATE TABLE ssh_runs (kind {d.key} NOT NULL PRIMARY KEY, last_run_at {d.key} NOT NULL){s}",
+    ]
+
+
+def _m7_itsm_tickets(d: Dialect) -> list[str]:
+    """Tickets Farrier opened in ServiceNow / Jira (farrier.itsm.tickets): one per (channel, renewal),
+    enforced by a unique index so two replicas never open two. ``state`` is opening | open | closed |
+    error; ``last_event`` is the renewal state the ticket was last brought up to date with."""
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE itsm_tickets (
+  id {d.pk},
+  channel {d.key} NOT NULL,
+  renewal_id {d.ref} NOT NULL,
+  kind {d.key} NOT NULL,
+  product {d.key} NOT NULL,
+  ref {d.key},
+  ext_id {d.key},
+  tbl {d.key},
+  url {d.text},
+  state {d.key} NOT NULL,
+  last_event {d.key},
+  attempts {d.int_} NOT NULL DEFAULT 0,
+  error {d.text},
+  created_at {d.key} NOT NULL,
+  updated_at {d.key} NOT NULL,
+  FOREIGN KEY (renewal_id) REFERENCES renewals(id) ON DELETE CASCADE
+){s}""",
+        d.create_index("itsm_ticket_one", "itsm_tickets", "channel, renewal_id", unique=True),
+        d.create_index("itsm_ticket_state", "itsm_tickets", "state"),
+    ]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
     (3, "one open renewal per endpoint", _m3_one_open_renewal),
     (4, "dashboard configuration, secrets and alert state", _m4_ui_config),
+    (5, "served certificates and cryptographic discovery", _m5_certificates_and_crypto),
+    (6, "agentless SSH inventory", _m6_ssh),
+    (7, "ITSM tickets", _m7_itsm_tickets),
 ]
 
 

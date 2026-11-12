@@ -1,0 +1,65 @@
+export const metadata = {
+  title: "SSH keys",
+  description: "Find SSH hosts and the keys that can log in to them, flag weak and unknown keys, and remove them safely.",
+};
+
+# SSH keys
+
+Farrier keeps an inventory of SSH host keys and the user keys in `authorized_keys`, without installing anything on the hosts. The dashboard shows it under **Inventory → SSH keys**.
+
+## Two ways in
+
+| | Logs in | Reads |
+|---|---|---|
+| Host scan | No | the SSH banner, host keys, and the key exchange, cipher and MAC algorithms the server offers |
+| Key collection | Yes, with an access profile | `authorized_keys` for each user, with key type, size, fingerprint, comment and options |
+
+A host scan is like discovery for TLS: it only completes the start of an SSH handshake. Key collection needs credentials, so it uses an access profile.
+
+## Access profiles
+
+An access profile says how Farrier logs in to a set of hosts.
+
+| Field | Meaning |
+|---|---|
+| `username` | the account Farrier logs in as |
+| `private_key` | a secret reference (`vault:`, `env:` or `file:`). Inline keys are refused |
+| `port` | defaults to 22 |
+| `hosts` | host names, IPs or CIDR ranges this profile applies to |
+| `sudo` | read every user's `authorized_keys`, not only the login user's |
+| `known_hosts_policy` | `tofu` trusts a host key the first time and refuses a change after that; `strict` only connects to hosts already known |
+
+Test a profile before collecting with it. The dashboard stores the private key in the server's secret store when you paste it, so it is never saved in plain text.
+
+## Findings
+
+Each key and host gets findings with a severity:
+
+- **critical**: a weak key, such as RSA under 2048 bits or DSA, or a weak host key.
+- **warning**: an unknown key, such as one with no comment that nobody can account for.
+- **info**: worth knowing, nothing to do yet.
+
+The summary also counts hosts with weak host keys and hosts that offer a post-quantum key exchange.
+
+## Removing a key
+
+Removal always starts with a dry run. Farrier shows the exact line it will take out of which `authorized_keys` file; nothing changes until you confirm. Only admins can remove keys.
+
+<Callout type="warning" title="Don't lock yourself out">
+Removing the key Farrier itself logs in with ends its access to that host. Check the dry run before you confirm.
+</Callout>
+
+## API
+
+```bash
+GET    /api/ssh/summary                 # hosts, keys, findings by severity
+GET    /api/ssh/keys
+GET    /api/ssh/hosts
+POST   /api/ssh/scan                    # {"targets": "10.0.4.0/24:22, bastion.example.com"}
+POST   /api/ssh/collect                 # {"access": "linux-fleet"}  (omit to use every profile)
+POST   /api/ssh/keys/{id}/remove        # {"dry_run": true} first, then {"dry_run": false}
+GET    /api/ssh/access
+PUT    /api/ssh/access/{name}
+DELETE /api/ssh/access/{name}
+POST   /api/ssh/access/{name}/test
+```

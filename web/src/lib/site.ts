@@ -3,9 +3,9 @@ import pkg from "../../package.json";
 
 export const site = {
   name: "Farrier",
-  tagline: "Certificate renewal for the machines ACME can't reach",
+  tagline: "Agentless machine identity automation",
   description:
-    "Open-source certificate automation for load balancers, firewalls, VPNs, Java keystores and vendor appliances. Get ready for 47-day TLS certificates.",
+    "Farrier discovers, manages and secures every machine identity across your infrastructure: TLS certificates, SSH keys, cryptographic assets and post-quantum readiness. No agents. No manual renewals. No missed expirations.",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   github: "https://github.com/gagankarthik/farrier",
   license: "MIT",

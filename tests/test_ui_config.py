@@ -467,7 +467,7 @@ def test_zombie_and_health_rules(env, sent):
 
 def test_migration_4_applied_once(tmp_path):
     s = Store(tmp_path)
-    assert 4 in s.migrated and s.schema_version() == 4
+    assert 4 in s.migrated and s.schema_version() >= 4
     assert s.q1("SELECT version FROM config_version WHERE id=1") == {"version": 0}
     s.close()
     s2 = Store(tmp_path)

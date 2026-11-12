@@ -1,0 +1,65 @@
+export const metadata = {
+  title: "ServiceNow, Jira, Datadog and Splunk",
+  description: "Tickets that follow each manual change, and events sent to Datadog and Splunk.",
+};
+
+# ServiceNow, Jira, Datadog and Splunk
+
+These are alert channels. Add them under **Integrations → Alerts → Channels**, or with `PUT /api/notifiers/{name}`. Fields marked secret are stored as references (`vault:`, `env:` or `file:`); the dashboard stores the value for you when you type it.
+
+## Ticket lifecycle
+
+With `tickets` on, ServiceNow and Jira follow each manual renewal:
+
+1. **Create** a ticket when the change pack is ready.
+2. **Comment** on the ticket each time the renewal changes state.
+3. **Close** it when the scanner verifies the new certificate is live.
+
+A person installs the certificate in their change window; Farrier does the paperwork on both sides of it.
+
+## ServiceNow
+
+| Field | Notes |
+|---|---|
+| `instance` | e.g. `acme.service-now.com` |
+| `auth` | `basic` or `oauth` |
+| `username`, `password` | for basic auth. `password` is secret |
+| `client_id`, `client_secret` | for OAuth. `client_secret` is secret |
+| `table` | `incident` or `change_request` |
+| `assignment_group` | optional |
+| `tickets` | follow renewals with tickets |
+
+## Jira
+
+| Field | Notes |
+|---|---|
+| `base_url` | e.g. `https://acme.atlassian.net` |
+| `email`, `api_token` | `api_token` is secret |
+| `project_key` | e.g. `OPS` |
+| `issue_type` | e.g. `Task` |
+| `done_transition` | the transition that closes the issue, e.g. `Done` |
+| `tickets` | follow renewals with tickets |
+
+## Datadog
+
+| Field | Notes |
+|---|---|
+| `site` | e.g. `datadoghq.com` or `datadoghq.eu` |
+| `api_key` | secret |
+
+Renewal events are sent to Datadog as events.
+
+## Splunk
+
+| Field | Notes |
+|---|---|
+| `url` | the HTTP Event Collector URL |
+| `token` | HEC token, secret |
+| `index`, `source`, `sourcetype` | optional |
+| `verify_tls` | turn off only for a lab collector with a self-signed certificate |
+
+Renewal events are sent to the collector.
+
+## Testing
+
+Every channel has a **Test** button (`POST /api/notifiers/{name}/test`). Use it after saving to check the credentials work.

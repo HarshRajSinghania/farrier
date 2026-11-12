@@ -4,10 +4,11 @@
 
 # Farrier
 
-**Certificate renewal for the boxes ACME can't reach.**
+**Agentless machine identity automation.**
 
-Farrier renews TLS on F5, FortiGate, Palo Alto and Java keystores, proves the new certificate went live,
-and writes the change for every other device. Open source, self-hosted, no account.
+Farrier discovers, manages and secures every machine identity across your infrastructure: TLS certificates,
+SSH keys, cryptographic assets and post-quantum (PQC) readiness. Your team oversees; Farrier handles the rest.
+No agents. No manual renewals. No missed expirations. Open source, self-hosted, no account.
 
 [![CI](https://github.com/gagankarthik/farrier/actions/workflows/ci.yml/badge.svg)](https://github.com/gagankarthik/farrier/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-c5f04a?labelColor=141414)](LICENSE)
@@ -53,6 +54,9 @@ switches over and keeps the old one, so a failed check rolls back by itself.
 | **Any CA** | Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo over ACME (with External Account Binding), or the built-in private CA. |
 | **29 DNS providers** | Cloudflare, Route 53, Azure DNS, Cloud DNS, RFC 2136 and more, several accounts each, with CNAME delegation. Records are verified on every authoritative nameserver and always cleaned up. |
 | **Deployment verification** | Done only when the fingerprint, chain, names and every listed VIP check out. |
+| **SSH keys** | Scans SSH hosts for host keys, key exchange, ciphers and MACs without logging in. With an access profile it reads `authorized_keys`, flags weak and unknown keys, and removes a key after showing a dry run. |
+| **Crypto and PQC readiness** | Probes every TLS and SSH service for protocol versions, ciphers, key exchange and certificate keys. Each asset is ready, hybrid, vulnerable or unknown for post-quantum, with TLS 1.0/1.1, RSA under 2048 bits and SHA-1 flagged. Exports a CycloneDX CBOM. |
+| **Tickets and events** | ServiceNow and Jira tickets that open with the change pack, update as the renewal moves and close when the new certificate is live. Events to Datadog and Splunk. |
 | **Domain health and zombies** | An A–F grade per endpoint, and a scanner for expired, stale, unexpected and forgotten certificates. |
 | **AI agents** | An MCP server for Claude, Gemini CLI, Codex and any MCP client. Read-only unless you allow writes. |
 | **Zero downtime** | SQLite to start; your own PostgreSQL or MySQL and several replicas with leader election when it matters. |

@@ -466,6 +466,12 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     from farrier.api.config_routes import mount as mount_config
     mount_config(app, engine, lock, auth, actor, allow_commands, allow_inline)
 
+    from farrier.api.crypto_routes import mount as mount_crypto
+    mount_crypto(app, engine, auth, actor)
+
+    from farrier.api.ssh_routes import mount as mount_ssh
+    mount_ssh(app, engine, auth, actor)
+
     @app.post("/api/notifiers/test", dependencies=[Depends(auth)])
     def test_notifiers():
         sent = engine.notifier.send("test", wait=True)

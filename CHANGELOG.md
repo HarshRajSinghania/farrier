@@ -46,6 +46,19 @@ First public release.
 - Custom alert rules: renewal events, expiring within N days, health grade below a threshold,
   zombie certificates and unreachable endpoints, with filters, channels and a cooldown.
 - The private CA issues certificates with key identifiers (AKI, SKI).
+- Agentless SSH key management: host keys and algorithms read from the handshake (no login),
+  authorized_keys inventory over SSH with stored credentials, findings for weak, duplicate,
+  unknown and orphaned keys, and verified single-line removal with a backup.
+- Cryptographic discovery and post-quantum readiness: TLS versions, cipher suites, key exchange
+  (including X25519MLKEM768 hybrid), weak-crypto flags, a ready/hybrid/vulnerable/unknown rating
+  per asset, and a CycloneDX 1.6 CBOM export.
+- Certificate details: subject, SANs, chain, key, signature, fingerprints, history and renewals.
+- ServiceNow and Jira tickets for change packs (opened, updated, closed when verified live),
+  Datadog events and expiry metrics, and Splunk HEC events with a daily inventory.
+- Cloud secret managers (AWS, Google Cloud, Azure, HashiCorp Vault), a KMS-wrapped master key,
+  object storage for change packs and backups, and CloudEvents to EventBridge, Pub/Sub and Event Grid.
+- Terraform for AWS, Google Cloud and Azure, a Helm chart, production Docker Compose, and event-driven
+  functions (ACM, Certificate Manager and Key Vault import).
 
 [Unreleased]: https://github.com/gagankarthik/farrier/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/gagankarthik/farrier/releases/tag/v0.1.0

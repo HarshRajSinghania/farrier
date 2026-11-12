@@ -293,5 +293,29 @@
     "licence": "ISC",
     "url": "https://github.com/lucide-icons/lucide",
     "trademark": false
+  },
+  {
+    "file": "datadog.svg",
+    "icon": "simple-icons:datadog",
+    "name": "Datadog",
+    "kind": "colour",
+    "source": "simple-icons@13.21.0",
+    "author": "Simple Icons Collaborators",
+    "licence": "CC0-1.0",
+    "url": "https://github.com/simple-icons/simple-icons",
+    "trademark": true,
+    "markUrl": "https://www.datadoghq.com/about/resources/"
+  },
+  {
+    "file": "splunk.svg",
+    "icon": "simple-icons:splunk",
+    "name": "Splunk",
+    "kind": "colour",
+    "source": "simple-icons@13.21.0",
+    "author": "Simple Icons Collaborators",
+    "licence": "CC0-1.0",
+    "url": "https://github.com/simple-icons/simple-icons",
+    "trademark": true,
+    "markUrl": "https://www.splunk.com"
   }
 ]

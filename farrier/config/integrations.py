@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 from farrier.db.store import now_iso
 from farrier.events.publishers import EVENT_TYPES
+from farrier.itsm import ITSM_TYPES
 from farrier.security.vault import SecretRefused, check_secret_refs, is_ref
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -200,6 +201,9 @@ def used_by(engine) -> dict[str, list[str]]:
         add(f"notifier:{n}", c)
     for e in engine.store.q("SELECT name, connector_config FROM endpoints ORDER BY name"):
         add(f"endpoint:{e['name']}", e["connector_config"])
+    from farrier.ssh import access  # SSH login keys must not be deletable while a profile uses them
+    for n, c in access.profiles(engine.items).items():
+        add(f"ssh:{n}", c)
     return uses
 
 
@@ -271,6 +275,11 @@ CA_LABELS = {
     "digicert": "DigiCert", "sectigo": "Sectigo",
 }
 
+def _itsm_fields() -> dict[str, tuple[str, list[dict]]]:
+    from farrier.itsm import ADAPTERS
+    return {k: (cls.label, [dict(f) for f in cls.FIELDS]) for k, cls in ADAPTERS.items()}
+
+
 NOTIFIER_FIELDS: dict[str, tuple[str, list[dict]]] = {
     "webhook": ("Webhook", [
         _field("url", "Webhook URL", secret=True, required=True, help="Receives a JSON POST for each event"),
@@ -317,6 +326,9 @@ NOTIFIER_FIELDS: dict[str, tuple[str, list[dict]]] = {
                help="Leave empty to use the workload or managed identity (Event Grid Data Sender role)"),
     ]),
 }
+# ITSM and observability (farrier.itsm): ServiceNow, Jira, Datadog, Splunk. Their fields live with each
+# adapter; secrets (password, client_secret, api_token, pat, api_key, token, ca_file) are references.
+NOTIFIER_FIELDS.update(_itsm_fields())
 
 
 def catalog(allow_commands: bool = False) -> dict:
@@ -542,7 +554,10 @@ def test_dns(engine, name: str) -> dict:
 
 # ---- notifiers -------------------------------------------------------------------------------------
 def notifier_target(c: dict) -> str:
+    from farrier.itsm import ADAPTERS
     kind = c.get("type", "webhook")
+    if kind in ADAPTERS:
+        return ADAPTERS[kind].target(c)
     if kind == "eventbridge":
         return f"{c.get('bus')} on EventBridge"
     if kind == "pubsub":
@@ -643,6 +658,12 @@ def validate_notifier(engine, name: str, body, allow_commands: bool, allow_inlin
             check(body)
         except ValueError as e:
             raise Invalid(f"{kind}: {e}") from None
+    elif kind in ITSM_TYPES:
+        from farrier.itsm import ADAPTERS
+        try:
+            body = ADAPTERS[kind].validate(body, allow_inline)
+        except ValueError as e:
+            raise Invalid(f"{kind}: {e}") from None
     else:
         u = body["url"]
         if not is_ref(u) and urlparse(u).scheme not in ("https", "http"):
@@ -657,6 +678,17 @@ def test_notifier(engine, name: str) -> dict:
     if not found:
         raise KeyError(name)
     p = payload("test", None, None, engine.notifier.dashboard_url) | {"condition": f"test of alert channel {name}"}
+    if found[1].get("type") in ITSM_TYPES:
+        # a safe, real check: ServiceNow GET sys_user, Jira GET /myself, Datadog /api/v1/validate,
+        # Splunk HEC health + one test event to the configured index
+        from contextlib import closing
+
+        from farrier.itsm import adapter_for
+        try:
+            with closing(adapter_for(found[1])) as a:
+                return {"ok": True, "detail": a.check()}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "detail": failure_detail(e)}
     try:
         Notifier.deliver_one(found[1], p)
     except Exception as e:  # noqa: BLE001

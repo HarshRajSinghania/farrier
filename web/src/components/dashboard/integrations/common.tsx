@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/ui/dropdown";
-import { FieldHint, Input, Label } from "@/components/ui/input";
+import { FieldHint, Input, Label, Textarea } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import type { ConfigSource, SecretRef, TestResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -104,6 +104,26 @@ export function LogoTile({ src, label, className }: { src?: string | null; label
   );
 }
 
+export function Switch({ checked, onChange, disabled, label, id }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string; id?: string }) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors disabled:opacity-50",
+        checked ? "bg-foreground" : "bg-input",
+      )}
+    >
+      <span className={cn("size-4 rounded-full bg-background shadow-sm transition-transform", checked ? "translate-x-4" : "translate-x-0")} />
+    </button>
+  );
+}
+
 /* ---------------------------------------------------------------- secrets */
 
 export interface SecretState {
@@ -137,6 +157,8 @@ export function SecretInput({
   state,
   onChange,
   error,
+  multiline,
+  placeholder,
 }: {
   id: string;
   label: string;
@@ -145,6 +167,9 @@ export function SecretInput({
   state: SecretState;
   onChange: (s: SecretState) => void;
   error?: string | null;
+  /** a pasted PEM or OpenSSH key: keeps its line breaks */
+  multiline?: boolean;
+  placeholder?: string;
 }) {
   const set = (patch: Partial<SecretState>) => onChange({ ...state, ...patch });
   const kept = state.existing && !state.replacing;
@@ -170,8 +195,20 @@ export function SecretInput({
         </div>
       ) : (
         <>
-          <div className="flex gap-2">
-            {state.mode === "store" ? (
+          <div className={cn("flex gap-2", multiline && state.mode === "store" && "flex-col items-end")}>
+            {state.mode === "store" && multiline ? (
+              <Textarea
+                id={id}
+                rows={5}
+                autoComplete="off"
+                spellCheck={false}
+                value={state.value}
+                onChange={(e) => set({ value: e.target.value })}
+                aria-invalid={!!error}
+                placeholder={placeholder ?? (state.existing ? "Paste the new value" : undefined)}
+                className="text-xs"
+              />
+            ) : state.mode === "store" ? (
               <Input
                 id={id}
                 type="password"

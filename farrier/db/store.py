@@ -17,9 +17,13 @@ from farrier.db import migrations as db_migrations
 from farrier.db.dialects import make_dialect, redact_url
 from farrier.security.vault import Vault
 
-TABLES = ("endpoints", "observations", "renewals", "events")   # in foreign-key order
+TABLES = ("endpoints", "observations", "renewals", "events",   # in foreign-key order
+          "certificates", "crypto_assets", "crypto_scans",  # migration 5
+          "ssh_hosts", "ssh_keys",                          # migration 6
+          "itsm_tickets")                                   # migration 7
 # Dashboard configuration (migration 4): keyed tables without an id, copied as is (secrets stay sealed)
-CONFIG_TABLES = ("secrets", "secret_values", "config_items", "alert_state", "health_results")
+CONFIG_TABLES = ("secrets", "secret_values", "config_items", "alert_state", "health_results",
+                 "ssh_host_pins", "ssh_runs")  # keyed, no id: trusted host keys must survive a move
 
 OPEN_STATES = ("planned", "issued", "deploying", "verifying", "awaiting_manual")
 JSON_COLS = {"sans", "connector_config", "window", "tags", "rollback"}
@@ -263,6 +267,31 @@ class Store:
                    not_before, not_after, key_type) VALUES (?,?,?,?,?,?,?,?,?)""",
                (eid, now_iso(), cert.fingerprint, cert.subject_cn, json.dumps(cert.sans), cert.issuer,
                 cert.not_before.isoformat(), cert.not_after.isoformat(), cert.key_type))
+        if getattr(cert, "der", None):
+            self.save_certificate(cert.fingerprint, cert.der, getattr(cert, "chain_der", None) or [])
+
+    def save_certificate(self, fingerprint: str, der: bytes, chain_der: list[bytes]) -> None:
+        """Keep the served PEM (and the chain sent with it) once per fingerprint. Best effort: an
+        observation is never lost because its certificate could not be stored."""
+        from farrier.core.x509util import der_to_pem
+        try:
+            cert_pem = der_to_pem(der)
+            chain_pem = "".join(der_to_pem(c) for c in chain_der) or None
+            row = self.q1("SELECT id, chain_pem FROM certificates WHERE fingerprint=?", (fingerprint,))
+            if row is None:
+                self.x("INSERT INTO certificates(fingerprint, cert_pem, chain_pem, first_seen) VALUES (?,?,?,?)",
+                       (fingerprint, cert_pem, chain_pem, now_iso()))
+            elif chain_pem and row["chain_pem"] != chain_pem:
+                self.x("UPDATE certificates SET chain_pem=? WHERE id=?", (chain_pem, row["id"]))
+        except Exception as e:  # noqa: BLE001 - e.g. a replica inserted the same fingerprint first
+            if type(e).__name__ == "IntegrityError" and not self._tx_depth:
+                self.conn.rollback()
+            elif type(e).__name__ != "IntegrityError":
+                self.log(f"could not store certificate {fingerprint[:16]}: {type(e).__name__}: {e}", level="warning")
+
+    def certificate_pems(self, fingerprint: str) -> dict | None:
+        """{cert_pem, chain_pem, first_seen} for a served fingerprint, or None (observed before migration 5)."""
+        return self.q1("SELECT cert_pem, chain_pem, first_seen FROM certificates WHERE fingerprint=?", (fingerprint,))
 
     # ---- renewals ---------------------------------------------------------
     def open_renewal(self, eid: int) -> dict | None:

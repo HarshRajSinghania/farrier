@@ -22,6 +22,7 @@ const UPSTREAM = process.env.FARRIER_API_URL?.replace(/\/+$/, "") || null;
 const TOKEN = process.env.FARRIER_API_TOKEN;
 const READ_TOKEN = process.env.FARRIER_API_READ_TOKEN;
 const SEGMENT = /^[A-Za-z0-9_-]+$/;
+const LONG = /^(discover|ssh\/(scan|collect)|crypto\/scan)$/;
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
@@ -108,8 +109,8 @@ async function forward(req: NextRequest, path: string[], identity: Identity) {
       headers,
       body: hasBody ? await req.text() : undefined,
       cache: "no-store",
-      // Discovery scans a whole range synchronously; give it room.
-      signal: AbortSignal.timeout(path[0] === "discover" ? 300_000 : 30_000),
+      // Discovery and the SSH/crypto scans probe a whole range synchronously; give them room.
+      signal: AbortSignal.timeout(LONG.test(path.join("/")) ? 300_000 : 30_000),
     });
   } catch (e) {
     return err(502, `Farrier API unreachable: ${(e as Error).message}`);
@@ -132,6 +133,44 @@ async function serveDemo(req: NextRequest, path: string[]) {
 
   try {
     const res = await (async () => {
+      // SSH and crypto routes nest one level deeper (ssh/keys/{id}/remove), so match the whole path
+      if (resource === "ssh" || resource === "crypto") {
+        const [, sub, item, verb] = path;
+        switch (`${req.method} ${resource}/${sub ?? ""}${item ? "/:id" : ""}${verb ? `/${verb}` : ""}`) {
+          case "GET ssh/summary":
+            return demo.sshSummary();
+          case "GET ssh/keys":
+            return demo.sshKeys();
+          case "POST ssh/keys/:id/remove":
+            return demo.sshRemoveKey(item, await body());
+          case "GET ssh/hosts":
+            return demo.sshHosts();
+          case "POST ssh/scan":
+            return demo.sshScan(await body());
+          case "POST ssh/collect":
+            return demo.sshCollect(await body());
+          case "GET ssh/access":
+            return demo.listSshAccess();
+          case "PUT ssh/access/:id":
+            return demo.putSshAccess(item, await body());
+          case "DELETE ssh/access/:id":
+            return demo.deleteSshAccess(item);
+          case "POST ssh/access/:id/test":
+            return demo.testSshAccess(item);
+          case "GET crypto/summary":
+            return demo.cryptoSummary();
+          case "GET crypto/assets":
+            return demo.cryptoAssets();
+          case "POST crypto/scan":
+            return demo.cryptoScan(await body());
+          case "GET crypto/cbom":
+            return new NextResponse(JSON.stringify(demo.cbom(), null, 2), {
+              headers: { "content-type": "application/vnd.cyclonedx+json", "content-disposition": 'attachment; filename="farrier-cbom.json"' },
+            });
+          default:
+            throw new demo.DemoError(404, "Not found");
+        }
+      }
       switch (`${req.method} ${resource}${rawId ? "/:id" : ""}${action ? `/${action}` : ""}`) {
         case "GET summary":
           return demo.summary();
@@ -210,6 +249,8 @@ async function serveDemo(req: NextRequest, path: string[]) {
           return demo.saveSettings(await body());
         case "GET zombies":
           return demo.zombies();
+        case "GET endpoints/:id/certificate":
+          return demo.certificate(id);
         case "GET endpoints/:id/health":
           return demo.health(id);
         case "GET connectors":

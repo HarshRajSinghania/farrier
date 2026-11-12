@@ -5,7 +5,16 @@ export const metadata = {
 
 # Introduction
 
-Farrier is an open-source certificate renewal engine for the machines ACME can't reach: load balancers, firewalls, VPN concentrators, Java keystores and vendor appliances. It discovers what your endpoints actually serve, plans renewals into change windows, issues certificates on the device's behalf, deploys them (or hands a human a change pack), and only calls a renewal done when a TLS handshake shows the new certificate live.
+Farrier is an open-source, agentless machine identity automation platform. It discovers, manages and secures the machine identities across your infrastructure: TLS certificates, SSH keys, cryptographic assets and post-quantum (PQC) readiness. Your team oversees; Farrier handles the rest.
+
+Nothing is installed on the machines it manages. Farrier works over the network: TLS handshakes, SSH, and each device's management API.
+
+## What it manages
+
+- **TLS certificates.** It finds what your endpoints actually serve, plans renewals into change windows, issues certificates on the device's behalf, deploys them (or hands a person a change pack), and only calls a renewal done when a handshake shows the new certificate live. This includes the machines ACME can't reach: load balancers, firewalls, VPN concentrators, Java keystores and vendor appliances.
+- **SSH keys.** Host keys and algorithms from a scan, and `authorized_keys` from each host. Weak and unknown keys are flagged and can be removed. See [SSH keys](/docs/ssh).
+- **Cryptography and PQC readiness.** Protocol versions, ciphers and key exchange for every TLS and SSH service, a post-quantum status for each, and a CycloneDX CBOM. See [Crypto and PQC readiness](/docs/pqc).
+- **Tickets and events.** ServiceNow and Jira tickets that follow each manual change, and events to Datadog and Splunk. See [Integrations](/docs/integrations).
 
 ## The problem
 
@@ -30,7 +39,7 @@ The device never talks to a CA. Farrier completes ACME DNS-01 validation through
 
 ## Who it's for
 
-Infrastructure, network and PKI teams who own a mixed estate of appliances and legacy services, and who need a renewal process that respects change control instead of bypassing it.
+Infrastructure, network, PKI and security teams who own a mixed estate of appliances, servers and legacy services, and who need machine identities handled in a way that respects change control instead of bypassing it.
 
 <Callout type="warning" title="Project status">
 The engine is covered by tests, including an in-process RFC 8555 ACME server and mock appliance APIs. The F5, FortiGate and PAN-OS connectors follow the vendors' documented APIs but have **not yet been run against real hardware**. Try them on a lab device, and use Let's Encrypt staging, before production.
@@ -42,6 +51,7 @@ The engine is covered by tests, including an in-process RFC 8555 ACME server and
 - [Concepts](/docs/concepts): the lifecycle, the renewal state machine, timing maths and change windows.
 - [Configuration](/docs/configuration): data directory, issuers, DNS hooks, settings, inventory, environment variables and CLI.
 - [Connectors](/docs/connectors): configuration for each connector, and how to write your own.
+- [SSH keys](/docs/ssh), [Crypto and PQC readiness](/docs/pqc) and [Integrations](/docs/integrations): the identities beyond TLS, and where tickets and events go.
 - [API reference](/docs/api): every REST endpoint.
 - [Self-hosting](/docs/self-hosting): running Farrier and the dashboard in production, including Docker.
 - [Security](/docs/security): how keys and secrets are handled, and how to report a vulnerability.

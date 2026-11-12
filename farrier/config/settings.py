@@ -24,6 +24,10 @@ EDITABLE: dict[str, tuple[type, float, float]] = {
     "scan_timeout": (float, 1, 60),
     "verify_chain_and_names": (bool, 0, 1),
     "verify_all_addresses": (bool, 0, 1),
+    # periodic re-scans, hours between runs (0 = off)
+    "crypto_scan_hours": (int, 0, 720),
+    "ssh_scan_hours": (int, 0, 720),
+    "ssh_collect_hours": (int, 0, 720),
 }
 _lock = threading.Lock()
 

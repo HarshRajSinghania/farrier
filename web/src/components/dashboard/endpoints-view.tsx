@@ -90,8 +90,8 @@ export function EndpointsView() {
   return (
     <>
       <PageHeader
-        title="Endpoints"
-        description="Every TLS listener Farrier watches, sorted by what expires first."
+        title="Certificates"
+        description="Every TLS endpoint Farrier watches and the certificate it serves, sorted by what expires first."
         actions={
           <>
           <Button asChild variant="secondary">
@@ -173,7 +173,9 @@ export function EndpointsView() {
               {rows.map((e) => (
                 <TR key={e.id}>
                   <TD>
-                    <p className="font-medium">{e.name}</p>
+                    <Link href={`/dashboard/endpoints/${e.id}`} className="font-medium hover:underline">
+                      {e.name}
+                    </Link>
                     <p className="font-mono text-xs text-muted-foreground">
                       {e.host}:{e.port}
                     </p>

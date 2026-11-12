@@ -28,7 +28,21 @@ def fetch_cert(host: str, port: int = 443, sni: str | None = None, timeout: floa
         server_hostname = sni or (None if _is_ip(host) else host)
         with ctx.wrap_socket(sock, server_hostname=server_hostname) as tls:
             der = tls.getpeercert(binary_form=True)
-    return parse_der(der)
+            chain = peer_chain_der(tls)
+    return parse_der(der, [c for c in chain if c != der])
+
+
+def peer_chain_der(tls: ssl.SSLSocket) -> list[bytes]:
+    """The certificates the server sent, leaf first, unverified (empty if the runtime can't say)."""
+    try:
+        if hasattr(tls, "get_unverified_chain"):        # Python 3.13+
+            raw = tls.get_unverified_chain() or []
+        else:                                           # 3.11/3.12: the private accessor
+            raw = tls._sslobj.get_unverified_chain() or []  # type: ignore[union-attr]
+        return [c if isinstance(c, bytes) else c.public_bytes(ssl._ssl.ENCODING_DER)  # type: ignore[attr-defined]
+                for c in raw]
+    except Exception:  # noqa: BLE001 - the chain is a nice-to-have; the leaf is what matters
+        return []
 
 
 def _is_ip(host: str) -> bool:

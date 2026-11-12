@@ -3,7 +3,7 @@
  * browser (to hide actions), on the server (to enforce them) and under `node --test`.
  *
  *   viewer    read everything except change packs and runbooks (they carry key material)
- *   operator  + renew, advance, cancel, run a cycle, discover, download packs and runbooks
+ *   operator  + renew, advance, cancel, run a cycle, discover, SSH and crypto scans, download packs and runbooks
  *   admin     + add and delete endpoints, test notifiers, anything not listed here
  */
 
@@ -66,6 +66,9 @@ const OPERATOR_POSTS = [
   /^renewals\/[^/]+\/(advance|cancel)$/,
   /^tick$/,
   /^discover$/,
+  // read-only probes, like discovery: they record what hosts serve and change nothing on them
+  /^ssh\/scan$/,
+  /^crypto\/scan$/,
 ];
 const OPERATOR_GETS = [/^renewals\/[^/]+\/(pack|runbook)$/];
 

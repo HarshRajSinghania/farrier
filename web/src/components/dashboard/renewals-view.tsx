@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
@@ -38,8 +38,15 @@ function viewFromParam(p: string | null): View {
 export function RenewalsView() {
   const params = useSearchParams();
   const router = useRouter();
-  const view = viewFromParam(params.get("state"));
+  // tickets in ServiceNow and Jira link to ?renewal=<id>: show it among all renewals and highlight it
+  const focus = Number(params.get("renewal")) || null;
+  const view = focus && !params.get("state") ? "all" : viewFromParam(params.get("state"));
   const { data, error, isLoading } = useRenewals();
+  const focusFound = !!focus && !!data?.some((r) => r.id === focus);
+
+  useEffect(() => {
+    if (focusFound) document.getElementById(`renewal-${focus}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focus, focusFound]);
 
   const counts = useMemo(() => {
     const c: Partial<Record<RenewalState, number>> = {};
@@ -64,6 +71,11 @@ export function RenewalsView() {
         description="Each renewal walks plan → issue → deploy → verify. Manual ones wait for a human and close themselves when the new certificate is seen live."
       />
       <ErrorNotice error={error} />
+      {focus && data && !focusFound && (
+        <div role="status" className="mb-4 rounded-lg border bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
+          Renewal #{focus} wasn&rsquo;t found. It may have been removed with its endpoint.
+        </div>
+      )}
 
       <ol className="mb-4 grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-6" aria-label="Renewal pipeline">
         {PIPELINE.map((s) => {
@@ -120,9 +132,16 @@ export function RenewalsView() {
             </THead>
             <TBody>
               {rows.map((r) => (
-                <TR key={r.id}>
+                <TR
+                  key={r.id}
+                  id={`renewal-${r.id}`}
+                  aria-current={r.id === focus ? "true" : undefined}
+                  className={cn(r.id === focus && "bg-brand-soft hover:bg-brand-soft")}
+                >
                   <TD>
-                    <p className="font-medium">{r.name}</p>
+                    <Link href={`/dashboard/endpoints/${r.endpoint_id}`} className="font-medium hover:underline">
+                      {r.name}
+                    </Link>
                     <p className="text-xs text-muted-foreground">
                       #{r.id} · {CONNECTOR_LABEL[r.connector] ?? r.connector}
                     </p>

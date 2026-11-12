@@ -1,0 +1,52 @@
+export const metadata = {
+  title: "Crypto and PQC readiness",
+  description: "Discover the cryptography your TLS and SSH services use, see which are ready for post-quantum, and export a CBOM.",
+};
+
+# Crypto and PQC readiness
+
+Farrier records the cryptography every TLS and SSH service actually uses, and says how ready each one is for post-quantum cryptography (PQC). The dashboard shows it under **Inventory → Crypto & PQC**.
+
+## The probe
+
+For each target, Farrier opens handshakes and records:
+
+- protocol versions accepted (TLS 1.0 to 1.3, SSH 2)
+- cipher suites
+- key exchange groups, including post-quantum and hybrid ones
+- the certificate's key algorithm and size, and its signature algorithm
+
+It is read-only. Run it from the **Scan** button or with `POST /api/crypto/scan`.
+
+## Statuses
+
+| Status | Meaning |
+|---|---|
+| **Ready** | Key exchange and certificate signature are both post-quantum (ML-KEM and ML-DSA). |
+| **Hybrid** | Negotiates a hybrid post-quantum key exchange such as X25519MLKEM768. Traffic is protected; the certificate is still classical. |
+| **Vulnerable** | Classical key exchange only (ECDHE or RSA). Traffic recorded today could be decrypted later by a quantum computer. |
+| **Unknown** | No handshake, or not enough data to decide. |
+
+Each asset lists the reasons for its status, so you can see what to change.
+
+## Weak cryptography
+
+Separately from PQC, these are flagged on any asset:
+
+- TLS 1.0
+- TLS 1.1
+- RSA keys under 2048 bits
+- SHA-1 signatures
+
+## CBOM
+
+`GET /api/crypto/cbom` returns a cryptography bill of materials in CycloneDX JSON: the algorithms, protocols and certificates Farrier has found. The dashboard's **Export CBOM** button downloads it as `farrier-cbom.json`.
+
+## API
+
+```bash
+GET  /api/crypto/summary   # totals by status and key algorithm, weak counts
+GET  /api/crypto/assets    # one row per TLS or SSH service
+POST /api/crypto/scan      # {"targets": "10.0.4.0/24:443, git.example.com:22"}
+GET  /api/crypto/cbom      # CycloneDX JSON
+```

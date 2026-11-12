@@ -32,6 +32,9 @@ export const DOCS_NAV: DocsGroup[] = [
     title: "Usage",
     items: [
       { href: "/docs/health", label: "Health and zombie certs" },
+      { href: "/docs/ssh", label: "SSH keys" },
+      { href: "/docs/pqc", label: "Crypto and PQC readiness" },
+      { href: "/docs/integrations", label: "ServiceNow, Jira, Datadog, Splunk" },
       { href: "/docs/mcp", label: "AI agents (MCP)" },
       { href: "/docs/events", label: "Events and triggers" },
     ],

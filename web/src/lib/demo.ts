@@ -21,6 +21,15 @@ import type {
   HealthReport,
   ZombieReport,
   ConnectorInfo,
+  CertificateDetail,
+  CryptoAsset,
+  CryptoSummary,
+  PqcStatus,
+  SshAccess,
+  SshFinding,
+  SshHost,
+  SshKey,
+  SshSummary,
   Endpoint,
   EndpointInput,
   FarrierEvent,
@@ -669,6 +678,50 @@ export const CATALOG: IntegrationCatalog = {
       secretFld("access_key_id", "Access key ID", { required: false, help: "Leave both keys empty to use the instance or pod role." }),
       secretFld("secret_access_key", "Secret access key", { required: false }),
     ] },
+    // the same fields, labels and help as farrier/itsm/*.py, so demo and live forms match
+    { id: "servicenow", label: "ServiceNow", fields: [
+      fld("instance", "Instance", { help: "e.g. acme.service-now.com" }),
+      optionalFld("auth", "Authentication", "basic (default): username + password; oauth: client credentials"),
+      optionalFld("username", "Username", "Basic auth: an integration user with itil (and cmdb_read) roles"),
+      secretFld("password", "Password", { required: false, help: "Basic auth" }),
+      optionalFld("client_id", "OAuth client ID", "OAuth: an Application Registry entry with client credentials"),
+      secretFld("client_secret", "OAuth client secret", { required: false, help: "OAuth" }),
+      optionalFld("table", "Table", "incident (default) or change_request"),
+      optionalFld("assignment_group", "Assignment group", "Group name (or sys_id)"),
+      optionalFld("category", "Category", "Optional category value"),
+      optionalFld("cmdb_ci_field", "CMDB CI from", "name or host: look up cmdb_ci by the endpoint's name or host"),
+      optionalFld("close_code", "Close code", 'Incident resolution code (default "Solution provided")'),
+      optionalFld("resolve_state", "Resolve to", "incident: resolved (default) or closed; change_request: review or closed"),
+      optionalFld("tickets", "Ticket lifecycle", "true: one ticket per manual renewal (opened when the change pack is ready, closed when verified live)"),
+    ] },
+    { id: "jira", label: "Jira", fields: [
+      fld("base_url", "Base URL", { help: "https://acme.atlassian.net or your Data Center URL" }),
+      optionalFld("email", "Email", "Jira Cloud: the account the API token belongs to"),
+      secretFld("api_token", "API token", { required: false, help: "Jira Cloud (id.atlassian.com > Security > API tokens)" }),
+      secretFld("pat", "Personal access token", { required: false, help: "Jira Data Center / Server, instead of email + token" }),
+      fld("project_key", "Project key", { help: "e.g. OPS" }),
+      optionalFld("issue_type", "Issue type", "Default Task"),
+      optionalFld("labels", "Labels", "Extra labels, comma-separated"),
+      optionalFld("done_transition", "Done transition", "Workflow transition that closes the issue (default Done)"),
+      optionalFld("tickets", "Ticket lifecycle", "true: one issue per manual renewal (opened when the change pack is ready, closed when verified live)"),
+    ] },
+    { id: "datadog", label: "Datadog", fields: [
+      fld("site", "Site", { help: "datadoghq.com, datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com or ddog-gov.com" }),
+      secretFld("api_key", "API key", { help: "Organization Settings > API Keys" }),
+      optionalFld("env", "Environment tag", "Default env: tag for metrics (an endpoint tag env:X wins)"),
+      optionalFld("events_api", "Events API", "v2 (default) or v1"),
+      optionalFld("metrics", "Metrics", "true (default): submit certificate metrics every tick"),
+    ] },
+    { id: "splunk", label: "Splunk", fields: [
+      fld("url", "HEC URL", { help: "https://<host>:8088/services/collector/event" }),
+      secretFld("token", "HEC token"),
+      optionalFld("index", "Index", "Must be allowed for the token (default: the token's default index)"),
+      optionalFld("source", "Source", "Default farrier"),
+      optionalFld("sourcetype", "Sourcetype", "Default farrier:event"),
+      optionalFld("verify_tls", "Verify TLS", "true (default) or false"),
+      secretFld("ca_file", "CA bundle", { required: false, help: "file:/path to a PEM bundle for a private CA" }),
+      optionalFld("inventory", "Daily inventory", "true (default): one event per endpoint every day"),
+    ] },
   ],
   alert_rule_types: [
     { id: "expiring", label: "Certificate expiring" },
@@ -696,7 +749,7 @@ const GRADES = ["A", "B", "C", "D"];
 interface StoredSecret extends Omit<SecretInfo, "used_by"> {
   value: string;
 }
-type StoredNotifier = { name: string; source: "file" | "ui"; type: string; events: string[]; fields: Record<string, string> };
+type StoredNotifier = { name: string; source: "file" | "ui"; type: string; events: string[]; fields: Record<string, string | boolean> };
 interface IntegrationStore {
   secrets: StoredSecret[];
   issuers: Issuer[];
@@ -779,7 +832,8 @@ function refsByOwner(): [string, string[]][] {
   return [
     ...s.issuers.map((i): [string, string[]] => [`issuer:${i.name}`, [i.eab_hmac_key ?? ""]]),
     ...s.dns.map((d): [string, string[]] => [`dns:${d.name}`, Object.values(d.credentials).map((v) => v ?? "")]),
-    ...s.notifiers.map((n): [string, string[]] => [`notifier:${n.name}`, Object.values(n.fields)]),
+    ...s.notifiers.map((n): [string, string[]] => [`notifier:${n.name}`, Object.values(n.fields).filter((v): v is string => typeof v === "string")]),
+    ...sshStore().access.map((a): [string, string[]] => [`ssh:${a.name}`, [a.private_key ?? ""]]),
   ];
 }
 
@@ -928,10 +982,14 @@ export function testDns(name: string): TestResult {
 /* notifiers */
 
 function shownTarget(n: StoredNotifier) {
-  const v = n.fields;
+  const v = Object.fromEntries(Object.entries(n.fields).map(([k, x]) => [k, typeof x === "string" ? x : ""]));
   if (n.type === "slack") return v.channel || "Slack webhook";
   if (n.type === "teams") return "Teams workflow";
-  if (n.type === "webhook") return hostOf(v.url ?? null);
+  if (n.type === "webhook") return hostOf(v.url || null);
+  if (n.type === "servicenow") return `${v.instance} · ${v.table || "incident"}`;
+  if (n.type === "jira") return `${hostOf(v.base_url || null)} · ${v.project_key}`;
+  if (n.type === "datadog") return v.site || "datadoghq.com";
+  if (n.type === "splunk") return hostOf(v.url || null);
   return v.to || null;
 }
 
@@ -948,17 +1006,52 @@ export function putNotifier(name: string, b: Record<string, unknown>) {
   refuseFile(existing, "notifiers.json");
   const type = CATALOG.notifier_types.find((t) => t.id === str(b.type));
   if (!type) throw new DemoError(400, `unknown channel type ${str(b.type) || "(none)"}`);
-  const fields: Record<string, string> = {};
+  const fields: Record<string, string | boolean> = {};
   for (const field of type.fields) {
     // an omitted secret keeps the stored reference, so an edit never needs the value again
     const v = field.key in b ? b[field.key] : field.secret && existing?.type === type.id ? existing.fields[field.key] : undefined;
-    if (!str(v)) {
-      if (field.required) throw new DemoError(400, `${field.label} is required for ${type.label}`);
+    if (field.type === "bool") {
+      if (v !== undefined && typeof v !== "boolean") throw new DemoError(400, `${field.key} must be true or false`);
+      fields[field.key] = typeof v === "boolean" ? v : field.default !== false;
       continue;
     }
+    if (!str(v)) {
+      if (field.required) throw new DemoError(400, `${field.label} is required for ${type.label}`);
+      if (typeof field.default === "string") fields[field.key] = field.default;
+      continue;
+    }
+    if (field.options?.length && !field.options.includes(str(v)))
+      throw new DemoError(400, `${field.key} must be one of ${field.options.join(", ")}`);
     fields[field.key] = field.secret ? checkRef(v, field.key) : str(v);
   }
-  if (type.id === "webhook" && !/^https?:\/\/\S+$/.test(fields.url)) throw new DemoError(400, "url must start with https://");
+  const has = (k: string) => typeof fields[k] === "string" && fields[k] !== "";
+  if (type.id === "webhook" && !/^https?:\/\/\S+$/.test(String(fields.url))) throw new DemoError(400, "url must start with https://");
+  // the engine's own checks for the ticketing and observability channels (farrier/itsm)
+  const oneOf = (k: string, allowed: string[]) => {
+    if (has(k) && !allowed.includes(String(fields[k]))) throw new DemoError(400, `${k} must be ${allowed.join(" or ")}`);
+  };
+  for (const k of ["tickets", "metrics", "verify_tls", "inventory"]) if (type.fields.some((f) => f.key === k)) oneOf(k, ["true", "false"]);
+  if (type.id === "servicenow") {
+    if (!/^[A-Za-z0-9.-]+$/.test(String(fields.instance))) throw new DemoError(400, "instance is a host like acme.service-now.com");
+    oneOf("auth", ["basic", "oauth"]);
+    oneOf("table", ["incident", "change_request"]);
+    oneOf("cmdb_ci_field", ["name", "host"]);
+    if (fields.auth === "oauth" ? !has("client_id") || !has("client_secret") : !has("username") || !has("password"))
+      throw new DemoError(400, fields.auth === "oauth" ? "OAuth needs a client ID and client secret" : "Basic auth needs a username and password");
+  }
+  if (type.id === "jira") {
+    if (!/^https:\/\/\S+$/.test(String(fields.base_url))) throw new DemoError(400, "base_url must start with https://");
+    if (!has("pat") && (!has("email") || !has("api_token"))) throw new DemoError(400, "Jira needs an email and API token (Cloud) or a personal access token (Data Center)");
+    if (!/^[A-Z][A-Z0-9_]{1,9}$/.test(String(fields.project_key))) throw new DemoError(400, "project_key is the project's key, like OPS");
+  }
+  if (type.id === "datadog") {
+    oneOf("site", ["datadoghq.com", "datadoghq.eu", "us3.datadoghq.com", "us5.datadoghq.com", "ap1.datadoghq.com", "ddog-gov.com"]);
+    oneOf("events_api", ["v2", "v1"]);
+  }
+  if (type.id === "splunk") {
+    if (!/^https:\/\/\S+$/.test(String(fields.url))) throw new DemoError(400, "url must start with https://");
+    if (has("ca_file") && !String(fields.ca_file).startsWith("file:")) throw new DemoError(400, "ca_file must be a file: reference");
+  }
   const events = Array.isArray(b.events) ? strList(b.events) : existing?.events ?? [];
   const bad = events.find((e) => !ALERT_EVENTS.includes(e));
   if (bad) throw new DemoError(400, `unknown event ${bad}`);
@@ -1069,5 +1162,537 @@ function integrationConfig(): Pick<FarrierConfig, "issuers" | "dns_accounts" | "
     })),
     dns_accounts: s.dns.map((d) => ({ name: d.name, provider: d.provider, zones: d.zones, credentials: d.credentials })),
     notifiers: s.notifiers.map((n) => ({ type: n.type, events: n.events })),
+  };
+}
+
+/* ------------------------------------------------------- certificate detail */
+// GET /endpoints/{id}/certificate: the parsed leaf, its chain, what was seen over time.
+
+const KEY_OF: Record<string, { algorithm: string; size: number; curve: string | null }> = {
+  rsa2048: { algorithm: "RSA", size: 2048, curve: null },
+  rsa3072: { algorithm: "RSA", size: 3072, curve: null },
+  rsa4096: { algorithm: "RSA", size: 4096, curve: null },
+  ec256: { algorithm: "EC", size: 256, curve: "P-256" },
+  ec384: { algorithm: "EC", size: 384, curve: "P-384" },
+};
+/** a few legacy boxes in the demo estate carry old keys, SHA-1 and old TLS */
+const LEGACY: Record<string, { key?: { algorithm: string; size: number; curve: null }; sig?: string; tls?: string[]; selfSigned?: boolean }> = {
+  "idrac-r740-07": { key: { algorithm: "RSA", size: 2048, curve: null }, tls: ["TLSv1", "TLSv1.1", "TLSv1.2"] },
+  "ups-mgmt": { key: { algorithm: "RSA", size: 1024, curve: null }, sig: "sha1WithRSAEncryption", tls: ["TLSv1", "TLSv1.2"], selfSigned: true },
+  "printer-hq": { key: { algorithm: "RSA", size: 2048, curve: null }, tls: ["TLSv1.1", "TLSv1.2"], selfSigned: true },
+};
+
+function hexBytes(seed: number, n: number) {
+  const r = rng(seed);
+  return Array.from({ length: n }, () => Math.floor(r() * 256).toString(16).padStart(2, "0")).join(":").toUpperCase();
+}
+const seedOf = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+function certKey(e: Endpoint) {
+  return LEGACY[e.name]?.key ?? KEY_OF[e.key_type] ?? KEY_OF.ec256;
+}
+function certSig(e: Endpoint) {
+  const legacy = LEGACY[e.name]?.sig;
+  if (legacy) return legacy;
+  return certKey(e).algorithm === "RSA" ? "sha256WithRSAEncryption" : "ecdsa-with-SHA256";
+}
+
+export function certificate(id: number): CertificateDetail {
+  const e = endpoints().find((x) => x.id === id);
+  if (!e) throw new DemoError(404, `no endpoint with id ${id}`);
+  if (!e.fingerprint) throw new DemoError(404, `no certificate observed on ${e.host}:${e.port} yet${e.scan_error ? ` (${e.scan_error})` : ""}`);
+  const key = certKey(e);
+  const selfSigned = !!LEGACY[e.name]?.selfSigned;
+  const subject = `CN=${e.subject_cn ?? e.host}`;
+  const privateCa = (e.cert_issuer ?? "").includes("Acme Internal");
+  const issuer = selfSigned ? subject : e.cert_issuer;
+  const chain: CertificateDetail["chain"] = selfSigned
+    ? []
+    : privateCa
+      ? [{ subject: "CN=Acme Internal CA", issuer: "CN=Acme Root CA 2021", not_after: isoAt(Date.now() + 1460 * DAY), key: { algorithm: "RSA", size: 4096, curve: null }, signature_algorithm: "sha256WithRSAEncryption" }]
+      : [{ subject: "CN=R11,O=Let's Encrypt,C=US", issuer: "CN=ISRG Root X1,O=Internet Security Research Group,C=US", not_after: "2027-03-12T23:59:59+00:00", key: { algorithm: "RSA", size: 2048, curve: null }, signature_algorithm: "sha256WithRSAEncryption" }];
+
+  const s = db();
+  const rs = s.renewals.filter((r) => r.endpoint_id === id).sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for));
+  const history: CertificateDetail["history"] = [
+    { observed_at: e.observed_at ?? isoAt(Date.now()), fingerprint_sha256: e.fingerprint, not_after: e.not_after, issuer },
+  ];
+  // every verified renewal replaced an older certificate: show when that one was last served
+  for (const r of rs.filter((x) => x.state === "done")) {
+    const at = Date.parse(r.updated_at);
+    const prev = r.prev_fingerprint && r.prev_fingerprint !== e.fingerprint ? r.prev_fingerprint : fingerprint(rng(seedOf(`${e.name}-${r.id}`)));
+    history.push({ observed_at: isoAt(at - 3_600_000), fingerprint_sha256: prev, not_after: isoAt(at + 40 * DAY), issuer });
+  }
+  if (e.not_before) history.push({ observed_at: isoAt(Date.parse(e.not_before) + DAY), fingerprint_sha256: e.fingerprint, not_after: e.not_after, issuer });
+  history.sort((a, b) => b.observed_at.localeCompare(a.observed_at));
+
+  const checked = e.id % 3 !== 0 ? health(id) : null;
+  return {
+    endpoint_id: id,
+    subject,
+    common_name: e.subject_cn ?? e.host,
+    sans: [...new Set([e.host, ...(e.sans ?? []), ...(e.host.startsWith("www.") ? [e.host.slice(4)] : [])])],
+    issuer,
+    serial: hexBytes(seedOf(`${e.fingerprint}-serial`), 16).replace(/:/g, ""),
+    not_before: e.not_before,
+    not_after: e.not_after,
+    days_left: e.days_left,
+    key,
+    signature_algorithm: certSig(e),
+    fingerprints: { sha256: e.fingerprint, sha1: hexBytes(seedOf(e.fingerprint), 20) },
+    chain,
+    self_signed: selfSigned,
+    observed_at: e.observed_at,
+    history,
+    renewals: rs.map((r) => ({ id: r.id, state: r.state, reason: r.reason, scheduled_for: r.scheduled_for, updated_at: r.updated_at })),
+    health: checked ? { grade: checked.grade, checked_at: isoAt(Date.now() - (e.id % 5) * 3_600_000) } : null,
+  };
+}
+
+/* -------------------------------------------------------------------- SSH */
+// Host scans read the banner and algorithms without logging in. Key collection
+// logs in with an access profile and reads authorized_keys.
+
+// [host, OpenSSH version, legacy host key]
+const SSH_HOSTS: [string, string, boolean][] = [
+  ["edge1.acme.com", "OpenSSH_9.9p1 Debian-3", false],
+  ["edge2.acme.com", "OpenSSH_9.9p1 Debian-3", false],
+  ["lb-int.acme.internal", "OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", false],
+  ["grafana.acme.internal", "OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", false],
+  ["mx1.acme.com", "OpenSSH_7.4", true],
+  ["git.acme.internal", "OpenSSH_10.0p2", false],
+  ["vault.acme.internal", "OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", false],
+  ["registry.acme.internal", "OpenSSH_8.9p1 Ubuntu-3ubuntu0.10", false],
+  ["kafka1.acme.internal", "OpenSSH_8.0", false],
+  ["kafka2.acme.internal", "OpenSSH_8.0", false],
+  ["search.acme.internal", "OpenSSH_8.9p1 Ubuntu-3ubuntu0.10", false],
+  ["nexus.acme.internal", "OpenSSH_7.4", true],
+];
+
+interface SshStore {
+  hosts: SshHost[];
+  keys: SshKey[];
+  access: SshAccess[];
+}
+const gs = globalThis as unknown as { __farrierSsh?: SshStore };
+
+function opensshVersion(banner: string) {
+  const m = banner.match(/OpenSSH_(\d+)\.(\d+)/);
+  return m ? Number(m[1]) + Number(m[2]) / 10 : 0;
+}
+
+function hostFindings(h: Omit<SshHost, "findings">): SshFinding[] {
+  const out: SshFinding[] = [];
+  for (const k of h.host_keys) {
+    if (k.type === "ssh-dss") out.push({ id: "dsa_host_key", severity: "critical", detail: "Offers a DSA host key, removed from current OpenSSH" });
+    if (k.type === "ssh-rsa" && (k.bits ?? 0) < 2048) out.push({ id: "weak_host_key", severity: "critical", detail: `RSA host key is ${k.bits} bits` });
+  }
+  if (h.kex.some((k) => k.endsWith("sha1"))) out.push({ id: "weak_kex", severity: "warning", detail: "Accepts SHA-1 Diffie-Hellman key exchange" });
+  if (h.ciphers.some((c) => c.endsWith("-cbc"))) out.push({ id: "cbc_cipher", severity: "warning", detail: "Accepts CBC-mode ciphers" });
+  if (h.macs.some((m) => m === "hmac-sha1" || m === "hmac-md5")) out.push({ id: "weak_mac", severity: "warning", detail: "Accepts hmac-sha1" });
+  if (!h.pqc_kex) out.push({ id: "no_pqc_kex", severity: "info", detail: "No post-quantum key exchange offered" });
+  return out;
+}
+
+function buildSsh(): SshStore {
+  const now = Date.now();
+  const r = rng(29);
+  const fp = () => {
+    const bytes = Array.from({ length: 32 }, () => Math.floor(r() * 256));
+    return `SHA256:${Buffer.from(bytes).toString("base64").replace(/=+$/, "")}`;
+  };
+  const hosts: SshHost[] = SSH_HOSTS.map(([host, version, legacy], i) => {
+    const v = opensshVersion(version);
+    const pqc = [...(v >= 9.9 ? ["mlkem768x25519-sha256"] : []), ...(v >= 9.0 ? ["sntrup761x25519-sha512@openssh.com"] : [])];
+    const base: Omit<SshHost, "findings"> = {
+      id: i + 1,
+      host,
+      port: 22,
+      banner: `SSH-2.0-${version}`,
+      host_keys: [
+        { type: "ssh-ed25519", bits: 256, fingerprint_sha256: fp() },
+        { type: "ecdsa-sha2-nistp256", bits: 256, fingerprint_sha256: fp() },
+        { type: "ssh-rsa", bits: legacy ? 1024 : 3072, fingerprint_sha256: fp() },
+        ...(legacy && host.startsWith("mx1") ? [{ type: "ssh-dss", bits: 1024, fingerprint_sha256: fp() }] : []),
+      ],
+      kex: [
+        ...pqc,
+        "curve25519-sha256",
+        "ecdh-sha2-nistp256",
+        "diffie-hellman-group16-sha512",
+        ...(legacy ? ["diffie-hellman-group14-sha1", "diffie-hellman-group1-sha1"] : []),
+      ],
+      ciphers: ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com", "aes128-ctr", ...(legacy ? ["aes128-cbc", "3des-cbc"] : [])],
+      macs: ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", ...(legacy ? ["hmac-sha1"] : [])],
+      pqc_kex: pqc.length > 0,
+      observed_at: isoAt(now - Math.floor(r() * 7200) * 1000),
+    };
+    return { ...base, findings: hostFindings(base) };
+  });
+
+  // [user, type, bits, comment, hosts it sits on (by index), options]
+  const KEYS: [string, string, number, string | null, number[], string | null][] = [
+    ["root", "ssh-ed25519", 256, "ansible@ops-bastion", [0, 1, 2, 3, 5, 6, 7, 8, 9, 10], 'from="10.20.0.5"'],
+    ["deploy", "ssh-ed25519", 256, "ci@gitlab-runner", [0, 1, 5, 7], 'command="/usr/local/bin/deploy",no-pty'],
+    ["ubuntu", "ssh-rsa", 4096, "j.ortiz@laptop", [2, 3, 6, 10], null],
+    ["ubuntu", "ssh-ed25519", 256, "m.chen@acme", [2, 3, 6, 7, 10], null],
+    ["root", "ssh-rsa", 2048, "backup@nas01", [4, 6, 11], 'from="10.20.4.11",no-agent-forwarding'],
+    ["git", "ssh-ed25519", 256, "gitlab-shell", [5], 'command="gitlab-shell key-12"'],
+    ["root", "ssh-rsa", 1024, "old-admin", [4, 11], null],
+    ["admin", "ssh-dss", 1024, null, [4], null],
+    ["kafka", "ecdsa-sha2-nistp256", 256, "kafka-ops@acme", [8, 9], null],
+    ["elastic", "ssh-ed25519", 256, "search-team@acme", [10], null],
+    ["root", "ssh-rsa", 2048, null, [8, 9, 11], null],
+    ["vault", "ssh-ed25519", 256, "vault-ops@acme", [6], 'from="10.20.0.0/24"'],
+    ["ubuntu", "ssh-rsa", 3072, "contractor@vendor", [0, 7], null],
+    ["www-data", "ssh-ed25519", 256, "rsync@edge-sync", [0, 1], 'from="10.20.0.0/24",command="rrsync /var/www"'],
+    ["postfix", "ssh-rsa", 2048, "mail-relay@dc2", [4], null],
+    ["registry", "ecdsa-sha2-nistp256", 256, "harbor-replication", [7], null],
+    ["grafana", "ssh-ed25519", 256, "dashboards@ops", [3], null],
+    ["root", "ssh-ed25519", 256, "break-glass@security", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 'from="10.20.9.0/28"'],
+  ];
+  const keys: SshKey[] = [];
+  let id = 1;
+  for (const [user, type, bits, comment, on, options] of KEYS) {
+    const sharedFp = fp();
+    for (const hi of on) {
+      keys.push({
+        id: id++,
+        host: hosts[hi].host,
+        user,
+        type,
+        bits,
+        fingerprint_sha256: sharedFp,
+        comment,
+        options,
+        first_seen: isoAt(now - Math.floor(30 + r() * 700) * DAY),
+        last_seen: isoAt(now - Math.floor(r() * 86_400) * 1000),
+        findings: [],
+      });
+    }
+  }
+  for (const k of keys) k.findings = keyFindings(k, keys);
+  return {
+    hosts,
+    keys,
+    access: [
+      {
+        name: "linux-ops", username: "farrier", private_key: "vault:ssh-linux-ops-private_key", port: 22,
+        hosts: ["*.acme.internal", "edge1.acme.com", "edge2.acme.com", "mx1.acme.com"], sudo: true, known_hosts_policy: "strict", source: "ui",
+      },
+    ],
+  };
+}
+
+function keyFindings(k: SshKey, all: SshKey[]): SshFinding[] {
+  const out: SshFinding[] = [];
+  if (k.type === "ssh-dss") out.push({ id: "dsa_key", severity: "critical", detail: "DSA key: disabled by default since OpenSSH 7.0" });
+  if (k.type === "ssh-rsa" && (k.bits ?? 0) < 2048) out.push({ id: "weak_key", severity: "critical", detail: `RSA key is only ${k.bits} bits` });
+  if (!k.comment) out.push({ id: "unknown_owner", severity: "warning", detail: "No comment, so nobody knows whose key this is" });
+  const spread = new Set(all.filter((x) => x.fingerprint_sha256 === k.fingerprint_sha256).map((x) => x.host)).size;
+  if (spread >= 8 && !(typeof k.options === "string" && k.options.includes("from=")))
+    out.push({ id: "widely_shared", severity: "warning", detail: `The same key opens ${spread} hosts` });
+  if (k.user === "root" && !(typeof k.options === "string" && k.options.includes("from=")))
+    out.push({ id: "root_unrestricted", severity: "warning", detail: "Logs in as root with no from= restriction" });
+  if (Date.now() - Date.parse(k.first_seen) > 540 * DAY) out.push({ id: "old_key", severity: "info", detail: "In place for over 18 months" });
+  return out;
+}
+
+function sshStore(): SshStore {
+  gs.__farrierSsh ??= buildSsh();
+  const s = gs.__farrierSsh;
+  // the seeded profile's key lives in the secret store, like one saved from the dashboard
+  const sec = ix().secrets;
+  if (s.access.some((a) => a.private_key === "vault:ssh-linux-ops-private_key") && !sec.some((x) => x.name === "ssh-linux-ops-private_key")) {
+    const at = isoAt(Date.now() - 20 * DAY);
+    sec.push({ name: "ssh-linux-ops-private_key", value: "demo", created_at: at, updated_at: at });
+  }
+  return s;
+}
+
+const worst = (fs: SshFinding[]) =>
+  fs.some((f) => f.severity === "critical") ? "critical" : fs.some((f) => f.severity === "warning") ? "warning" : fs.length ? "info" : null;
+
+export function sshSummary(): SshSummary {
+  const s = sshStore();
+  const by: SshSummary["by_severity"] = { critical: 0, warning: 0, info: 0 };
+  for (const k of s.keys) {
+    const w = worst(k.findings);
+    if (w) by[w]++;
+  }
+  return {
+    hosts: s.hosts.length,
+    keys: s.keys.length,
+    by_severity: by,
+    weak_host_keys: s.hosts.filter((h) => h.findings.some((f) => f.id === "weak_host_key" || f.id === "dsa_host_key")).length,
+    pqc_kex_hosts: s.hosts.filter((h) => h.pqc_kex).length,
+  };
+}
+
+export const sshKeys = (): SshKey[] => sshStore().keys.map((k) => ({ ...k }));
+export const sshHosts = (): SshHost[] => sshStore().hosts.map((h) => ({ ...h }));
+
+function globMatch(pattern: string, host: string) {
+  const re = new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
+  return re.test(host);
+}
+
+export function sshRemoveKey(id: string, b: Record<string, unknown>) {
+  const s = sshStore();
+  const k = s.keys.find((x) => String(x.id) === id);
+  if (!k) throw new DemoError(404, `no SSH key with id ${id}`);
+  if (b.dry_run !== undefined && typeof b.dry_run !== "boolean") throw new DemoError(400, "dry_run must be true or false");
+  const dryRun = b.dry_run !== false;
+  const access = s.access.find((a) => a.hosts.some((p) => globMatch(p, k.host)));
+  if (!access) throw new DemoError(409, `No SSH access profile covers ${k.host}. Add one under Access first.`);
+  const home = k.user === "root" ? "/root" : `/home/${k.user}`;
+  const plan = {
+    dry_run: dryRun,
+    host: k.host,
+    user: k.user,
+    file: `${home}/.ssh/authorized_keys`,
+    fingerprint_sha256: k.fingerprint_sha256,
+    comment: k.comment,
+    lines_removed: 1,
+    backup: `${home}/.ssh/authorized_keys.farrier-bak`,
+    access: access.name,
+  };
+  if (dryRun) return plan;
+  s.keys = s.keys.filter((x) => x !== k);
+  for (const x of s.keys) x.findings = keyFindings(x, s.keys);
+  log(`ssh: removed key ${k.fingerprint_sha256.slice(0, 19)}... for ${k.user}@${k.host}, backup kept (demo mode, nothing contacted)`);
+  return { ...plan, removed: true };
+}
+
+const TARGET = /^[A-Za-z0-9.*:[\]/|_-]+$/;
+
+function countTargets(targets: unknown) {
+  const parts = str(targets).split(/[\s,]+/).filter(Boolean);
+  if (!parts.length) throw new DemoError(400, "no targets");
+  const bad = parts.find((p) => !TARGET.test(p));
+  if (bad) throw new DemoError(400, `${bad} is not a host, address or CIDR range`);
+  return parts.reduce((n, p) => {
+    const m = p.match(/\/(\d+)/);
+    return n + (m ? 2 ** (32 - Math.min(32, Math.max(20, Number(m[1])))) : 1);
+  }, 0);
+}
+
+export function sshScan(b: Record<string, unknown>) {
+  const scanned = countTargets(b.targets);
+  const s = sshStore();
+  const now = isoAt(Date.now());
+  for (const h of s.hosts) h.observed_at = now;
+  log(`ssh scan: ${scanned} targets probed (demo mode, nothing contacted)`);
+  return { scanned, with_ssh: Math.min(scanned, s.hosts.length), new: 0 };
+}
+
+export function sshCollect(b: Record<string, unknown>) {
+  const s = sshStore();
+  const name = str(b.access);
+  const profiles = name ? s.access.filter((a) => a.name === name) : s.access;
+  if (name && !profiles.length) throw new DemoError(404, `no SSH access profile named ${name}`);
+  if (!profiles.length) throw new DemoError(400, "Add an SSH access profile first: collection logs in to read authorized_keys.");
+  const hosts = new Set(s.hosts.filter((h) => profiles.some((p) => p.hosts.some((pat) => globMatch(pat, h.host)))).map((h) => h.host));
+  const now = isoAt(Date.now());
+  const keys = s.keys.filter((k) => hosts.has(k.host));
+  for (const k of keys) k.last_seen = now;
+  log(`ssh: read authorized_keys on ${hosts.size} hosts (demo mode, nothing contacted)`);
+  return { hosts: hosts.size, keys: keys.length, new: 0 };
+}
+
+export const listSshAccess = (): SshAccess[] => sshStore().access.map((a) => ({ ...a, hosts: [...a.hosts] }));
+
+export function putSshAccess(name: string, b: Record<string, unknown>) {
+  checkName(name, "Access profile");
+  const s = sshStore();
+  const existing = s.access.find((a) => a.name === name);
+  const username = str(b.username);
+  if (!/^[a-z_][a-z0-9_.-]{0,31}$/i.test(username)) throw new DemoError(400, "username is required (letters, digits, . _ -)");
+  const keyRef = b.private_key === undefined && existing ? existing.private_key : checkRef(b.private_key, "private_key");
+  const port = b.port === undefined || b.port === null || b.port === "" ? 22 : Number(b.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new DemoError(400, "port must be 1 to 65535");
+  const hosts = strList(b.hosts);
+  if (!hosts.length) throw new DemoError(400, "list at least one host or pattern");
+  const bad = hosts.find((h) => !TARGET.test(h));
+  if (bad) throw new DemoError(400, `${bad} is not a host, pattern or CIDR range`);
+  if (b.sudo !== undefined && typeof b.sudo !== "boolean") throw new DemoError(400, "sudo must be true or false");
+  const policy = b.known_hosts_policy ?? "strict";
+  if (policy !== "tofu" && policy !== "strict") throw new DemoError(400, "known_hosts_policy must be tofu or strict");
+  const out: SshAccess = { name, username, private_key: keyRef, port, hosts, sudo: b.sudo === true, known_hosts_policy: policy, source: "ui" };
+  if (existing) Object.assign(existing, out);
+  else s.access.push(out);
+  return { ...out };
+}
+
+export function deleteSshAccess(name: string) {
+  const s = sshStore();
+  if (!s.access.some((a) => a.name === name)) throw new DemoError(404, `no SSH access profile named ${name}`);
+  s.access = s.access.filter((a) => a.name !== name);
+  return { ok: true };
+}
+
+export function testSshAccess(name: string): TestResult {
+  const s = sshStore();
+  const a = s.access.find((x) => x.name === name);
+  if (!a) throw new DemoError(404, `no SSH access profile named ${name}`);
+  const n = s.hosts.filter((h) => a.hosts.some((p) => globMatch(p, h.host))).length;
+  if (!n) return { ok: false, detail: `None of the known SSH hosts match ${a.hosts.join(", ")}.` };
+  return { ok: true, detail: `Would log in to ${n} host${n === 1 ? "" : "s"} as ${a.username}${a.sudo ? " with sudo" : ""} (demo: nothing contacted).` };
+}
+
+/* ---------------------------------------------------------- crypto and PQC */
+// One asset per TLS endpoint and per SSH host: what it negotiates, and whether
+// that holds up once quantum computers can break RSA and elliptic curves.
+
+const HYBRID_TLS = new Set(["nginx-edge-1", "nginx-edge-2", "grafana", "gitlab", "harbor"]);
+
+function tlsAsset(e: Endpoint): CryptoAsset {
+  const legacy = LEGACY[e.name];
+  const reachable = !!e.fingerprint;
+  const versions = !reachable ? [] : legacy?.tls ?? (e.connector === "manual" && e.id % 2 ? ["TLSv1.2"] : ["TLSv1.2", "TLSv1.3"]);
+  const key = reachable ? certKey(e) : null;
+  const sig = reachable ? certSig(e) : null;
+  const hybrid = reachable && HYBRID_TLS.has(e.name);
+  const kex = !reachable ? [] : versions.includes("TLSv1.3") ? ["X25519", "secp256r1"] : ["ECDHE secp256r1", ...(legacy ? ["RSA"] : [])];
+  const ciphers = !reachable
+    ? []
+    : [
+        ...(versions.includes("TLSv1.3") ? ["TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256"] : []),
+        key?.algorithm === "RSA" ? "ECDHE-RSA-AES128-GCM-SHA256" : "ECDHE-ECDSA-AES128-GCM-SHA256",
+        ...(legacy ? ["AES128-SHA", "DES-CBC3-SHA"] : []),
+      ];
+  const weak = [
+    ...(versions.includes("TLSv1") ? ["tls10"] : []),
+    ...(versions.includes("TLSv1.1") ? ["tls11"] : []),
+    ...(key?.algorithm === "RSA" && key.size < 2048 ? ["rsa_lt_2048"] : []),
+    ...(sig?.startsWith("sha1") ? ["sha1"] : []),
+    ...(reachable && legacy ? ["cbc", "3des"] : []),
+  ];
+  const keyName = key ? `${key.algorithm} ${key.curve ?? key.size}` : "";
+  let status: PqcStatus = "vulnerable";
+  let reasons: string[];
+  if (!reachable) {
+    status = "unknown";
+    reasons = [e.scan_error ? `No handshake: ${e.scan_error}` : "Not probed yet"];
+  } else if (hybrid) {
+    status = "hybrid";
+    reasons = ["Negotiates X25519MLKEM768", `Certificate key ${keyName} is classical`];
+  } else {
+    reasons = [`Key exchange ${kex[0]} is classical`, `Certificate key ${keyName} is classical`];
+  }
+  return {
+    id: e.id,
+    kind: "tls",
+    endpoint_id: e.id,
+    target: `${e.host}:${e.port}`,
+    protocol_versions: versions,
+    cipher_suites: ciphers,
+    key_exchange: hybrid ? "X25519MLKEM768" : kex[0] ?? null,
+    pqc_key_exchange: hybrid,
+    cert_key: key ? { algorithm: key.algorithm, size: key.size } : null,
+    signature_algorithm: sig,
+    pqc: { status, reasons },
+    weak,
+    observed_at: e.observed_at,
+  };
+}
+
+function sshAsset(h: SshHost): CryptoAsset {
+  const pqc = h.kex.filter((k) => k.includes("mlkem") || k.includes("sntrup"));
+  const weak = h.host_keys.some((k) => k.type === "ssh-rsa" && (k.bits ?? 0) < 2048) ? ["rsa_lt_2048"] : [];
+  if (h.kex.some((k) => k.endsWith("sha1"))) weak.push("sha1");
+  return {
+    id: 1000 + Number(h.id),
+    kind: "ssh",
+    endpoint_id: null,
+    target: `${h.host}:${h.port}`,
+    protocol_versions: ["SSH-2.0"],
+    cipher_suites: h.ciphers,
+    key_exchange: pqc[0] ?? h.kex[0] ?? null,
+    pqc_key_exchange: pqc.length > 0,
+    cert_key: { algorithm: "Ed25519", size: 256 },
+    signature_algorithm: "ssh-ed25519",
+    pqc: pqc.length
+      ? { status: "hybrid", reasons: [`Offers ${pqc[0]}`, "Host keys are classical"] }
+      : { status: "vulnerable", reasons: ["Classical key exchange only", "OpenSSH 9.0 or later adds sntrup761x25519"] },
+    weak,
+    observed_at: h.observed_at,
+  };
+}
+
+export function cryptoAssets(): CryptoAsset[] {
+  return [...endpoints().map(tlsAsset), ...sshStore().hosts.map(sshAsset)];
+}
+
+export function cryptoSummary(): CryptoSummary {
+  const assets = cryptoAssets();
+  const by_status: CryptoSummary["by_status"] = { ready: 0, hybrid: 0, vulnerable: 0, unknown: 0 };
+  const by_key_algorithm: Record<string, number> = {};
+  const weak = { tls10: 0, tls11: 0, rsa_lt_2048: 0, sha1: 0 };
+  for (const a of assets) {
+    by_status[a.pqc.status]++;
+    if (a.cert_key) {
+      by_key_algorithm[a.cert_key.algorithm] = (by_key_algorithm[a.cert_key.algorithm] ?? 0) + 1;
+    }
+    for (const w of Array.isArray(a.weak) ? a.weak : []) if (w in weak) weak[w as keyof typeof weak]++;
+  }
+  return { total: assets.length, by_status, by_key_algorithm, weak };
+}
+
+export function cryptoScan(b: Record<string, unknown>) {
+  const scanned = countTargets(b.targets);
+  log(`crypto scan: ${scanned} targets probed (demo mode, nothing contacted)`);
+  return { scanned, assets: cryptoAssets().length, new: 0 };
+}
+
+/** A CycloneDX 1.6 cryptography bill of materials for every asset. */
+export function cbom() {
+  const algos = new Map<string, string>();
+  const ref = (name: string) => `crypto/algorithm/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const algo = (name: string, primitive: string) => {
+    algos.set(name, primitive);
+    return ref(name);
+  };
+  const protocols = cryptoAssets().map((a) => {
+    const kex = typeof a.key_exchange === "string" ? [a.key_exchange] : Array.isArray(a.key_exchange) ? a.key_exchange : [];
+    const refs = [
+      ...kex.map((k) => algo(k, "key-agree")),
+      ...(a.cert_key ? [algo(`${a.cert_key.algorithm}-${a.cert_key.size}`, a.cert_key.algorithm === "RSA" ? "pke" : "signature")] : []),
+      ...(a.signature_algorithm ? [algo(a.signature_algorithm, "signature")] : []),
+    ];
+    return {
+      type: "cryptographic-asset",
+      "bom-ref": `crypto/protocol/${a.id}`,
+      name: a.target,
+      cryptoProperties: {
+        assetType: "protocol",
+        protocolProperties: {
+          type: a.kind,
+          version: a.protocol_versions.join(","),
+          cipherSuites: a.cipher_suites.map((c) => ({ name: c })),
+          cryptoRefArray: [...new Set(refs)],
+        },
+      },
+      properties: [
+        { name: "farrier:pqc_status", value: a.pqc.status },
+        ...(Array.isArray(a.weak) ? a.weak.map((w) => ({ name: "farrier:weak", value: w })) : []),
+      ],
+    };
+  });
+  return {
+    bomFormat: "CycloneDX",
+    specVersion: "1.6",
+    serialNumber: `urn:uuid:${crypto.randomUUID()}`,
+    version: 1,
+    metadata: { timestamp: isoAt(Date.now()), tools: { components: [{ type: "application", name: "farrier", version: "demo" }] } },
+    components: [
+      ...protocols,
+      ...[...algos].map(([name, primitive]) => ({
+        type: "cryptographic-asset",
+        "bom-ref": ref(name),
+        name,
+        cryptoProperties: { assetType: "algorithm", algorithmProperties: { primitive } },
+      })),
+    ],
   };
 }

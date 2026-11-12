@@ -64,7 +64,9 @@ export function CertificateHealth() {
                     <ul className="mt-3 space-y-2 text-sm">
                       {items.slice(0, 3).map((i) => (
                         <li key={i.id} className="flex items-baseline justify-between gap-2">
-                          <span className="truncate font-medium">{i.name}</span>
+                          <Link href={`/dashboard/endpoints/${i.id}`} className="truncate font-medium hover:underline">
+                            {i.name}
+                          </Link>
                           <span className="shrink-0 text-xs text-muted-foreground first-letter:uppercase">{i.reason}</span>
                         </li>
                       ))}

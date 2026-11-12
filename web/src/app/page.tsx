@@ -4,9 +4,9 @@ import { SiteFooter } from "@/components/site/footer";
 import { SiteHeader } from "@/components/site/header";
 
 export const metadata: Metadata = {
-  title: "Farrier: certificate renewal for firewalls, load balancers and appliances",
+  title: "Farrier: agentless machine identity automation",
   description:
-    "Open-source, self-hosted certificate renewal for F5, FortiGate, Palo Alto and Java keystores, with change packs for every other device.",
+    "Discover, manage and secure TLS certificates, SSH keys and cryptographic assets, and track post-quantum readiness. Open source, self-hosted, no agents.",
 };
 
 export default function Home() {

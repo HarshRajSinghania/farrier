@@ -233,6 +233,10 @@ export interface CatalogField {
   secret: boolean;
   required: boolean;
   help?: string | null;
+  /** "bool" renders a switch; a field with `options` renders a select */
+  type?: "string" | "bool" | "select" | string;
+  options?: string[] | null;
+  default?: string | boolean | null;
 }
 export interface DnsProviderInfo {
   id: string;
@@ -344,4 +348,122 @@ export interface TestResult {
   ok: boolean;
   detail: string;
   zones?: string[];
+}
+
+/* -------------------------------------------------------- certificate detail */
+
+export interface CertKey {
+  algorithm: string;
+  size: number | null;
+  curve: string | null;
+}
+export interface ChainCert {
+  subject: string;
+  issuer: string;
+  not_after: string | null;
+  key: CertKey | string | null;
+  signature_algorithm: string | null;
+}
+export interface CertificateDetail {
+  endpoint_id: number;
+  subject: string | null;
+  common_name: string | null;
+  sans: string[];
+  issuer: string | null;
+  serial: string | null;
+  not_before: string | null;
+  not_after: string | null;
+  days_left: number | null;
+  key: CertKey | null;
+  signature_algorithm: string | null;
+  fingerprints: { sha256: string | null; sha1: string | null };
+  chain: ChainCert[];
+  self_signed: boolean;
+  observed_at: string | null;
+  history: { observed_at: string; fingerprint_sha256: string; not_after: string | null; issuer: string | null }[];
+  renewals: { id: number; state: RenewalState; reason: string | null; scheduled_for: string; updated_at: string }[];
+  health: { grade: HealthReport["grade"]; checked_at: string } | null;
+}
+
+/* ------------------------------------------------------------------- SSH */
+
+export type FindingSeverity = "critical" | "warning" | "info";
+export interface SshFinding {
+  id: string;
+  severity: FindingSeverity;
+  detail: string;
+}
+export interface SshSummary {
+  hosts: number;
+  keys: number;
+  by_severity: Record<FindingSeverity, number>;
+  weak_host_keys: number;
+  pqc_kex_hosts: number;
+}
+export interface SshKey {
+  id: number | string;
+  host: string;
+  user: string;
+  type: string;
+  bits: number | null;
+  fingerprint_sha256: string;
+  comment: string | null;
+  options: string | string[] | null;
+  first_seen: string;
+  last_seen: string;
+  findings: SshFinding[];
+}
+export interface SshHost {
+  id: number | string;
+  host: string;
+  port: number;
+  banner: string | null;
+  host_keys: { type: string; bits: number | null; fingerprint_sha256: string }[];
+  kex: string[];
+  ciphers: string[];
+  macs: string[];
+  pqc_kex: boolean | string[] | string | null;
+  findings: SshFinding[];
+  observed_at: string | null;
+}
+export interface SshAccess {
+  name: string;
+  username: string;
+  private_key: SecretRef | null;
+  port: number;
+  hosts: string[];
+  sudo: boolean;
+  known_hosts_policy: "tofu" | "strict";
+  source?: ConfigSource;
+}
+export type SshAccessInput = Omit<SshAccess, "name" | "source">;
+export interface SshRemoveResult {
+  dry_run: boolean;
+  /** what will change (dry run) or what changed */
+  [field: string]: unknown;
+}
+
+/* ------------------------------------------------------------- crypto / PQC */
+
+export type PqcStatus = "ready" | "hybrid" | "vulnerable" | "unknown";
+export interface CryptoSummary {
+  total: number;
+  by_status: Record<PqcStatus, number>;
+  by_key_algorithm: Record<string, number>;
+  weak: { tls10: number; tls11: number; rsa_lt_2048: number; sha1: number };
+}
+export interface CryptoAsset {
+  id: number | string;
+  kind: "tls" | "ssh";
+  endpoint_id: number | null;
+  target: string;
+  protocol_versions: string[];
+  cipher_suites: string[];
+  key_exchange: string[] | string | null;
+  pqc_key_exchange: string[] | string | boolean | null;
+  cert_key: { algorithm: string; size: number | null } | null;
+  signature_algorithm: string | null;
+  pqc: { status: PqcStatus; reasons: string[] };
+  weak: string[] | boolean | Record<string, boolean> | null;
+  observed_at: string | null;
 }

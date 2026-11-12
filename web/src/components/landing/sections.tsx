@@ -6,6 +6,7 @@ import {
   Check,
   DatabaseZap,
   FileArchive,
+  FileJson,
   Fingerprint,
   KeyRound,
   Lock,
@@ -48,11 +49,12 @@ export function Hero() {
           47-day certificates are coming <ArrowRight className="size-3.5" />
         </a>
         <h1 className="enter [--d:80ms] mx-auto mt-8 max-w-4xl text-4xl font-semibold tracking-[-0.03em] text-balance">
-          Certificate renewal for the boxes ACME can&rsquo;t reach
+          Every machine identity, managed without agents
         </h1>
         <p className="enter [--d:160ms] mx-auto mt-6 max-w-[65ch] text-lg text-white/65">
-          Renews TLS on F5, FortiGate, Palo Alto and Java keystores, and proves it went live.
+          Farrier finds and renews TLS certificates, inventories SSH keys, maps your cryptography and tracks post-quantum readiness. Your team oversees; Farrier handles the rest.
         </p>
+        <p className="enter [--d:200ms] mt-4 text-sm font-medium text-white/80">No agents. No manual renewals. No missed expirations.</p>
         <div className="enter [--d:240ms] mt-10 flex flex-wrap justify-center gap-4">
           <Link
             href="/docs/quickstart"
@@ -176,7 +178,7 @@ export function Features() {
     <section id="features" className="scroll-mt-16 bg-[var(--plane)] py-24 sm:py-32">
       <div className={wrap}>
         <div className="max-w-2xl">
-          <H2>Everything a renewal needs</H2>
+          <H2>Certificates, SSH keys and the crypto behind them</H2>
         </div>
         <div className="mt-14 grid gap-4 md:grid-cols-6">
           {/* agents */}
@@ -295,6 +297,74 @@ export function Features() {
                   </div>
                 );
               })}
+            </div>
+          </Cell>
+
+          {/* SSH keys */}
+          <Cell className="md:col-span-2" title="SSH keys" desc="Host keys and authorized_keys, read over SSH.">
+            <ul className="space-y-2 text-sm">
+              {[
+                ["ssh-rsa 1024", "Weak key", "critical"],
+                ["no comment, unknown owner", "Unknown key", "warning"],
+                ["ssh-ed25519", "OK", "good"],
+              ].map(([k, v, t]) => (
+                <li key={k} className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2">
+                  <KeyRound className={cn("size-3.5 shrink-0", t === "critical" ? "text-[var(--status-critical-fg)]" : t === "warning" ? "text-[var(--status-warning-fg)]" : "text-[var(--status-good-fg)]")} />
+                  <span className="truncate font-mono text-xs">{k}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{v}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs text-muted-foreground">Removal shows a dry run first.</p>
+          </Cell>
+
+          {/* PQC */}
+          <Cell className="md:col-span-2" title="Crypto and PQC readiness" desc="Protocols, ciphers and key exchange for every TLS and SSH service.">
+            {/* an illustration of the readiness bar, not real numbers */}
+            <div className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+              <div className="w-[8%] bg-good" />
+              <div className="w-[17%] bg-series-auto" />
+              <div className="w-[65%] bg-warning" />
+              <div className="w-[10%] bg-[var(--status-neutral)]" />
+            </div>
+            <ul className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              {[
+                ["Ready", "bg-good"],
+                ["Hybrid", "bg-series-auto"],
+                ["Vulnerable", "bg-warning"],
+                ["Unknown", "bg-[var(--status-neutral)]"],
+              ].map(([l, c]) => (
+                <li key={l} className="flex items-center gap-2">
+                  <span aria-hidden className={cn("size-2 rounded-[2px]", c)} />
+                  {l}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full px-4 py-2 text-xs font-medium ring-1 ring-border">
+              <FileJson className="size-3.5" /> CycloneDX CBOM export
+            </p>
+          </Cell>
+
+          {/* tickets and events */}
+          <Cell className="md:col-span-2" title="Tickets and events" desc="Opens the ticket, comments as it moves, closes it when the change is live.">
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                [null, "ServiceNow"],
+                ["jira.svg", "Jira"],
+                ["datadog.svg", "Datadog"],
+                ["splunk.svg", "Splunk"],
+              ].map(([f, n]) => (
+                <span key={n} className="inline-flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium">
+                  {f ? (
+                    <img src={icon(f)} alt="" className="size-4 rounded-sm bg-white object-contain" />
+                  ) : (
+                    <span aria-hidden className="flex size-4 items-center justify-center rounded-sm bg-[#141414] text-[10px] font-semibold text-[#c5f04a]">
+                      S
+                    </span>
+                  )}
+                  {n}
+                </span>
+              ))}
             </div>
           </Cell>
 
@@ -537,6 +607,7 @@ export function Security() {
 /* ------------------------------------------------------------------ faq */
 
 const FAQ = [
+  ["Do I install an agent on each machine?", "No. Farrier reads TLS and SSH over the network and makes changes through each device's management API or SSH."],
   ["Does an F5 or FortiGate need internet access?", "No. Farrier answers DNS-01 through your DNS and deploys over the management interface."],
   ["Which certificate authorities work?", "Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert and Sectigo over ACME, plus a built-in private CA."],
   ["What if a deploy breaks a profile?", "The old certificate stays installed, and Farrier switches back if the new one never goes live."],

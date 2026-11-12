@@ -10,6 +10,10 @@ Configured in <data>/settings.json:
        "headers": {"Authorization": "env:FARRIER_SECRET_HOOK_TOKEN"}}
     ]
 
+ServiceNow, Jira, Datadog and Splunk channels (farrier.itsm) take their own fields instead of a url;
+ServiceNow / Jira channels with "tickets": true run the ticket lifecycle (farrier.itsm.tickets) for
+renewal events instead of receiving one message per event.
+
 `url` and header values go through the same secret guardrails as connector configs. `events`
 defaults to failed, rolled_back and awaiting_manual. Delivery runs on a background thread with a
 5 second timeout, so a slow receiver never stalls a renewal; failures are written to the event log.
@@ -145,8 +149,10 @@ class Notifier:
     channels their own name) so alert rules can address a channel."""
 
     def __init__(self, configs: list[dict] | None, dashboard_url: str | None, log, instance_id: str | None = None):
+        from farrier.itsm import ITSM_TYPES
         self.configs = [c for c in (configs or []) if isinstance(c, dict)
-                        and (c.get("url") or c.get("type") in EMAIL_TYPES or c.get("type") in EVENT_TYPES)]
+                        and (c.get("url") or c.get("type") in EMAIL_TYPES or c.get("type") in EVENT_TYPES
+                             or c.get("type") in ITSM_TYPES)]
         self.dashboard_url = dashboard_url
         self.log = log  # store.log(message, endpoint_id, renewal_id, level=...)
         self.instance_id = instance_id or "farrier"   # CloudEvents source farrier://<instance id>
@@ -158,7 +164,9 @@ class Notifier:
     def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False,
              refs: dict | None = None) -> list[str]:
         """``refs`` (chain_ref, private_key_ref) go into the CloudEvent for event-bus channels."""
-        targets = [c for c in self.configs if self.wants(c, event)]
+        from farrier.itsm import is_ticketing
+        # ticket-lifecycle channels follow renewals through farrier.itsm.tickets, not message by message
+        targets = [c for c in self.configs if self.wants(c, event) and (event == "test" or not is_ticketing(c))]
         if not targets:
             return []
         p = payload(event, renewal, endpoint, self.dashboard_url)
@@ -203,6 +211,18 @@ class Notifier:
         if kind in EMAIL_TYPES:
             send_email(cfg, p)
             return
+        from farrier.itsm import ITSM_TYPES
+        if kind in ITSM_TYPES:
+            from farrier.itsm import adapter_for
+            a = adapter_for(cfg)
+            try:
+                if p.get("event") == "test":
+                    a.check()
+                else:
+                    a.notify(p)
+            finally:
+                a.close()
+            return
         if kind in EVENT_TYPES:
             from farrier.events.cloudevents import test_event
             from farrier.events.publishers import publish
@@ -237,6 +257,9 @@ def failure_detail(e: Exception) -> str:
         return f"the receiver answered HTTP {e.response.status_code}"
     if isinstance(e, KeyError):
         return str(e.args[0]) if e.args else "a referenced secret is not set"
+    from farrier.itsm.http import ItsmError
+    if isinstance(e, ItsmError):                  # method, host, path and status only; secrets scrubbed
+        return str(e)[:300]
     from farrier.security.cloud_auth.http import CloudError
     if isinstance(e, CloudError):                 # built without URLs' queries, bodies or credentials
         return str(e)[:300]

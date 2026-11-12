@@ -25,6 +25,7 @@ import {
   ConfirmDelete,
   dropOwnedSecrets,
   Field,
+  LogoTile,
   FormActions,
   NAME_PATTERN,
   nameError,
@@ -34,6 +35,7 @@ import {
   secretState,
   SourceBadge,
   storeSecrets,
+  Switch,
   TestOutcome,
   useTests,
   type SecretState,
@@ -70,6 +72,19 @@ const RULE_TYPES: { id: AlertWhen["type"]; label: string }[] = [
 ];
 
 const CHANNEL_ICON: Record<string, React.ElementType> = { slack: MessageSquare, teams: MessageSquare, webhook: Webhook, email: Mail, ses: Mail };
+// brand marks shipped in public/assets/icons; ServiceNow has no free mark, so it gets the initial tile
+const CHANNEL_LOGO: Record<string, string | null> = {
+  jira: "/assets/icons/jira.svg",
+  datadog: "/assets/icons/datadog.svg",
+  splunk: "/assets/icons/splunk.svg",
+  servicenow: null,
+};
+
+function ChannelMark({ type, label }: { type: string; label: string }) {
+  if (type in CHANNEL_LOGO) return <LogoTile src={CHANNEL_LOGO[type]} label={label} className="size-5 rounded p-0.5 text-xs" />;
+  const Icon = CHANNEL_ICON[type] ?? BellRing;
+  return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
+}
 
 const joinOr = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs.at(-1)}`);
 
@@ -109,25 +124,6 @@ const toInput = (r: AlertRule, patch: Partial<AlertRuleInput> = {}): AlertRuleIn
   ...(r.cooldown_hours != null ? { cooldown_hours: r.cooldown_hours } : {}),
   ...patch,
 });
-
-function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors disabled:opacity-50",
-        checked ? "bg-foreground" : "bg-input",
-      )}
-    >
-      <span className={cn("size-4 rounded-full bg-background shadow-sm transition-transform", checked ? "translate-x-4" : "translate-x-0")} />
-    </button>
-  );
-}
 
 function Toggles({
   label,
@@ -184,7 +180,8 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
     for (const f of t?.fields ?? []) {
       const v = entry && entry.type === id ? entry[f.key] : undefined;
       if (f.secret) secs[f.key] = secretState(typeof v === "string" ? v : entry && entry.type === id && f.required ? UNKNOWN_REF : null);
-      else if (typeof v === "string" || typeof v === "number") vals[f.key] = String(v);
+      else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") vals[f.key] = String(v);
+      else if (f.default !== undefined && f.default !== null) vals[f.key] = String(f.default);
     }
     return { vals, secs };
   };
@@ -227,7 +224,8 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
       if (f.secret) {
         const ref = plan.refs[f.key];
         if (ref && ref !== UNKNOWN_REF) body[f.key] = ref;
-      } else if (values[f.key]?.trim()) body[f.key] = values[f.key].trim();
+      } else if (f.type === "bool") body[f.key] = values[f.key] === "true";
+      else if (values[f.key]?.trim()) body[f.key] = values[f.key].trim();
     }
     setBusy(true);
     try {
@@ -264,7 +262,6 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
         ) : (
           <div role="radiogroup" aria-label="Channel type" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {types.map((t) => {
-              const Icon = CHANNEL_ICON[t.id] ?? BellRing;
               const on = t.id === typeId;
               return (
                 <button
@@ -278,7 +275,7 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
                     on && "border-foreground bg-muted text-foreground",
                   )}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <ChannelMark type={t.id} label={t.label} />
                   <span className="truncate">{t.label}</span>
                 </button>
               );
@@ -301,6 +298,31 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
                 onChange={(s) => setSecrets((x) => ({ ...x, [f.key]: s }))}
                 error={errors[f.key]}
               />
+            ) : f.type === "bool" ? (
+              <div key={`${type.id}-${f.key}`} className="space-y-2 sm:col-span-2">
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id={`ch-${f.key}`}
+                    checked={values[f.key] === "true"}
+                    onChange={(v) => setValues((x) => ({ ...x, [f.key]: String(v) }))}
+                    label={f.label}
+                  />
+                  <label htmlFor={`ch-${f.key}`} className="text-sm font-medium">
+                    {f.label}
+                  </label>
+                </div>
+                {f.help && <p className="text-xs text-muted-foreground">{f.help}</p>}
+              </div>
+            ) : f.options?.length ? (
+              <Field key={`${type.id}-${f.key}`} id={`ch-${f.key}`} label={f.label} optional={!f.required} hint={f.help} error={errors[f.key]}>
+                <Select
+                  id={`ch-${f.key}`}
+                  value={values[f.key] ?? ""}
+                  onValueChange={(v) => setValues((x) => ({ ...x, [f.key]: v }))}
+                  options={f.options.map((o) => ({ value: o, label: o }))}
+                  aria-invalid={!!errors[f.key]}
+                />
+              </Field>
             ) : (
               <Field key={`${type.id}-${f.key}`} id={`ch-${f.key}`} label={f.label} optional={!f.required} hint={f.help} error={errors[f.key]}>
                 <Input
@@ -352,7 +374,7 @@ function ChannelsPanel({ canWrite, canTest }: { canWrite: boolean; canTest: bool
           <TableSkeleton rows={2} />
         ) : !data?.length ? (
           <EmptyState icon={<Send />} title="No channels" action={canWrite ? add : undefined}>
-            Channels are where alerts go: Slack, Teams, a webhook or email.
+            Channels are where alerts go: Slack, Teams, email, a webhook, ServiceNow, Jira, Datadog or Splunk.
           </EmptyState>
         ) : (
           <Table>
@@ -371,13 +393,12 @@ function ChannelsPanel({ canWrite, canTest }: { canWrite: boolean; canTest: bool
             <TBody>
               {data.map((n) => {
                 const result = tests.results[n.name];
-                const Icon = CHANNEL_ICON[n.type] ?? BellRing;
                 return [
                   <TR key={n.name}>
                     <TD className="font-medium">{n.name}</TD>
                     <TD>
                       <span className="flex items-center gap-2">
-                        <Icon className="size-4 text-muted-foreground" aria-hidden />
+                        <ChannelMark type={n.type} label={label(n.type)} />
                         {label(n.type)}
                       </span>
                     </TD>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Bell, BookOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { GithubIcon } from "@/components/brand";
@@ -20,7 +20,9 @@ import { cn, relativeTime } from "@/lib/utils";
 const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
   "/dashboard/renewals": "Renewals",
-  "/dashboard/endpoints": "Endpoints",
+  "/dashboard/endpoints": "Certificates",
+  "/dashboard/ssh": "SSH keys",
+  "/dashboard/crypto": "Crypto & PQC",
   "/dashboard/discovery": "Discovery",
   "/dashboard/forecast": "Forecast",
   "/dashboard/health": "Health",
@@ -32,15 +34,27 @@ const TITLES: Record<string, string> = {
   "/dashboard/settings": "Settings",
 };
 
+// behind Suspense: dynamic routes only know their pathname at request time
 function PageTitle() {
-  const path = usePathname();
+  return (
+    <Suspense fallback={<Title path="" />}>
+      <CurrentTitle />
+    </Suspense>
+  );
+}
+
+function CurrentTitle() {
+  return <Title path={usePathname()} />;
+}
+
+function Title({ path }: { path: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 text-sm">
       <span className="hidden text-muted-foreground sm:inline">Farrier</span>
       <span className="hidden text-muted-foreground/60 sm:inline" aria-hidden>
         /
       </span>
-      <span className="truncate font-medium">{TITLES[path] ?? "Dashboard"}</span>
+      <span className="truncate font-medium">{TITLES[path] ?? (path.startsWith("/dashboard/endpoints/") ? "Certificate" : "Dashboard")}</span>
     </div>
   );
 }

@@ -54,6 +54,9 @@ class CertInfo:
     not_before: datetime | None = None
     not_after: datetime | None = None
     key_type: str = ""
+    # the DER as served, and the intermediates the server sent after it (stored once per fingerprint)
+    der: bytes | None = field(default=None, repr=False, compare=False)
+    chain_der: list[bytes] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def lifetime_days(self) -> int:
@@ -94,8 +97,14 @@ def parse_pem(pem: str) -> CertInfo:
     return cert_info(x509.load_pem_x509_certificate(pem.encode()))
 
 
-def parse_der(der: bytes) -> CertInfo:
-    return cert_info(x509.load_der_x509_certificate(der))
+def parse_der(der: bytes, chain_der: list[bytes] | None = None) -> CertInfo:
+    info = cert_info(x509.load_der_x509_certificate(der))
+    info.der, info.chain_der = der, list(chain_der or [])
+    return info
+
+
+def der_to_pem(der: bytes) -> str:
+    return x509.load_der_x509_certificate(der).public_bytes(serialization.Encoding.PEM).decode()
 
 
 def split_pem_chain(pem: str) -> list[str]:
