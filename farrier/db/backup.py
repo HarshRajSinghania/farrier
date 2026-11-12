@@ -120,11 +120,12 @@ def restore(store: Store, data: bytes, allow_unsigned: bool = False) -> dict[str
     if head.get("schema_version", 0) > store.schema_version():
         raise ValueError(f"the backup is from schema version {head['schema_version']}; upgrade Farrier first")
     for t in TABLES + CONFIG_TABLES:
-        if store._run(f"SELECT COUNT(*) AS n FROM {t}", (), fetch="one")["n"]:
+        if store.row_count(t):
             raise ValueError(f"destination table {t} is not empty; restore into a new database")
     counts: dict[str, int] = {}
     known = {t: _columns(store, t) for t in TABLES + CONFIG_TABLES}
     with store.transaction():
+        store.x("DELETE FROM projects")         # the backup's projects ("default" included) replace it
         for ln in lines[1:]:
             rec = json.loads(ln)
             t, row = rec["table"], {k: _uncell(v) for k, v in rec["row"].items()}
@@ -141,6 +142,7 @@ def restore(store: Store, data: bytes, allow_unsigned: bool = False) -> dict[str
             counts[t] = counts.get(t, 0) + 1
         for t in TABLES:
             store.dialect.fix_sequence(store, t)
+        store.ensure_default_project()          # a backup from before projects (schema < 8) has none
     return counts
 
 

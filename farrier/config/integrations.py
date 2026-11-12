@@ -585,7 +585,7 @@ def notifier_view(name: str, source: str, c: dict) -> dict:
             fields[f["key"]] = _ref_view(c[f["key"]]) if f["secret"] else c[f["key"]]
     return {"name": name, "source": source, "type": kind,
             "events": list(default_events(kind)) if events is None else events, "target": notifier_target(c),
-            "fields": fields}
+            "fields": fields} | ({"project": c["project"]} if c.get("project") else {})
 
 
 def keep_secret_refs(old: dict | None, body):
@@ -610,7 +610,7 @@ def validate_notifier(engine, name: str, body, allow_commands: bool, allow_inlin
     if kind not in NOTIFIER_FIELDS:
         raise Invalid(f"type must be one of {', '.join(NOTIFIER_FIELDS)}")
     fields = {f["key"]: f for f in NOTIFIER_FIELDS[kind][1]}
-    extra = {"type", "events"} | ({"headers"} if kind == "webhook" else set())
+    extra = {"type", "events", "project"} | ({"headers"} if kind == "webhook" else set())
     body = {k: v for k, v in body.items() if v not in (None, "")}
     unknown = sorted(set(body) - set(fields) - extra)
     if unknown:

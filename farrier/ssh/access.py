@@ -6,7 +6,11 @@ through the config version). A profile never holds a key: ``private_key`` is a s
 
     {"username": "farrier", "private_key": "vault:ssh-fleet", "port": 22,
      "hosts": ["web1.internal", "10.0.4.0/28", "bastion:2222"], "sudo": false,
-     "known_hosts_policy": "tofu" | "strict"}
+     "known_hosts_policy": "tofu" | "strict", "project": "payments"}
+
+``project`` (optional, default "default"): the project whose team may see, test and collect with the
+profile; the hosts and keys it finds belong to that project. Only a global admin edits profiles: they
+hold login credentials that are shared configuration.
 """
 from __future__ import annotations
 
@@ -22,7 +26,8 @@ USERNAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 POLICIES = ("tofu", "strict")
 MAX_HOSTS = 4096
-_FIELDS = {"username", "private_key", "port", "hosts", "sudo", "known_hosts_policy"}
+_FIELDS = {"username", "private_key", "port", "hosts", "sudo", "known_hosts_policy", "project"}
+PROJECT = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
 class Invalid(ValueError):
@@ -82,8 +87,11 @@ def validate(body) -> dict:
     policy = body.get("known_hosts_policy", "tofu")
     if policy not in POLICIES:
         raise Invalid("known_hosts_policy must be tofu or strict")
+    project = body.get("project") or None
+    if project is not None and (not isinstance(project, str) or not PROJECT.match(project)):
+        raise Invalid("project must be a project name")
     return {"username": username, "private_key": key, "port": port, "hosts": [h.strip() for h in hosts],
-            "sudo": sudo, "known_hosts_policy": policy}
+            "sudo": sudo, "known_hosts_policy": policy} | ({"project": project} if project else {})
 
 
 def view(name: str, cfg: dict) -> dict:
@@ -93,6 +101,12 @@ def view(name: str, cfg: dict) -> dict:
 
 def profiles(items) -> dict[str, dict]:
     return items.all(KIND)
+
+
+def project_id(store, profile: dict) -> int:
+    """The profile's project id; "default" when unset (or when that project no longer exists)."""
+    p = store.project(profile["project"]) if profile.get("project") else None
+    return p["id"] if p else store.default_project_id()
 
 
 def approved_fingerprints(items) -> set[str]:

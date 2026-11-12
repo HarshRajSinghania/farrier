@@ -10,7 +10,8 @@ from farrier.db.store import now_iso, parse_dt
 
 # ---- hosts ------------------------------------------------------------------------------------------
 def save_host(store, host: str, port: int, banner: str | None, data: dict, pqc_kex: bool,
-              error: str | None) -> int:
+              error: str | None, project_id: int | None = None) -> int:
+    """A new host goes to ``project_id`` (default: the default project); a known one keeps its project."""
     body, t = json.dumps(data, sort_keys=True), now_iso()
     with store.transaction():
         row = store.q1("SELECT id FROM ssh_hosts WHERE host=? AND port=?", (host, port))
@@ -18,8 +19,9 @@ def save_host(store, host: str, port: int, banner: str | None, data: dict, pqc_k
             store.x("UPDATE ssh_hosts SET banner=?, data=?, pqc_kex=?, error=?, observed_at=? WHERE id=?",
                     (banner, body, int(pqc_kex), error, t, row["id"]))
             return row["id"]
-        return store.x("INSERT INTO ssh_hosts(host, port, banner, data, pqc_kex, error, observed_at) "
-                       "VALUES (?,?,?,?,?,?,?)", (host, port, banner, body, int(pqc_kex), error, t))
+        pid = project_id if project_id is not None else store.default_project_id()
+        return store.x("INSERT INTO ssh_hosts(host, port, banner, data, pqc_kex, error, observed_at, project_id) "
+                       "VALUES (?,?,?,?,?,?,?,?)", (host, port, banner, body, int(pqc_kex), error, t, pid))
 
 
 def _host(r: dict) -> dict:
@@ -78,12 +80,13 @@ def key_uid(host_: str, port: int, user: str, path: str, line_sha256: str) -> st
 
 
 def sync_host_keys(store, host_: str, port: int, access: str, rows: list[dict],
-                   keep_paths: frozenset[str] = frozenset()) -> dict:
+                   keep_paths: frozenset[str] = frozenset(), project_id: int | None = None) -> dict:
     """Make the stored keys for host:port exactly ``rows`` (from one successful collection).
     Each row: username, path, line_sha256, fingerprint, data (dict). Keeps first_seen for keys still present;
     keys in ``keep_paths`` (files that exist but could not be read this time) are left as they were."""
     t = now_iso()
     added = 0
+    pid = project_id if project_id is not None else store.default_project_id()   # the collecting profile's
     with store.transaction():
         existing = {r["uid"]: r for r in store.q("SELECT id, uid, path FROM ssh_keys WHERE host=? AND port=?",
                                                  (host_, port))}
@@ -95,12 +98,14 @@ def sync_host_keys(store, host_: str, port: int, access: str, rows: list[dict],
             seen.add(uid)
             body = json.dumps(r["data"], sort_keys=True)
             if uid in existing:
-                store.x("UPDATE ssh_keys SET data=?, access=?, last_seen=? WHERE uid=?", (body, access, t, uid))
+                store.x("UPDATE ssh_keys SET data=?, access=?, last_seen=?, project_id=? WHERE uid=?",
+                        (body, access, t, pid, uid))
             else:
                 added += 1
                 store.x("INSERT INTO ssh_keys(uid, host, port, access, username, path, line_sha256, data, fingerprint, "
-                        "first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                        (uid, host_, port, access, r["username"], r["path"], r["line_sha256"], body, r["fingerprint"], t, t))
+                        "first_seen, last_seen, project_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (uid, host_, port, access, r["username"], r["path"], r["line_sha256"], body, r["fingerprint"], t,
+                         t, pid))
         gone = [r["id"] for u, r in existing.items() if u not in seen and r["path"] not in keep_paths]
         for kid in gone:
             store.x("DELETE FROM ssh_keys WHERE id=?", (kid,))

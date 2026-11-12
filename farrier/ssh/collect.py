@@ -106,12 +106,12 @@ def default_prober(host: str, port: int) -> ProbeResult:
 
 
 # ---- host-key verification --------------------------------------------------------------------------
-def verified_known_keys(store, host: str, port: int, policy: str, prober: HostProber = default_prober
-                        ) -> list[tuple[str, str]]:
+def verified_known_keys(store, host: str, port: int, policy: str, prober: HostProber = default_prober,
+                        project_id: int | None = None) -> list[tuple[str, str]]:
     """(key type, base64) pairs ssh may accept for host:port. Raises on a mismatch or untrusted host."""
     res = prober(host, port)
     if res.banner is not None:
-        scan.save_probe(store, res)             # a login is also a fresh discovery result
+        scan.save_probe(store, res, project_id)  # a login is also a fresh discovery result
     pinned = db.pins(store, host, port)
     offered = {k.type: k for k in res.host_keys}
     if pinned:
@@ -210,7 +210,8 @@ def _targets(login: str, accounts: list[Account], sudo: bool, patterns: list[str
 # ---- collection -------------------------------------------------------------------------------------
 def collect_host(store, name: str, profile: dict, host: str, port: int,
                  factory: TransportFactory = default_transport, prober: HostProber = default_prober) -> dict:
-    known = verified_known_keys(store, host, port, profile["known_hosts_policy"], prober)
+    pid = access.project_id(store, profile)
+    known = verified_known_keys(store, host, port, profile["known_hosts_policy"], prober, pid)
     t = factory(profile, host, port, known)
     try:
         env = t.run(_ENV_SCRIPT, timeout=60)
@@ -236,14 +237,17 @@ def collect_host(store, name: str, profile: dict, host: str, port: int,
                          "data": {"type": k.key.type, "bits": k.key.bits, "comment": k.comment, "options": k.options,
                                   "line_no": k.line_no, "user_uid": acct.uid, "user_shell": acct.shell,
                                   "never_logged_in": acct.name in never, "findings": []}})
-    sync = db.sync_host_keys(store, host, port, name, rows, frozenset(unreadable))
+    sync = db.sync_host_keys(store, host, port, name, rows, frozenset(unreadable), pid)
     db.set_host_accounts(store, host, port, sorted(a.name for a in accounts))
     return {"host": host, "port": port, "ok": True, **sync, "invalid_lines": invalid, "unreadable": unreadable}
 
 
 def collect(store, items, only: str | None = None, factory: TransportFactory = default_transport,
-            prober: HostProber = default_prober, workers: int = 8) -> dict:
+            prober: HostProber = default_prober, workers: int = 8, allowed=None) -> dict:
+    """``allowed(project id) -> bool`` limits the run to the profiles of those projects."""
     profs = access.profiles(items)
+    if allowed is not None:
+        profs = {n: p for n, p in profs.items() if allowed(access.project_id(store, p))}
     if only is not None:
         if only not in profs:
             raise KeyError(only)

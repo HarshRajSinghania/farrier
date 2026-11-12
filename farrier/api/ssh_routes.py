@@ -3,6 +3,10 @@
 GETs accept the read token; everything else needs the admin token (the shared auth dependency). Every
 change is written to the event log with its actor. No route returns a secret value: access profiles
 show the private key's *reference* only.
+
+Project scope (farrier.api.scope): hosts and keys belong to a project, access profiles name one. A scoped
+caller sees and acts on its projects' rows only; editing profiles and the approved-key list is for global
+admins (profiles hold shared login credentials).
 """
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ from collections import Counter
 from fastapi import Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from farrier.api.scope import Guard
 from farrier.ssh import access, collect, db, scan
 from farrier.ssh.findings import SEVERITIES
 from farrier.ssh.keys import parse_blob
@@ -30,6 +35,25 @@ def key_view(k: dict) -> dict:
 def mount(app, engine, auth, actor) -> None:
     S = engine.store
     dep = [Depends(auth)]
+    guard = Guard(S)
+    admin = [Depends(auth), Depends(guard.global_only)]
+
+    def host_in_scope(request: Request, hid: int, write: bool = False) -> dict:
+        h = db.host(S, hid)
+        sc = guard.of(request)
+        if not h or not (write or sc.has_row(h)):
+            raise HTTPException(404)
+        if not sc.has_row(h):
+            raise HTTPException(403, f"SSH host {hid} is outside your projects")
+        return h
+
+    def profile_in_scope(request: Request, name: str, write: bool = False) -> dict:
+        p = profile_or_404(name)
+        if not guard.of(request).has(access.project_id(S, p)):
+            if not write:
+                raise HTTPException(404, f"no SSH access profile named {name}")
+            raise HTTPException(403, f"SSH access profile {name} is outside your projects")
+        return p
 
     async def body_of(request: Request) -> dict:
         raw = await request.body()
@@ -51,12 +75,15 @@ def mount(app, engine, auth, actor) -> None:
 
     # ---- discovery (no login) --------------------------------------------------------------------------
     @app.get("/api/ssh/hosts", dependencies=dep)
-    def ssh_hosts():
-        return [scan.host_view(h) for h in db.hosts(S)]
+    def ssh_hosts(request: Request):
+        sc = guard.of(request)
+        return [scan.host_view(h) for h in db.hosts(S) if sc.has_row(h)]
 
     @app.post("/api/ssh/scan", dependencies=dep)
     async def ssh_scan(request: Request):
         body = await body_of(request)
+        pid = guard.project_id(request, body.get("project"))
+        sc = guard.of(request)
         try:
             targets = access.expand_hosts(body.get("targets") or "", 22)
         except access.Invalid as e:
@@ -65,7 +92,8 @@ def mount(app, engine, auth, actor) -> None:
             raise HTTPException(400, "no targets")
         if len(targets) > MAX_SCAN:
             raise HTTPException(400, f"{len(targets)} targets; split the range (max {MAX_SCAN} per request)")
-        out = await run_in_threadpool(scan.scan, S, targets)
+        out = await run_in_threadpool(lambda: scan.scan(S, targets, project_id=pid,
+                                                        allowed=None if sc.all else sc.has))
         S.log(f"ssh scan of {len(targets)} targets by {actor(request)}: {out['ssh']} answered")
         return out
 
@@ -73,9 +101,7 @@ def mount(app, engine, auth, actor) -> None:
     async def ssh_trust(hid: int, request: Request):
         """Pin the host keys the host presents now. ``fingerprints`` (optional) must list every key to
         pin; without it, the live keys must equal the ones the inventory last showed."""
-        h = db.host(S, hid)
-        if not h:
-            raise HTTPException(404)
+        h = host_in_scope(request, hid, write=True)
         body = await body_of(request)
         res = collect.default_prober(h["host"], h["port"])
         if not res.host_keys:
@@ -89,10 +115,8 @@ def mount(app, engine, auth, actor) -> None:
         return {"pinned": [{"type": k.type, "fingerprint_sha256": k.fingerprint_sha256} for k in res.host_keys]}
 
     @app.get("/api/ssh/hosts/{hid}/pins", dependencies=dep)
-    def ssh_pins(hid: int):
-        h = db.host(S, hid)
-        if not h:
-            raise HTTPException(404)
+    def ssh_pins(hid: int, request: Request):
+        h = host_in_scope(request, hid)
         out = []
         for p in db.pins(S, h["host"], h["port"]):
             k = parse_blob(base64.b64decode(p["key_b64"]))
@@ -102,8 +126,9 @@ def mount(app, engine, auth, actor) -> None:
 
     # ---- authorized keys ---------------------------------------------------------------------------------
     @app.get("/api/ssh/keys", dependencies=dep)
-    def ssh_keys():
-        return [key_view(k) for k in db.keys(S)]
+    def ssh_keys(request: Request):
+        sc = guard.of(request)
+        return [key_view(k) for k in db.keys(S) if sc.has_row(k)]
 
     @app.post("/api/ssh/keys/{kid}/remove", dependencies=dep)
     async def ssh_key_remove(kid: int, request: Request):
@@ -111,6 +136,9 @@ def mount(app, engine, auth, actor) -> None:
         dry_run = body.get("dry_run", False)
         if not isinstance(dry_run, bool):
             raise HTTPException(400, "dry_run must be true or false")
+        k = db.key(S, kid)
+        if k and not guard.of(request).has_row(k):
+            raise HTTPException(403, f"SSH key {kid} is outside your projects")
         try:
             return await run_in_threadpool(collect.remove_key, S, engine.items, kid, actor(request), dry_run,
                                            collect.default_transport, collect.default_prober)
@@ -127,7 +155,7 @@ def mount(app, engine, auth, actor) -> None:
     def ssh_approved():
         return {"fingerprints": sorted(access.approved_fingerprints(engine.items))}
 
-    @app.put("/api/ssh/approved-keys", dependencies=dep)
+    @app.put("/api/ssh/approved-keys", dependencies=admin)
     async def ssh_put_approved(request: Request):
         try:
             body = access.validate_approved(await body_of(request))
@@ -140,14 +168,16 @@ def mount(app, engine, auth, actor) -> None:
 
     # ---- access profiles ---------------------------------------------------------------------------------
     @app.get("/api/ssh/access", dependencies=dep)
-    def ssh_access_list():
-        return [access.view(n, c) for n, c in access.profiles(engine.items).items()]
+    def ssh_access_list(request: Request):
+        sc = guard.of(request)
+        return [access.view(n, c) for n, c in access.profiles(engine.items).items()
+                if sc.has(access.project_id(S, c))]
 
     @app.get("/api/ssh/access/{name}", dependencies=dep)
-    def ssh_access_get(name: str):
-        return access.view(name, profile_or_404(name))
+    def ssh_access_get(name: str, request: Request):
+        return access.view(name, profile_in_scope(request, name))
 
-    @app.put("/api/ssh/access/{name}", dependencies=dep)
+    @app.put("/api/ssh/access/{name}", dependencies=admin)
     async def ssh_access_put(name: str, request: Request):
         if not access.NAME.match(name):
             raise HTTPException(400, "name must be 1-64 of A-Z a-z 0-9 _ . - (starting with a letter or digit)")
@@ -159,11 +189,13 @@ def mount(app, engine, auth, actor) -> None:
             cfg = access.validate(body)
         except access.Invalid as e:
             raise HTTPException(400, str(e)) from None
+        if cfg.get("project") and not S.project(cfg["project"]):
+            raise HTTPException(400, f"no project named {cfg['project']}")
         engine.items.put(access.KIND, name, cfg, actor(request))
         S.log(f"ssh access profile {name} {'saved' if old else 'added'} by {actor(request)}")
         return access.view(name, cfg)
 
-    @app.delete("/api/ssh/access/{name}", dependencies=dep)
+    @app.delete("/api/ssh/access/{name}", dependencies=admin)
     def ssh_access_delete(name: str, request: Request):
         if not engine.items.delete(access.KIND, name):
             raise HTTPException(404, f"no SSH access profile named {name}")
@@ -173,7 +205,7 @@ def mount(app, engine, auth, actor) -> None:
     @app.post("/api/ssh/access/{name}/test", dependencies=dep)
     async def ssh_access_test(name: str, request: Request):
         """Log in to one host of the profile (``host`` in the body, default the first) and run ``true``."""
-        p = profile_or_404(name)
+        p = profile_in_scope(request, name, write=True)
         body = await body_of(request)
         hosts = access.expand_hosts(p["hosts"], p["port"])
         if body.get("host"):
@@ -187,7 +219,8 @@ def mount(app, engine, auth, actor) -> None:
         host, port = hosts[0]
 
         def run() -> dict:
-            known = collect.verified_known_keys(S, host, port, p["known_hosts_policy"], collect.default_prober)
+            known = collect.verified_known_keys(S, host, port, p["known_hosts_policy"], collect.default_prober,
+                                                access.project_id(S, p))
             t = collect.default_transport(p, host, port, known)
             try:
                 r = t.run("true", timeout=30)
@@ -209,9 +242,13 @@ def mount(app, engine, auth, actor) -> None:
         only = body.get("access")
         if only is not None and not isinstance(only, str):
             raise HTTPException(400, "access must be a profile name")
+        sc = guard.of(request)
+        if only is not None and engine.items.get(access.KIND, only) is not None:
+            profile_in_scope(request, only, write=True)
         try:
-            out = await run_in_threadpool(collect.collect, S, engine.items, only, collect.default_transport,
-                                          collect.default_prober)
+            out = await run_in_threadpool(lambda: collect.collect(
+                S, engine.items, only, collect.default_transport, collect.default_prober,
+                allowed=None if sc.all else sc.has))
         except KeyError:
             raise HTTPException(404, f"no SSH access profile named {only}") from None
         S.log(f"ssh collection run by {actor(request)}: {out['ok']} of {out['hosts']} hosts, {out['keys']} keys")
@@ -219,8 +256,9 @@ def mount(app, engine, auth, actor) -> None:
 
     # ---- summary -----------------------------------------------------------------------------------------
     @app.get("/api/ssh/summary", dependencies=dep)
-    def ssh_summary():
-        hosts, keys = db.hosts(S), db.keys(S)
+    def ssh_summary(request: Request):
+        sc = guard.of(request)
+        hosts, keys = [h for h in db.hosts(S) if sc.has_row(h)], [k for k in db.keys(S) if sc.has_row(k)]
         sev = Counter(dict.fromkeys(SEVERITIES, 0))
         for item in hosts + keys:
             sev.update(f["severity"] for f in item.get("findings") or [])

@@ -136,7 +136,8 @@ class Itsm:
             return
         try:
             for cfg in self.ticket_channels():
-                self._submit(self._sync, cfg["name"], renewal["id"], event)
+                if self.engine.notifier.hears(cfg, endpoint.get("project")):
+                    self._submit(self._sync, cfg["name"], renewal["id"], event)
         except Exception as e:  # noqa: BLE001
             self._log(f"queueing ticket work failed: {type(e).__name__}", renewal, level="warning")
 

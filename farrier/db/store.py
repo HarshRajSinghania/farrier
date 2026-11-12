@@ -17,7 +17,8 @@ from farrier.db import migrations as db_migrations
 from farrier.db.dialects import make_dialect, redact_url
 from farrier.security.vault import Vault
 
-TABLES = ("endpoints", "observations", "renewals", "events",   # in foreign-key order
+TABLES = ("projects",                                       # migration 8; "default" exists in every database
+          "endpoints", "observations", "renewals", "events",   # in foreign-key order
           "certificates", "crypto_assets", "crypto_scans",  # migration 5
           "ssh_hosts", "ssh_keys",                          # migration 6
           "itsm_tickets")                                   # migration 7
@@ -26,7 +27,8 @@ CONFIG_TABLES = ("secrets", "secret_values", "config_items", "alert_state", "hea
                  "ssh_host_pins", "ssh_runs")  # keyed, no id: trusted host keys must survive a move
 
 OPEN_STATES = ("planned", "issued", "deploying", "verifying", "awaiting_manual")
-JSON_COLS = {"sans", "connector_config", "window", "tags", "rollback"}
+JSON_COLS = {"sans", "connector_config", "window", "tags", "rollback", "members"}
+DEFAULT_PROJECT = "default"
 
 
 def now_iso() -> str:
@@ -189,10 +191,11 @@ class Store:
         """Copy every table into ``dest`` verbatim, ids included. Sealed keys are copied as
         ciphertext; nothing is decrypted. ``dest`` must be empty."""
         for t in TABLES + CONFIG_TABLES:
-            if dest._run(f"SELECT COUNT(*) AS n FROM {t}", (), fetch="one")["n"]:
+            if dest.row_count(t):
                 raise ValueError(f"destination table {t} is not empty; refusing to merge")
         counts = {}
         with dest.transaction():
+            dest.x("DELETE FROM projects")           # the source's projects (its "default" included) replace it
             for t in CONFIG_TABLES:
                 rows = self._run(f"SELECT * FROM {t}", (), fetch=True)
                 for r in rows:
@@ -214,7 +217,39 @@ class Store:
                         progress(t, min(i + batch, len(rows)), len(rows))
             for t in TABLES:
                 dest.dialect.fix_sequence(dest, t)
+            dest.ensure_default_project()
         return counts
+
+    def row_count(self, table: str) -> int:
+        """Rows in a table, not counting the built-in "default" project every migrated database has."""
+        where = f" WHERE name <> '{DEFAULT_PROJECT}'" if table == "projects" else ""
+        return self._run(f"SELECT COUNT(*) AS n FROM {table}{where}", (), fetch="one")["n"]
+
+    # ---- projects ---------------------------------------------------------
+    def ensure_default_project(self) -> None:
+        """After a copy or restore from an older schema: the built-in project must exist."""
+        if not self.q1("SELECT id FROM projects WHERE name=?", (DEFAULT_PROJECT,)):
+            self.x("INSERT INTO projects(name, title, members, created_at) VALUES (?,?,?,?)",
+                   (DEFAULT_PROJECT, "Default", "{}", now_iso()))
+        self._default_pid = None
+
+    def default_project_id(self) -> int:
+        pid = getattr(self, "_default_pid", None)
+        if pid is None:
+            row = self.q1("SELECT id FROM projects WHERE name=?", (DEFAULT_PROJECT,))
+            pid = self._default_pid = (row or {}).get("id") or 1
+        return pid
+
+    def projects(self) -> list[dict]:
+        return self.q("SELECT * FROM projects ORDER BY name <> 'default', name")
+
+    def project(self, name: str) -> dict | None:
+        return self.q1("SELECT * FROM projects WHERE name=?", (name,))
+
+    def project_id_of(self, row: dict | None) -> int:
+        """The project a row belongs to (NULL is the default project)."""
+        pid = (row or {}).get("project_id")
+        return pid if pid is not None else self.default_project_id()
 
     def log(self, message: str, endpoint_id=None, renewal_id=None, level="info"):
         self.x("INSERT INTO events(at, endpoint_id, renewal_id, level, message) VALUES (?,?,?,?,?)",
@@ -223,8 +258,8 @@ class Store:
     # ---- endpoints --------------------------------------------------------
     def upsert_endpoint(self, ep: dict) -> int:
         cols = ["name", "host", "port", "sni", "common_name", "sans", "key_type", "connector",
-                "connector_config", "issuer", "window", "lead_days", "owner", "tags", "enabled"]
-        data = {k: ep[k] for k in cols if k in ep}
+                "connector_config", "issuer", "window", "lead_days", "owner", "tags", "enabled", "project_id"]
+        data = {k: ep[k] for k in cols if k in ep and not (k == "project_id" and ep[k] is None)}
         for k in JSON_COLS & data.keys():
             data[k] = json.dumps(data[k])
         existing = self.q1("SELECT id FROM endpoints WHERE name=?", (ep["name"],))
@@ -234,22 +269,28 @@ class Store:
                 self.x(f"UPDATE endpoints SET {sets} WHERE id=?", (*data.values(), existing["id"]))
             return existing["id"]
         data["created_at"] = now_iso()
+        if data.get("project_id") is None:
+            data["project_id"] = self.default_project_id()
         keys = ", ".join(data)
         marks = ", ".join("?" * len(data))
         return self.x(f"INSERT INTO endpoints({keys}) VALUES ({marks})", tuple(data.values()))
 
+    _EP = (f"SELECT e.*, COALESCE(p.name, '{DEFAULT_PROJECT}') AS project FROM endpoints e "
+           "LEFT JOIN projects p ON p.id = e.project_id")
+
     def endpoint(self, eid: int) -> dict | None:
-        return self.q1("SELECT * FROM endpoints WHERE id=?", (eid,))
+        return self.q1(f"{self._EP} WHERE e.id=?", (eid,))
 
     def endpoint_by_addr(self, host: str, port: int, sni: str | None) -> dict | None:
-        return self.q1("SELECT * FROM endpoints WHERE host=? AND port=? AND IFNULL(sni,'')=IFNULL(?, '')",
+        return self.q1(f"{self._EP} WHERE e.host=? AND e.port=? AND IFNULL(e.sni,'')=IFNULL(?, '')",
                        (host, port, sni))
 
     def endpoints(self) -> list[dict]:
-        return self.q("""
-          SELECT e.*, o.fingerprint, o.not_after, o.not_before, o.issuer AS cert_issuer, o.subject_cn,
-                 o.observed_at, o.error AS scan_error
+        return self.q(f"""
+          SELECT e.*, COALESCE(p.name, '{DEFAULT_PROJECT}') AS project, o.fingerprint, o.not_after, o.not_before,
+                 o.issuer AS cert_issuer, o.subject_cn, o.observed_at, o.error AS scan_error
           FROM endpoints e
+          LEFT JOIN projects p ON p.id = e.project_id
           LEFT JOIN observations o ON o.id = (
              SELECT id FROM observations WHERE endpoint_id = e.id ORDER BY observed_at DESC, id DESC LIMIT 1)
           ORDER BY o.not_after IS NULL, o.not_after""")
@@ -335,14 +376,19 @@ class Store:
             sql, args = sql + " AND state=?", (*args, expect_state)
         return self._run(sql, args)[1] > 0
 
-    def renewals(self, states: tuple[str, ...] | None = None, limit: int = 500) -> list[dict]:
+    def renewals(self, states: tuple[str, ...] | None = None, limit: int = 500, scope=None) -> list[dict]:
+        """``scope`` (farrier.api.scope.Scope) keeps only renewals of endpoints in those projects."""
         sql = """SELECT r.id, r.endpoint_id, r.state, r.reason, r.scheduled_for, r.deadline, r.prev_fingerprint,
                         r.new_fingerprint, r.not_after, r.ticket_ref, r.attempts, r.error, r.created_at, r.updated_at,
-                        e.name, e.connector, e.host, e.port
+                        e.name, e.connector, e.host, e.port, e.project_id
                  FROM renewals r JOIN endpoints e ON e.id = r.endpoint_id"""
         args: tuple = ()
+        sql += " WHERE 1=1"
         if states:
-            sql += f" WHERE r.state IN ({','.join('?' * len(states))})"
+            sql += f" AND r.state IN ({','.join('?' * len(states))})"
             args = states
+        if scope is not None:
+            clause, extra = scope.sql("e.project_id")
+            sql, args = sql + clause, (*args, *extra)
         sql += " ORDER BY r.scheduled_for LIMIT ?"
         return self.q(sql, (*args, limit))

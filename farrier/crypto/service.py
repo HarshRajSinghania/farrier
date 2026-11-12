@@ -26,17 +26,25 @@ def probe_many(targets: list[tuple[str, int, str | None]], timeout: float, worke
 
 
 def scan_targets(store, targets: list[tuple[str, int, str | None]], timeout: float = 5.0,
-                 workers: int = MAX_WORKERS) -> dict:
-    """Probe, store, and summarise what was just scanned."""
+                 workers: int = MAX_WORKERS, project_id: int | None = None, allowed=None) -> dict:
+    """Probe, store, and summarise what was just scanned. New assets go to ``project_id``; with
+    ``allowed(project id) -> bool``, a target that belongs to another project (its asset or its inventory
+    endpoint) is probed but neither stored nor reported."""
     if len(targets) > MAX_TARGETS:
         raise ValueError(f"{len(targets)} targets; split the range (max {MAX_TARGETS} per request)")
     results = probe_many(targets, timeout, workers)
     eps = repository.endpoint_ids(store)
     views = []
+    by_asset, by_ep = repository.owners(store) if allowed is not None else ({}, {})
     for r in results:
-        if r.get("error") and not store.q1("SELECT id FROM crypto_assets WHERE kind='tls' AND target=?", (r["target"],)):
+        row = store.q1("SELECT id FROM crypto_assets WHERE kind='tls' AND target=?", (r["target"],))
+        if allowed is not None:
+            owner = by_asset.get(row["id"]) if row else by_ep.get((r["host"], r["port"], r["sni"] or ""))
+            if owner is not None and not allowed(owner):
+                continue
+        if r.get("error") and not row:
             continue        # nothing listening and never seen: don't fill the inventory with dead addresses
-        aid = repository.save_result(store, r)
+        aid = repository.save_result(store, r, project_id)
         views.append(asset_view(aid, r, eps.get((r["host"], r["port"], r["sni"] or ""))))
     return summarize(views) | {"scanned": len(targets), "stored": len(views)}
 
@@ -61,8 +69,9 @@ def rescan_due(engine, now: datetime | None = None) -> int:
     due.sort(key=lambda d: (d[0], d[1] or now))        # never-scanned first, then the stalest
     targets = [t for *_, t in due[:RESCAN_BATCH]]
     timeout = float(engine.settings.get("scan_timeout", 5.0))
+    pids = {(e["host"], e["port"], e["sni"] or ""): e["project_id"] for e in engine.store.endpoints()}
     for r in probe_many(targets, timeout, workers=8):
-        repository.save_result(engine.store, r)
+        repository.save_result(engine.store, r, pids.get((r["host"], r["port"], r.get("sni") or "")))
     return len(targets)
 
 

@@ -226,13 +226,16 @@ class Engine:
             self.store.add_observation(ep["id"], cert, error)
         return len(eps)
 
-    def register_scan(self, results) -> dict:
-        """Persist discovery results; unknown host:port pairs become manual endpoints tagged `discovered`.
-        Their names come from whatever certificate the host served, so they are monitor-only (never
-        planned or renewed) until an admin approves them."""
+    def register_scan(self, results, project_id: int | None = None, visible=None) -> dict:
+        """Persist discovery results; unknown host:port pairs become manual endpoints tagged `discovered`
+        (in ``project_id``, default the default project). Their names come from whatever certificate the
+        host served, so they are monitor-only (never planned or renewed) until an admin approves them.
+        ``visible(endpoint) -> bool``: known endpoints the caller may not see are left alone and not counted."""
         new = seen = 0
         for r in results:
             ep = self.store.endpoint_by_addr(r.host, r.port, r.sni)
+            if ep is not None and visible is not None and not visible(ep):
+                continue
             if ep is None:
                 if r.cert is None:
                     continue
@@ -246,7 +249,7 @@ class Engine:
                 eid = self.store.upsert_endpoint({
                     "name": name, "host": r.host, "port": r.port, "sni": r.sni,
                     "common_name": r.cert.subject_cn, "sans": r.cert.sans, "connector": "manual",
-                    "connector_config": {}, "tags": ["discovered"]})
+                    "connector_config": {}, "tags": ["discovered"], "project_id": project_id})
                 self.store.log(f"discovered {name} ({r.cert.subject_cn}, issuer {r.cert.issuer})", eid)
                 new += 1
             else:

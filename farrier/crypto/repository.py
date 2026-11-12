@@ -9,8 +9,9 @@ from farrier.db.store import now_iso
 HISTORY_PER_ASSET = 100
 
 
-def save_result(store, result: dict) -> int:
-    """Upsert the asset for ``result['target']`` and append the result to its history. Returns the asset id."""
+def save_result(store, result: dict, project_id: int | None = None) -> int:
+    """Upsert the asset for ``result['target']`` and append the result to its history. Returns the asset id.
+    A new asset goes to ``project_id`` (default: the default project); an existing one keeps its project."""
     status = classify(result)["status"]
     body = json.dumps(result, sort_keys=True, default=str)
     observed = result.get("observed_at") or now_iso()
@@ -23,9 +24,9 @@ def save_result(store, result: dict) -> int:
                     (status, body, observed, aid))
         else:
             aid = store.x("""INSERT INTO crypto_assets(kind, target, host, port, sni, status, result, observed_at,
-                             created_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+                             created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                           (kind, result["target"], result["host"], result["port"], result.get("sni"), status, body,
-                           observed, now_iso()))
+                           observed, now_iso(), project_id if project_id is not None else store.default_project_id()))
         store.x("INSERT INTO crypto_scans(asset_id, observed_at, status, result) VALUES (?,?,?,?)",
                 (aid, observed, status, body))
         store.x("""DELETE FROM crypto_scans WHERE asset_id=? AND id NOT IN (
@@ -37,6 +38,19 @@ def save_result(store, result: dict) -> int:
 def endpoint_ids(store) -> dict[tuple[str, int, str], int]:
     return {(e["host"], e["port"], e["sni"] or ""): e["id"]
             for e in store.q("SELECT id, host, port, sni FROM endpoints")}
+
+
+def owners(store) -> tuple[dict, dict]:
+    """The project of each TLS asset: its inventory endpoint's when it has one, else its own. Returns
+    ({asset id: project id}, {(host, port, sni or ''): endpoint project id})."""
+    d = store.default_project_id()
+    eps = {(e["host"], e["port"], e["sni"] or ""): e["project_id"] if e["project_id"] is not None else d
+           for e in store.q("SELECT host, port, sni, project_id FROM endpoints")}
+    out = {}
+    for r in store.q("SELECT id, host, port, sni, project_id FROM crypto_assets WHERE kind='tls'"):
+        own = r["project_id"] if r["project_id"] is not None else d
+        out[r["id"]] = eps.get((r["host"], r["port"], r["sni"] or ""), own)
+    return out, eps
 
 
 def tls_assets(store) -> list[dict]:

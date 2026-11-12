@@ -14,6 +14,9 @@ ServiceNow, Jira, Datadog and Splunk channels (farrier.itsm) take their own fiel
 ServiceNow / Jira channels with "tickets": true run the ticket lifecycle (farrier.itsm.tickets) for
 renewal events instead of receiving one message per event.
 
+A channel with "project": "payments" hears only about that project's endpoints (and test messages), so a
+team's Slack is not told about another team's certificates.
+
 `url` and header values go through the same secret guardrails as connector configs. `events`
 defaults to failed, rolled_back and awaiting_manual. Delivery runs on a background thread with a
 5 second timeout, so a slow receiver never stalls a renewal; failures are written to the event log.
@@ -58,6 +61,7 @@ def payload(event: str, renewal: dict | None, endpoint: dict | None, dashboard_u
         "port": e.get("port"),
         "connector": e.get("connector"),
         "owner": e.get("owner"),
+        "project": e.get("project"),
         "renewal_id": r.get("id"),
         "error": r.get("error"),
         "ticket": r.get("ticket_ref"),
@@ -180,12 +184,18 @@ class Notifier:
         events = cfg.get("events")
         return event == "test" or event in (default_events(cfg.get("type")) if events is None else events)
 
+    @staticmethod
+    def hears(cfg: dict, project: str | None, event: str = "") -> bool:
+        """A project channel hears only its project's messages (and tests); others hear everything."""
+        return event == "test" or not cfg.get("project") or cfg["project"] == (project or "")
+
     def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False,
              refs: dict | None = None) -> list[str]:
         """``refs`` (chain_ref, private_key_ref) go into the CloudEvent for event-bus channels."""
         from farrier.itsm import is_ticketing
         # ticket-lifecycle channels follow renewals through farrier.itsm.tickets, not message by message
-        targets = [c for c in self.configs if self.wants(c, event) and (event == "test" or not is_ticketing(c))]
+        targets = [c for c in self.configs if self.wants(c, event) and (event == "test" or not is_ticketing(c))
+                   and self.hears(c, (endpoint or {}).get("project"), event)]
         if not targets:
             return []
         p = payload(event, renewal, endpoint, self.dashboard_url)
@@ -205,7 +215,7 @@ class Notifier:
         """Deliver a prepared payload to the named channels. Returns {name: delivered}; a value is None
         while its delivery is still running (always, when not waiting)."""
         wanted = set(names)
-        targets = [c for c in self.configs if c.get("name") in wanted]
+        targets = [c for c in self.configs if c.get("name") in wanted and self.hears(c, p.get("project"), p.get("event"))]
         results = self._dispatch(targets, p, wait)
         return {c["name"]: results.get(id(c)) for c in targets}
 

@@ -28,9 +28,9 @@ def host_record(res: ProbeResult) -> dict:
     }
 
 
-def save_probe(store, res: ProbeResult) -> int | None:
+def save_probe(store, res: ProbeResult, project_id: int | None = None) -> int | None:
     """Store a probe. An unreachable target is stored only if the host was known before (so a scan of a
-    whole range doesn't fill the inventory with empty rows)."""
+    whole range doesn't fill the inventory with empty rows). A new host goes to ``project_id``."""
     old = db.host_by_addr(store, res.host, res.port)
     if res.banner is None:
         if not old:
@@ -41,12 +41,20 @@ def save_probe(store, res: ProbeResult) -> int | None:
     if old and old.get("accounts") is not None:
         data["accounts"] = old["accounts"]          # learned by collection; a probe can't see them
     pqc = bool(res.kexinit and offers_pqc(res.kexinit.kex))
-    return db.save_host(store, res.host, res.port, res.banner.raw, data, pqc, res.error)
+    return db.save_host(store, res.host, res.port, res.banner.raw, data, pqc, res.error, project_id)
 
 
-def scan(store, targets: list[tuple[str, int]], prober: Prober = probe_many) -> dict:
+def scan(store, targets: list[tuple[str, int]], prober: Prober = probe_many, project_id: int | None = None,
+         allowed=None) -> dict:
+    """New hosts go to ``project_id``. ``allowed(project id) -> bool``: a host already in a project the caller
+    can't write is probed but neither stored nor reported."""
     results = prober(targets)
-    saved = [hid for r in results if (hid := save_probe(store, r)) is not None]
+    if allowed is not None:
+        d = store.default_project_id()
+        owner = {(h["host"], h["port"]): d if h["project_id"] is None else h["project_id"]
+                 for h in store.q("SELECT host, port, project_id FROM ssh_hosts")}
+        results = [r for r in results if allowed(owner.get((r.host, r.port), project_id))]
+    saved = [hid for r in results if (hid := save_probe(store, r, project_id)) is not None]
     return {"scanned": len(targets), "ssh": sum(1 for r in results if r.banner), "saved": len(saved),
             "errors": [{"host": r.host, "port": r.port, "error": r.error} for r in results if r.error and r.banner is None
                        and len(targets) <= 64]}

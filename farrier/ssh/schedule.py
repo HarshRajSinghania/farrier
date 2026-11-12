@@ -47,8 +47,22 @@ def _run(engine, do_scan: bool, do_collect: bool) -> None:
         if do_scan:
             targets = scan_targets(engine)
             if targets:
-                r = scan.scan(engine.store, targets)
-                engine.store.log(f"ssh periodic scan: {r['ssh']} of {r['scanned']} targets answered")
+                # a host first found through a profile belongs to the profile's project (known hosts keep theirs)
+                pid = {}
+                for p in access.profiles(engine.items).values():
+                    try:
+                        for t in access.expand_hosts(p["hosts"], p["port"]):
+                            pid.setdefault(t, access.project_id(engine.store, p) if p.get("project") else None)
+                    except access.Invalid:
+                        continue
+                groups: dict = {}
+                for t in targets:
+                    groups.setdefault(pid.get(t), []).append(t)
+                answered = 0
+                for project_id, group in groups.items():
+                    kw = {} if project_id is None else {"project_id": project_id}     # None: "default"
+                    answered += scan.scan(engine.store, group, **kw)["ssh"]
+                engine.store.log(f"ssh periodic scan: {answered} of {len(targets)} targets answered")
             db.mark_run(engine.store, "scan")
         if do_collect:
             r = collect.collect(engine.store, engine.items)

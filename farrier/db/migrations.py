@@ -279,6 +279,37 @@ def _m7_itsm_tickets(d: Dialect) -> list[str]:
     ]
 
 
+def _m8_projects(d: Dialect) -> list[str]:
+    """Teams and projects (farrier.core.projects): one install, several business units.
+
+    projects    name (slug, immutable), title, and ``members``: the SSO groups that may see it and the
+                groups that hold each role in it (JSON). The built-in project "default" (always id 1,
+                inserted here) holds everything that existed before.
+    project_id  on endpoints (renewals, observations, health, change packs and linked crypto assets
+                inherit through the endpoint), on SSH hosts and keys, and on crypto assets probed without
+                an endpoint. NULL is read as "default" everywhere, so rows written by an older replica
+                during a rolling upgrade stay visible.
+    """
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE projects (
+  id {d.pk},
+  name {d.key} NOT NULL,
+  title {d.text},
+  members {d.text_default('{}')},
+  created_at {d.key} NOT NULL
+){s}""",
+        d.create_index("project_name", "projects", "name", unique=True),
+        "INSERT INTO projects(name, title, members, created_at) "
+        "VALUES ('default', 'Default', '{}', '1970-01-01T00:00:00+00:00')",
+        *[f"ALTER TABLE {t} ADD COLUMN project_id {d.ref} NULL"
+          for t in ("endpoints", "ssh_hosts", "ssh_keys", "crypto_assets")],
+        *[f"UPDATE {t} SET project_id = (SELECT id FROM projects WHERE name = 'default')"
+          for t in ("endpoints", "ssh_hosts", "ssh_keys", "crypto_assets")],
+        d.create_index("ep_project", "endpoints", "project_id"),
+    ]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
@@ -287,6 +318,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (5, "served certificates and cryptographic discovery", _m5_certificates_and_crypto),
     (6, "agentless SSH inventory", _m6_ssh),
     (7, "ITSM tickets", _m7_itsm_tickets),
+    (8, "teams and projects", _m8_projects),
 ]
 
 

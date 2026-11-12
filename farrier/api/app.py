@@ -15,6 +15,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from farrier.api.scope import HEADER as SCOPE_HEADER
+from farrier.api.scope import Guard, ScopeError
+from farrier.api.scope import parse as parse_scope
 from farrier.connectors import REGISTRY, is_automated, make_connector
 from farrier.core import policy
 from farrier.core.discovery import expand_targets, scan
@@ -52,10 +55,12 @@ class EndpointIn(BaseModel):
     owner: str | None = None
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
+    project: str | None = None      # where a new endpoint goes (default: "default"); move one with /move
 
 
 class DiscoverIn(BaseModel):
     targets: str
+    project: str | None = None      # discovery: the project new endpoints land in
 
 
 # Config keys that make Farrier run a command on its own host (or over SSH). Accepting them from the
@@ -128,7 +133,18 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     allow_inline = os.environ.get("FARRIER_ALLOW_INLINE_SECRETS", "").lower() in ("1", "true", "yes")
 
     def auth(request: Request):
-        """Every route depends on this. Reads accept either token; anything else needs the admin one."""
+        """Every route depends on this. Reads accept either token; anything else needs the admin one.
+        Then the project scope (farrier.api.scope): the dashboard's signed header, or full access."""
+        _token_check(request)
+        raw = request.headers.get(SCOPE_HEADER)
+        if raw is not None:
+            try:
+                request.state.scope = parse_scope(raw, token, request.method, request.url.path,
+                                                  engine.store.default_project_id())
+            except ScopeError as e:
+                raise HTTPException(401, str(e)) from None
+
+    def _token_check(request: Request):
         if not token and not read_token:
             return  # loopback development: `serve` refuses a public bind without a token
         header = request.headers.get("authorization", "")
@@ -164,6 +180,9 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return response
 
     S = engine.store
+    guard = Guard(S)
+    scope_of = guard.of
+    whole_install = [Depends(auth), Depends(guard.global_only)]   # changes that are not one project's
 
     @app.get("/healthz", include_in_schema=False)
     def healthz():
@@ -178,9 +197,10 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return HTMLResponse(INDEX_HTML)
 
     @app.get("/api/summary", dependencies=[Depends(auth)])
-    def summary():
+    def summary(request: Request):
         now = policy.utcnow()
-        eps = S.endpoints()
+        sc = scope_of(request)
+        eps = [e for e in S.endpoints() if sc.has_row(e)]
         buckets = Counter()
         for e in eps:
             na = parse_dt(e["not_after"])
@@ -191,7 +211,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             buckets["expired" if d < 0 else "7d" if d < 7 else "30d" if d < 30 else "90d" if d < 90 else "later"] += 1
         auto = sum(1 for e in eps if is_automated(e["connector"]))
         manual_frac = (len(eps) - auto) / len(eps) if eps else 0.0
-        renewals = S.renewals(limit=100000)
+        renewals = S.renewals(limit=100000, scope=sc)
         states = Counter(r["state"] for r in renewals)
 
         # 90-day calendar: scheduled renewals + projected (not yet planned) due dates
@@ -234,16 +254,20 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                 "naive_2029": policy.forecast(certs, policy.SCHEDULE[-1][0], early=False).__dict__}
 
     @app.get("/api/endpoints", dependencies=[Depends(auth)])
-    def endpoints():
+    def endpoints(request: Request):
         out = []
+        sc = scope_of(request)
         for e in S.endpoints():
+            if not sc.has_row(e):
+                continue
             e = {k: v for k, v in e.items() if k != "connector_config"} | {
                 "automated": is_automated(e["connector"]),
                 "days_left": round(policy.days_left(parse_dt(e["not_after"])), 1) if e["not_after"] else None}
             out.append(e)
         return out
 
-    @app.post("/api/endpoints", dependencies=[Depends(auth)])
+    # connector configs reference credentials shared by the whole install: global admins only
+    @app.post("/api/endpoints", dependencies=whole_install)
     def add_endpoint(ep: EndpointIn, request: Request):
         cmds = _command_keys(ep.connector_config)
         if cmds and not allow_commands:
@@ -260,17 +284,23 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             raise HTTPException(400, f"secret reference refused: {e}")
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e))
+        existing = S.q1("SELECT id, project_id FROM endpoints WHERE name=?", (ep.name,))
+        pid = guard.project_id(request, ep.project)
+        if existing and ep.project and S.project_id_of(existing) != pid:
+            raise HTTPException(409, f"endpoint {ep.name} is in another project; "
+                                     f"move it with POST /api/endpoints/{existing['id']}/move")
+        body = ep.model_dump(exclude={"project"}) | {"enabled": int(ep.enabled)}
+        if not existing:
+            body["project_id"] = pid
         with lock:
-            eid = S.upsert_endpoint(ep.model_dump() | {"enabled": int(ep.enabled)})
+            eid = S.upsert_endpoint(body)
             S.log(f"endpoint {ep.name} saved by {actor(request)}", eid)
             engine.observe(S.endpoint(eid))
         return {"id": eid}
 
     @app.delete("/api/endpoints/{eid}", dependencies=[Depends(auth)])
     def delete_endpoint(eid: int, request: Request):
-        ep = S.endpoint(eid)
-        if not ep:
-            raise HTTPException(404)
+        ep = guard.endpoint(request, eid, write=True)
         with lock:  # don't pull an endpoint out from under a running tick
             S.x("DELETE FROM endpoints WHERE id=?", (eid,))
             S.log(f"endpoint {ep['name']} removed by {actor(request)}")
@@ -278,8 +308,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
 
     @app.post("/api/endpoints/{eid}/renew", dependencies=[Depends(auth)])
     def renew(eid: int, request: Request):
-        if not S.endpoint(eid):
-            raise HTTPException(404)
+        guard.endpoint(request, eid, write=True)
         with lock:
             try:
                 rid = engine.force_renewal(eid, f"requested by {actor(request)}")
@@ -291,14 +320,15 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     @app.post("/api/endpoints/{eid}/approve", dependencies=[Depends(auth)])
     def approve(eid: int, request: Request):
         """Admin: let a discovered endpoint be renewed (its names came from whatever the host served)."""
-        if not S.endpoint(eid):
-            raise HTTPException(404)
+        guard.endpoint(request, eid, write=True)
         with lock:
             engine.approve(eid, actor(request))
         return {"ok": True}
 
     @app.post("/api/discover", dependencies=[Depends(auth)])
-    def discover(body: DiscoverIn):
+    def discover(body: DiscoverIn, request: Request):
+        pid = guard.project_id(request, body.project)
+        sc = scope_of(request)
         try:
             targets = expand_targets(body.targets)
         except ValueError as e:
@@ -307,22 +337,23 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             raise HTTPException(400, f"{len(targets)} targets; split the range (max 4096 per request)")
         results = scan(targets)
         with lock:
-            reg = engine.register_scan(results)
+            reg = engine.register_scan(results, pid, None if sc.all else sc.has_row)
         return reg | {"scanned": len(targets), "with_tls": sum(1 for r in results if r.cert)}
 
     @app.get("/api/renewals", dependencies=[Depends(auth)])
-    def renewals(state: str | None = None):
-        return S.renewals(tuple(state.split(",")) if state else None)
+    def renewals(request: Request, state: str | None = None):
+        return S.renewals(tuple(state.split(",")) if state else None, scope=scope_of(request))
 
     @app.post("/api/renewals/{rid}/advance", dependencies=[Depends(auth)])
-    def advance(rid: int):
-        if not S.renewal(rid):
-            raise HTTPException(404)
+    def advance(rid: int, request: Request):
+        guard.renewal(request, rid, write=True)
         with lock:
             return {"state": engine.advance(rid)}
 
     @app.post("/api/renewals/{rid}/cancel", dependencies=[Depends(auth)])
     def cancel(rid: int, request: Request):
+        if S.renewal(rid):
+            guard.renewal(request, rid, write=True)
         with lock:
             try:
                 engine.cancel(rid, f"cancelled by {actor(request)}")
@@ -331,8 +362,8 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return {"state": "cancelled"}
 
     @app.get("/api/renewals/{rid}/pack", dependencies=[Depends(auth), Depends(secret_read)])
-    def pack(rid: int):
-        r = S.renewal(rid)
+    def pack(rid: int, request: Request):
+        r = S.renewal(rid) and guard.renewal(request, rid)
         if not r or r["state"] != "awaiting_manual":
             raise HTTPException(404, "no change pack for this renewal")
         ep = S.endpoint(r["endpoint_id"])
@@ -351,10 +382,8 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                                  headers={"Content-Disposition": f'attachment; filename="{safe}-renewal-{rid}.zip"'})
 
     @app.get("/api/renewals/{rid}/runbook", dependencies=[Depends(auth)])
-    def runbook(rid: int):
-        r = S.renewal(rid)
-        if not r:
-            raise HTTPException(404)
+    def runbook(rid: int, request: Request):
+        guard.renewal(request, rid)
         from farrier.storage.packs import pack_store
         text = pack_store(engine.data_dir).read_text(rid, "RUNBOOK.md")
         if text is None:
@@ -362,14 +391,19 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return {"markdown": text}
 
     @app.get("/api/events", dependencies=[Depends(auth)])
-    def events(limit: int = 100, endpoint_id: int | None = None):
+    def events(request: Request, limit: int = 100, endpoint_id: int | None = None):
+        sc = scope_of(request)
+        # a scoped caller sees its endpoints' events only: install-wide ones (settings, deletions) are not theirs
+        clause, args = sc.sql("e.project_id")
+        if not sc.all:
+            clause = " AND e.id IS NOT NULL" + clause
         if endpoint_id:
-            return S.q("""SELECT ev.*, e.name FROM events ev LEFT JOIN endpoints e ON e.id = ev.endpoint_id
-                          WHERE ev.endpoint_id=? ORDER BY ev.id DESC LIMIT ?""", (endpoint_id, limit))
-        return S.q("""SELECT ev.*, e.name FROM events ev LEFT JOIN endpoints e ON e.id = ev.endpoint_id
-                      ORDER BY ev.id DESC LIMIT ?""", (limit,))
+            return S.q(f"""SELECT ev.*, e.name FROM events ev LEFT JOIN endpoints e ON e.id = ev.endpoint_id
+                           WHERE ev.endpoint_id=?{clause} ORDER BY ev.id DESC LIMIT ?""", (endpoint_id, *args, limit))
+        return S.q(f"""SELECT ev.*, e.name FROM events ev LEFT JOIN endpoints e ON e.id = ev.endpoint_id
+                       WHERE 1=1{clause} ORDER BY ev.id DESC LIMIT ?""", (*args, limit))
 
-    @app.post("/api/tick", dependencies=[Depends(auth)])
+    @app.post("/api/tick", dependencies=whole_install)       # one cycle covers every project
     def tick():
         with lock:
             return engine.tick()
@@ -382,7 +416,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
 
     # ---- observability ------------------------------------------------------------------------
     @app.get("/metrics", dependencies=[Depends(auth)], include_in_schema=False)
-    def metrics():
+    def metrics(request: Request):
         """Prometheus text format. Names follow x509-certificate-exporter and cert-manager where they overlap."""
         from fastapi.responses import PlainTextResponse
 
@@ -402,7 +436,8 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             out.append(f"# TYPE {name} {kind}")
             out.extend(f"{name}{labels} {value}" for labels, value in rows)
 
-        eps = S.endpoints()
+        sc = scope_of(request)
+        eps = [e for e in S.endpoints() if sc.has_row(e)]
         base = [(e, lbl(endpoint=e["name"], host=e["host"], port=e["port"], connector=e["connector"],
                         automated=str(is_automated(e["connector"])).lower(), owner=e["owner"] or "")) for e in eps]
         with_cert = [(e, l) for e, l in base if e["not_after"]]
@@ -414,7 +449,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                [(l, int(parse_dt(e["not_after"]) < now)) for e, l in with_cert])
         metric("farrier_endpoint_up", "gauge", "1 when the last TLS handshake with the endpoint succeeded.",
                [(l, int(not e["scan_error"] and bool(e["fingerprint"]))) for e, l in base])
-        counts = Counter(r["state"] for r in S.renewals(limit=100000))
+        counts = Counter(r["state"] for r in S.renewals(limit=100000, scope=sc))
         metric("farrier_renewals", "gauge", "Renewals by state.",
                [(lbl(state=st), n) for st, n in sorted(counts.items())])
         from farrier.monitoring.health import last_reports
@@ -427,14 +462,17 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return PlainTextResponse("\n".join(out) + "\n", media_type="text/plain; version=0.0.4")
 
     @app.get("/api/inventory", dependencies=[Depends(auth)])
-    def inventory(format: str = "json"):
+    def inventory(request: Request, format: str = "json"):
         """Every endpoint and the certificate it serves, for audits and CMDB imports."""
         import csv
 
-        cols = ["name", "host", "port", "connector", "owner", "subject_cn", "cert_issuer", "not_before", "not_after",
-                "days_left", "fingerprint", "observed_at", "scan_error"]
+        cols = ["name", "host", "port", "project", "connector", "owner", "subject_cn", "cert_issuer", "not_before",
+                "not_after", "days_left", "fingerprint", "observed_at", "scan_error"]
         rows = []
+        sc = scope_of(request)
         for e in S.endpoints():
+            if not sc.has_row(e):
+                continue
             na = parse_dt(e["not_after"]) if e["not_after"] else None
             rows.append({c: e.get(c) for c in cols} | {"days_left": round(policy.days_left(na), 1) if na else None})
         if format == "csv":
@@ -450,15 +488,13 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
 
     # ---- domain health, zombie certificates, MCP --------------------------------------------------
     @app.get("/api/endpoints/{eid}/health", dependencies=[Depends(auth)])
-    def endpoint_health(eid: int, caa: bool = True):
+    def endpoint_health(eid: int, request: Request, caa: bool = True):
         """TLS report card for one endpoint; also feeds farrier_health_check_failed in /metrics."""
         from farrier.monitoring import health
-        ep = S.endpoint(eid)
-        if not ep:
-            raise HTTPException(404)
+        ep = guard.endpoint(request, eid)
         return health.check_endpoint(engine, ep, caa=caa)
 
-    @app.post("/api/health", dependencies=[Depends(auth)])
+    @app.post("/api/health", dependencies=whole_install)      # any target, judged against the whole inventory
     def targets_health(body: DiscoverIn, caa: bool = True):
         """Health for any targets, in discovery syntax (host, host:port, sni@ip:port, small CIDR ranges)."""
         from farrier.monitoring import health
@@ -474,12 +510,17 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         return {"count": len(reports), "reports": reports}
 
     @app.get("/api/zombies", dependencies=[Depends(auth)])
-    def zombies(dead_days: int = 7, pack_days: int = 3):
+    def zombies(request: Request, dead_days: int = 7, pack_days: int = 3):
         """Certificates that are alive but should not be, from stored observations (no network)."""
         from farrier.monitoring import zombie
-        return zombie.summarize(zombie.from_store(S, dead_days=max(1, dead_days), pack_days=max(0, pack_days)))
+        found = zombie.from_store(S, dead_days=max(1, dead_days), pack_days=max(0, pack_days))
+        sc = scope_of(request)
+        if not sc.all:      # a scoped caller gets findings about its own endpoints only
+            pids = {e["id"]: e["project_id"] for e in S.q("SELECT id, project_id FROM endpoints")}
+            found = [f for f in found if f["endpoint_id"] in pids and sc.has(pids[f["endpoint_id"]])]
+        return zombie.summarize(found)
 
-    @app.post("/api/zombies/scan", dependencies=[Depends(auth)])
+    @app.post("/api/zombies/scan", dependencies=whole_install)  # compares targets with the whole inventory
     def zombies_scan(body: DiscoverIn, request: Request):
         """Active scan of targets (admin): adds not-in-inventory and unexpected-issuer findings. Writes nothing."""
         from farrier.monitoring import zombie
@@ -506,7 +547,10 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     from farrier.api.ssh_routes import mount as mount_ssh
     mount_ssh(app, engine, auth, actor)
 
-    @app.post("/api/notifiers/test", dependencies=[Depends(auth)])
+    from farrier.api.project_routes import mount as mount_projects
+    mount_projects(app, engine, lock, auth, actor)
+
+    @app.post("/api/notifiers/test", dependencies=whole_install)
     def test_notifiers():
         sent = engine.notifier.send("test", wait=True)
         if not sent:
@@ -519,7 +563,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         from farrier.config import settings as config
         return config.view(engine)
 
-    @app.put("/api/config/settings", dependencies=[Depends(auth)])
+    @app.put("/api/config/settings", dependencies=whole_install)
     async def put_settings(request: Request):
         """Change planner settings (admin): validated, saved to settings.json and applied live."""
         from farrier.config import settings as config

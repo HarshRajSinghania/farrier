@@ -14,6 +14,9 @@ admin token while ``FARRIER_MCP_ALLOW_WRITES=1``. For stdio, "authenticated with
 
 Tools never return private keys, sealed material, connector configs or settings. Every tool call is
 written to the event log as ``mcp:<client name>``.
+
+``FARRIER_MCP_PROJECT=payments[,retail]`` limits every MCP session (stdio and HTTP) to those projects:
+tools see and act on their endpoints only, and probing arbitrary targets is refused. Unset: every project.
 """
 from __future__ import annotations
 
@@ -34,6 +37,7 @@ from typing import Any
 from fastapi import Request
 
 from farrier import __version__
+from farrier.api.scope import ALL, Scope
 from farrier.connectors import is_automated
 from farrier.core import policy
 from farrier.db.store import OPEN_STATES, parse_dt
@@ -66,6 +70,15 @@ def writes_allowed_by_env() -> bool:
 
 def client_label(name: str | None) -> str:
     return (_CLIENT.sub("-", name or "").strip("-")[:48]) or "unknown"
+
+
+def project_scope(store) -> Scope:
+    """FARRIER_MCP_PROJECT as a scope. Names that don't exist grant nothing (fail closed)."""
+    names = [n.strip() for n in os.environ.get("FARRIER_MCP_PROJECT", "").split(",") if n.strip()]
+    if not names:
+        return ALL
+    ids = frozenset(p["id"] for n in names if (p := store.project(n)))
+    return Scope(ids, store.default_project_id())
 
 
 # ---- a small JSON Schema subset validator ----------------------------------------------------------
@@ -135,6 +148,7 @@ class Session:
         self.initialized = False
         self.created = self.last_used = time.time()
         self._calls: deque[float] = deque()
+        self.scope: Scope = ALL               # FARRIER_MCP_PROJECT, set when the session is created
 
     @property
     def actor(self) -> str:
@@ -182,7 +196,7 @@ class MCPServer:
                "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200}})
         def list_endpoints(a, s):
             f = (a.get("filter") or "").lower()
-            rows = [self._ep(e) for e in self.S.endpoints()]
+            rows = [self._ep(e) for e in self.S.endpoints() if s.scope.has_row(e)]
             if f:
                 rows = [e for e in rows if f in " ".join(map(str, [e["name"], e["host"], e["owner"] or "",
                                                                   *e["tags"]])).lower()]
@@ -195,7 +209,7 @@ class MCPServer:
         def get_endpoint(a, s):
             eid = int(a["id"])
             e = next((x for x in self.S.endpoints() if x["id"] == eid), None)
-            if not e:
+            if not e or not s.scope.has_row(e):
                 raise ToolError(f"no endpoint with id {eid}")
             ren = [r for r in self.S.renewals(limit=100000) if r["endpoint_id"] == eid][-10:]
             ev = self.S.q("SELECT at, level, renewal_id, message FROM events WHERE endpoint_id=? ORDER BY id DESC LIMIT 20",
@@ -211,7 +225,7 @@ class MCPServer:
             rows = []
             for e in self.S.endpoints():
                 na = parse_dt(e["not_after"])
-                if na and policy.days_left(na, now) <= days:
+                if na and policy.days_left(na, now) <= days and s.scope.has_row(e):
                     open_r = self.S.open_renewal(e["id"])
                     rows.append(self._ep(e) | {"open_renewal": open_r and {"id": open_r["id"], "state": open_r["state"],
                                                                            "scheduled_for": open_r["scheduled_for"]}})
@@ -225,7 +239,7 @@ class MCPServer:
                "endpoint_id": {"type": "integer", "minimum": 1},
                "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}})
         def renewal_status(a, s):
-            allr = self.S.renewals(limit=100000)
+            allr = self.S.renewals(limit=100000, scope=s.scope)
             st = a.get("state", "open")
             want = OPEN_STATES if st == "open" else (st,)
             rows = [r for r in allr if r["state"] in want and
@@ -249,9 +263,11 @@ class MCPServer:
             caa = bool(a.get("caa", True))
             if "endpoint_id" in a:
                 ep = self.S.endpoint(int(a["endpoint_id"]))
-                if not ep:
+                if not ep or not s.scope.has_row(ep):
                     raise ToolError(f"no endpoint with id {a['endpoint_id']}")
                 return health.check_endpoint(self.engine, ep, caa=caa)
+            if not s.scope.all:
+                raise ToolError("this session is limited to some projects: pass endpoint_id")
             if s.role != "admin":
                 # probing an arbitrary host is a server-side request; same rule as POST /api/health
                 raise ToolError("read-only access can check inventory endpoints only: pass endpoint_id")
@@ -272,8 +288,11 @@ class MCPServer:
                "pack_days": {"type": "integer", "minimum": 0, "maximum": 365, "default": 3}})
         def find_zombies(a, s):
             from farrier.monitoring import zombie
-            return zombie.summarize(zombie.from_store(self.S, dead_days=int(a.get("dead_days", 7)),
-                                                      pack_days=int(a.get("pack_days", 3))))
+            found = zombie.from_store(self.S, dead_days=int(a.get("dead_days", 7)), pack_days=int(a.get("pack_days", 3)))
+            if not s.scope.all:
+                eps = {e["id"]: e for e in self.S.q("SELECT id, project_id FROM endpoints")}
+                found = [f for f in found if s.scope.has_row(eps.get(f["endpoint_id"]))]
+            return zombie.summarize(found)
 
         @tool("forecast", "Renewal workload forecast",
               "Renewals per year/working day and manual hours under each step of the CA/B Forum lifetime schedule "
@@ -296,7 +315,7 @@ class MCPServer:
               annotations=W, write=True)
         def renew_endpoint(a, s):
             eid = int(a["id"])
-            if not self.S.endpoint(eid):
+            if not s.scope.has_row(self.S.endpoint(eid)):
                 raise ToolError(f"no endpoint with id {eid}")
             with self.lock:
                 try:
@@ -312,6 +331,9 @@ class MCPServer:
               {"id": {"type": "integer", "minimum": 1, "description": "renewal id"}}, required=("id",),
               annotations={**W, "idempotentHint": True, "openWorldHint": False}, write=True)
         def cancel_renewal(a, s):
+            r = self.S.renewal(int(a["id"]))
+            if r and not s.scope.has_row(self.S.endpoint(r["endpoint_id"])):
+                raise ToolError(f"renewal {a['id']}: no such renewal")
             with self.lock:
                 try:
                     self.engine.cancel(int(a["id"]), f"cancelled by {s.actor}")
@@ -465,6 +487,7 @@ def run_stdio(engine, stdin=None, stdout=None, role: str | None = None) -> None:
     stdout = stdout or sys.stdout.buffer
     server = MCPServer(engine)
     session = Session(role or stdio_role())
+    session.scope = project_scope(engine.store)
     print(f"farrier mcp: stdio server ready ({session.role} access, writes "
           f"{'enabled' if server.writes_enabled(session) else 'disabled'})", file=sys.stderr)
     for raw in stdin:
@@ -595,6 +618,7 @@ def mount(app, engine, lock=None, path: str = "/mcp", max_body: int = 1 << 20) -
             if len(msgs) != 1:
                 return rpc_error(400, "initialize must not be batched")
             session = sessions.create(role, digest)
+            session.scope = project_scope(engine.store)
             headers["Mcp-Session-Id"] = session.id
         else:
             if not sid:

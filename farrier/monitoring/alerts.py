@@ -2,7 +2,7 @@
 
     {"enabled": true, "channels": ["ops-slack"], "cooldown_hours": 24,
      "when": {"type": "expiring", "days": 7},
-     "filter": {"tags": ["prod"], "connectors": ["f5"], "name": "web-*"}}
+     "filter": {"tags": ["prod"], "connectors": ["f5"], "name": "web-*", "project": "payments"}}
 
 when.type:
   event        renewal state changes (fired from the engine's notification path, on any replica)
@@ -80,8 +80,8 @@ def validate_rule(body, channels_known) -> dict:
         raise ValueError(f"unknown when keys {sorted(extra)} for {kind}")
 
     f = body.get("filter") or {}
-    if not isinstance(f, dict) or set(f) - {"tags", "connectors", "name"}:
-        raise ValueError("filter may hold tags, connectors and name")
+    if not isinstance(f, dict) or set(f) - {"tags", "connectors", "name", "project"}:
+        raise ValueError("filter may hold tags, connectors, name and project")
     flt = {}
     if f.get("tags"):
         flt["tags"] = _str_list(f["tags"], "filter.tags")
@@ -91,6 +91,10 @@ def validate_rule(body, channels_known) -> dict:
         if not isinstance(f["name"], str):
             raise ValueError("filter.name must be a glob such as web-*")
         flt["name"] = f["name"].strip()
+    if f.get("project"):
+        if not isinstance(f["project"], str):
+            raise ValueError("filter.project must be a project name")
+        flt["project"] = f["project"].strip()
 
     ch = _str_list(body.get("channels"), "channels")
     if not ch:
@@ -113,6 +117,8 @@ def matches(flt: dict, ep: dict | None) -> bool:
     if flt.get("tags") and not set(flt["tags"]) & set(ep.get("tags") or []):
         return False
     if flt.get("connectors") and ep.get("connector") not in flt["connectors"]:
+        return False
+    if flt.get("project") and (ep.get("project") or "default") != flt["project"]:
         return False
     return not (flt.get("name") and not fnmatch.fnmatchcase(ep.get("name") or "", flt["name"]))
 
@@ -261,7 +267,8 @@ class Alerts:
             if len(fired) > DIGEST_OVER:
                 names = ", ".join((ep or {}).get("name") or subj for subj, ep, _ in fired[:DIGEST_OVER])
                 cond = f"{describe(rule['when'])}: {len(fired)} endpoints, including {names}"
-                self._send(rule, self._payload(name, "alert", cond))
+                # a digest names many endpoints: it reaches a project's channel only from that project's rule
+                self._send(rule, self._payload(name, "alert", cond) | {"project": (rule.get("filter") or {}).get("project")})
                 sent += 1
             else:
                 for _, ep, cond in fired:
