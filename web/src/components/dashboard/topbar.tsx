@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Bell, BookOpen, LogOut, Menu, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Bell, BookOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { GithubIcon } from "@/components/brand";
 import { STATE_META } from "@/components/status";
@@ -84,6 +84,7 @@ function SearchBox() {
 function BackendPill() {
   const { data, error } = useStatus();
   const state = error ? "down" : !data ? "loading" : data.mode === "demo" ? "demo" : data.reachable ? "live" : "down";
+  if (state !== "down") return null; // healthy or demo (which has its banner): nothing to show
   const meta = {
     loading: { dot: "bg-neutral-status", text: "Connecting", tip: "Checking the Farrier API" },
     demo: { dot: "bg-warning", text: "Demo data", tip: "FARRIER_API_URL is not set, so this dashboard shows a simulated estate." },
@@ -111,7 +112,7 @@ function RunCycle() {
     <Tip content="Scan every endpoint, plan due renewals and advance open ones. The server does this every 5 minutes.">
       <Button
         size="sm"
-        variant="secondary"
+        variant="primary"
         className="h-9"
         disabled={busy}
         onClick={async () => {
@@ -303,12 +304,23 @@ function UserMenu() {
   );
 }
 
-export function Topbar({ onMenu }: { onMenu: () => void }) {
+export function Topbar({ onMenu, onToggle, collapsed }: { onMenu: () => void; onToggle: () => void; collapsed: boolean }) {
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-xl backdrop-saturate-150 sm:px-6">
       <Button variant="ghost" size="icon-sm" className="lg:hidden" aria-label="Open menu" onClick={onMenu}>
         <Menu />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="hidden lg:inline-flex"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        onClick={onToggle}
+      >
+        {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+      </Button>
+      <span className="hidden h-4 w-px bg-border lg:block" aria-hidden />
       <PageTitle />
       <div className="ml-auto flex items-center gap-2">
         <SearchBox />

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { flushSync } from "react-dom";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useId, useSyncExternalStore } from "react";
@@ -57,6 +58,16 @@ export function GithubIcon({ className }: { className?: string }) {
 
 const noop = () => () => {};
 
+/** Crossfade the whole page between themes where the browser supports View Transitions. */
+function switchTheme(setTheme: (t: string) => void, value: string) {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  if (!doc.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    setTheme(value);
+    return;
+  }
+  doc.startViewTransition(() => flushSync(() => setTheme(value)));
+}
+
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
   const mounted = useSyncExternalStore(noop, () => true, () => false);
@@ -74,7 +85,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           role="radio"
           aria-checked={mounted && theme === value}
           aria-label={label}
-          onClick={() => setTheme(value)}
+          onClick={() => switchTheme(setTheme, value)}
           className={cn(
             "rounded-full p-1 text-muted-foreground transition-colors hover:text-foreground",
             mounted && theme === value && "bg-muted text-foreground",

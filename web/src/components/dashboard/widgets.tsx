@@ -5,6 +5,15 @@ import { cn } from "@/lib/utils";
 
 type Tone = "default" | "good" | "warning" | "serious" | "critical";
 
+// one colour code across the dashboard: lime = neutral/brand, green = good, amber = warning, red = critical
+const TONE_BADGE: Record<Tone, string> = {
+  default: "bg-brand-soft text-brand-ink",
+  good: "bg-good/12 text-good-fg",
+  warning: "bg-warning/15 text-warning-fg",
+  serious: "bg-serious/15 text-serious-fg",
+  critical: "bg-critical/12 text-critical-fg",
+};
+
 const TONE_TEXT: Record<Tone, string> = {
   default: "text-muted-foreground",
   good: "text-good-fg",
@@ -37,11 +46,18 @@ export function StatTile({
   const alert = tone !== "default" && tone !== "good";
   const body = (
     <Card className={cn("h-full p-4 transition-colors", href && "hover:bg-muted/40")}>
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        {Icon && (
+          <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", TONE_BADGE[tone])} aria-hidden>
+            <Icon className="size-4" />
+          </span>
+        )}
+      </div>
       {loading ? (
         <Skeleton className="mt-2 h-9 w-16" />
       ) : (
-        <p className="tabular mt-1 text-[2rem] font-semibold leading-tight tracking-tight">{value}</p>
+        <p className="tabular text-3xl font-semibold tracking-tight">{value}</p>
       )}
       {footer && (
         <p className={cn("mt-1 flex items-center gap-2 text-xs", alert ? TONE_TEXT[tone] : "text-muted-foreground")}>

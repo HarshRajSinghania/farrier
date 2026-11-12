@@ -10,8 +10,6 @@ import {
   Gauge,
 
   LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plug,
   Radar,
   Server,
@@ -65,7 +63,7 @@ function Nav({ onNavigate, collapsed = false }: { onNavigate?: () => void; colla
           {collapsed ? (
             <div className="mx-2 mb-2 border-t" aria-hidden />
           ) : (
-            <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/80">{group}</p>
+            <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">{group}</p>
           )}
           <div className="flex flex-col gap-1">
             {items.map(({ href, label, icon: Icon, badge }) => {
@@ -81,7 +79,7 @@ function Nav({ onNavigate, collapsed = false }: { onNavigate?: () => void; colla
                   className={cn(
                     "relative flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground lg:h-8",
                     active &&
-                      "bg-background text-foreground shadow-xs ring-1 ring-border before:absolute before:-left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-[#c5f04a]",
+                      "bg-brand-soft text-foreground",
                     collapsed && "relative justify-center px-0",
                   )}
                 >
@@ -169,22 +167,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           collapsed ? "w-16 px-2" : "w-60 px-4",
         )}
       >
-        <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "justify-between px-2")}>
+        <div className={cn("flex h-8 items-center", collapsed ? "justify-center" : "px-2")}>
           {collapsed ? (
             <Link href="/" aria-label="Farrier home" className="flex size-8 items-center justify-center">
               <LogoMark />
             </Link>
           ) : (
-            <div className="min-w-0">
-              <Logo href="/" />
-              <p className="mt-1 truncate pl-8 text-xs text-muted-foreground">
-                {status?.mode === "demo" ? "Demo estate" : (status?.upstream?.replace(/^https?:\/\//, "") ?? "Connecting…")}
-              </p>
-            </div>
+            <Logo href="/" />
           )}
-          <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          </Button>
         </div>
         <Nav collapsed={collapsed} />
         <SidebarFooter collapsed={collapsed} />
@@ -215,7 +205,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
         )}
-        <Topbar onMenu={() => setOpen(true)} />
+        <Topbar onMenu={() => setOpen(true)} onToggle={toggle} collapsed={collapsed} />
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:py-8">{children}</main>
       </div>
     </div>

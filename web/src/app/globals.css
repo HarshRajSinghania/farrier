@@ -29,9 +29,9 @@
   --input: #d9d7d1;
   --ring: #141414;
 
-  --brand: #141414;
-  --brand-hover: #2b2b29;
-  --brand-foreground: #ffffff;
+  --brand: #c5f04a;
+  --brand-hover: #b6e332;
+  --brand-foreground: #141414;
   --brand-soft: #eef9cf;
   --brand-ink: #141414;
 
@@ -228,5 +228,11 @@ body:has([data-dashboard]) {
   font-family: var(--font-sans);
   letter-spacing: -0.006em;
 }
-:root { --canvas: #f2f2ef; }
+:root { --canvas: #ffffff; }
 .dark { --canvas: #090909; }
+
+/* theme changes crossfade (View Transitions, ThemeToggle); nothing moves under reduced motion */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.4s; animation-timing-function: ease; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}
