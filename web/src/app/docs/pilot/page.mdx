@@ -1,0 +1,73 @@
+export const metadata = {
+  title: "Pilot checklist",
+  description: "What to try on real equipment before Farrier renews production certificates, and what passing looks like.",
+};
+
+# Pilot checklist
+
+Farrier's automated test suite covers each piece against mocks, an in-process ACME server and Let's Encrypt's
+Pebble. It has **not** been run against real appliances, live CAs or live cloud accounts. Run this checklist
+on lab equipment, or on one low-risk endpoint, before letting Farrier change anything in production. Record
+what passed. If something fails, [open an issue](https://github.com/gagankarthik/farrier/issues) with the
+`farrier` log lines and the device version.
+
+## 1. Read-only first (no changes to anything)
+
+| Check | How | Passes when |
+|---|---|---|
+| Discovery | `farrier scan <your ranges>` | Every TLS service you know about is listed with the right expiry |
+| Crypto and PQC | `farrier crypto scan <a few hosts>` | TLS versions and key exchange match `openssl s_client`; a Cloudflare- or Google-fronted host shows `hybrid` |
+| SSH hosts | `farrier ssh scan <a few hosts>` | Host key fingerprints match `ssh-keyscan -t ed25519 <host> \| ssh-keygen -lf -` |
+| SSH keys | Add an access profile in **SSH keys → Access**, then **Collect** | Keys match `cat ~/.ssh/authorized_keys` on the host, with no removal yet |
+| Domain health | **Health → Check** on a public site | The grade matches SSL Labs within one letter |
+
+## 2. A certificate authority, on staging
+
+Use the staging preset so nothing counts against rate limits and nothing is publicly trusted.
+
+| Check | How | Passes when |
+|---|---|---|
+| DNS account | **Integrations → DNS accounts → Test** | A test TXT record appears on every authoritative nameserver and is then removed |
+| Issuance | Issuer preset `letsencrypt-staging` (or `google-staging`, `buypass-staging`); renew one `manual` endpoint | The change pack holds a certificate from the staging CA for exactly the endpoint's names |
+| Renewal info (ARI) | Look at the renewal's reason after a planning cycle | The scheduled date follows the CA's suggested window |
+
+## 3. One device per connector
+
+Pick one non-critical virtual server, VIP or service per connector. Keep its current certificate. Farrier installs
+the new one under a new name and keeps the old one, so you can always switch back.
+
+| Connector | Passes when |
+|---|---|
+| F5 BIG-IP | A new cert/key object appears, the client SSL profile switches to it, the handshake shows the new fingerprint, and the old object is still there |
+| FortiGate | New certificate imported, the SSL VPN / VIP / admin setting points to it, handshake verified |
+| Palo Alto PAN-OS | New certificate imported, the SSL/TLS service profile updated, commit succeeded, handshake verified |
+| Java keystore | Keystore rewritten with a backup next to it, the service restarted by your `reload_command`, handshake verified |
+| Files over SSH | Files replaced atomically with backups, `test_command` passed, the service reloaded, handshake verified |
+| Change pack | The pack and runbook are enough for someone else to install the certificate; the renewal closes once the scanner sees it |
+
+Then break it on purpose: point one deploy at a profile that can't take the certificate, or make `test_command`
+fail. **Passes when** the old certificate is still served and the renewal reads `rolled_back`.
+
+## 4. Integrations
+
+| Check | Passes when |
+|---|---|
+| ServiceNow or Jira | **Test** succeeds; a change pack opens one ticket, comments follow state changes, and it closes once the certificate is live |
+| Datadog | `farrier.certificate.days_left` appears with endpoint tags |
+| Splunk | Renewal events arrive in the configured index |
+| Slack, Teams, email | A failed renewal produces exactly one message, and no repeat inside the cooldown |
+
+## 5. Your platform
+
+| Check | Passes when |
+|---|---|
+| Cloud secrets | A `vault:` secret stored through the dashboard appears in your secret manager under the configured prefix, and the engine can read it back after a restart |
+| Workload identity (EKS, GKE, AKS) | The engine logs no credential errors, and the secret, KMS and bucket checks above pass without static keys |
+| Backups | `farrier backup`, then `farrier restore` into an empty database, ends with the same endpoints and renewals |
+| Replicas | With two engine replicas on PostgreSQL, stopping the leader hands over within the lease time, and no renewal runs twice |
+| Sign-in | Each SSO group gets the role and projects you expect; a viewer can't download a change pack |
+
+## Going live
+
+Switch the issuer to the production preset and keep the same endpoints. Turn on automated connectors one device
+type at a time, starting with the ones that passed the break-it-on-purpose check.

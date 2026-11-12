@@ -62,7 +62,7 @@ export const MENUS: NavMenu[] = [
       {
         title: "Reference",
         links: [
-          { href: "/docs/deploy", label: "Deploy anywhere", desc: "AWS, Google Cloud, Azure, on-prem" },
+          { href: "/docs/install", label: "Install", desc: "Laptop, one server, Kubernetes, EKS, GKE, AKS, clouds" },
           { href: "/docs/api", label: "REST API and metrics", desc: "Prometheus, inventory, events" },
           { href: "/docs/security", label: "Security", desc: "Guardrails and hosting" },
         ],
@@ -94,7 +94,7 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
     title: "Resources",
     links: [
       { href: "/docs/quickstart", label: "Quickstart" },
-      { href: "/docs/deploy", label: "Deploy anywhere" },
+      { href: "/docs/install", label: "Install" },
       { href: "/docs/mcp", label: "MCP server" },
       { href: "/docs/api", label: "REST API" },
     ],

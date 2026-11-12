@@ -13,10 +13,11 @@ export const DOCS_NAV: DocsGroup[] = [
   {
     title: "Installation",
     items: [
-      { href: "/docs/self-hosting", label: "Self-hosting" },
-      { href: "/docs/deploy", label: "Deploy anywhere" },
+      { href: "/docs/install", label: "Install" },
+      { href: "/docs/self-hosting", label: "Running and upgrading" },
       { href: "/docs/databases", label: "Databases and HA" },
-      { href: "/docs/enterprise", label: "Enterprise deployment" },
+      { href: "/docs/enterprise", label: "Enterprise and cloud" },
+      { href: "/docs/deploy", label: "Deployment reference" },
     ],
   },
   {
@@ -48,7 +49,10 @@ export const DOCS_NAV: DocsGroup[] = [
   },
   {
     title: "Operations",
-    items: [{ href: "/docs/security", label: "Security and hosting" }],
+    items: [
+      { href: "/docs/security", label: "Security and hosting" },
+      { href: "/docs/pilot", label: "Pilot checklist" },
+    ],
   },
   {
     title: "Project",

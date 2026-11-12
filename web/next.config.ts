@@ -41,7 +41,7 @@ const withMDX = createMDX({
     rehypePlugins: [
       "rehype-slug",
       // highlighted at build time; both themes ship, CSS picks one (globals.css, .docs-prose)
-      ["rehype-pretty-code", { theme: { light: "github-light", dark: "github-dark-dimmed" }, keepBackground: false }],
+      ["rehype-pretty-code", { theme: { light: "github-light", dark: "github-dark-dimmed" }, keepBackground: false, defaultLang: { block: "plaintext" } }],
     ],
   },
 });

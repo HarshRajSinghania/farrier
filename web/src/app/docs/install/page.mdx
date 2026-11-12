@@ -1,0 +1,202 @@
+export const metadata = {
+  title: "Install",
+  description: "How Farrier fits together, which install to pick, and copy-paste steps for each.",
+};
+
+# Install
+
+## How it fits together
+
+Farrier is two containers and a database. Nothing is installed on your devices.
+
+```
+you
+ │
+ ▼
+web       dashboard, port 3000
+ │        private, token-authenticated
+ ▼
+engine    API + renewal loop, port 8740 ──▶ database
+ │                                          SQLite, or PostgreSQL / MySQL
+ │        outbound only
+ ▼
+servers, appliances, SSH hosts, CAs, DNS, Slack, ServiceNow, Jira
+```
+
+- **web** is what people open. It signs them in (a password, or your SSO) and talks to the engine for them.
+- **engine** scans, plans, renews, deploys and verifies. Only the web container talks to it; never expose it.
+- **database** holds the inventory and history. Private keys in it are encrypted with your **master key**: back
+  that key up separately.
+
+Every install below is these same three pieces. Only where they run changes.
+
+## Pick one
+
+| You want to | Use | Takes | Database |
+|---|---|---|---|
+| See it work on your laptop | [Try it](#try-it) | 2 min | built in |
+| Run it for one team on one server | [Docker Compose](#one-server) | 10 min | SQLite |
+| Run it in production on one server | [Docker Compose, production](#one-server-production) | 30 min | PostgreSQL |
+| Run it on your Kubernetes | [Helm](#kubernetes) | 15 min | SQLite or yours |
+| Run it on EKS, GKE or AKS | [Terraform + Helm](#eks-gke-aks) | 30 min | RDS, Cloud SQL, Azure PostgreSQL |
+| Run it on AWS, Google Cloud or Azure without Kubernetes | [Terraform](#cloud-without-kubernetes) | 30 min | managed |
+| Run it with no internet access | [Air-gapped](#air-gapped) | 30 min | any |
+
+Not sure? Start with **Docker Compose**. You can [move to anything else later](#grow-without-reinstalling)
+without losing your inventory.
+
+## Try it
+
+A simulated estate of 41 real TLS endpoints on your machine. Needs Python 3.11+ and Node 22+.
+
+```bash
+git clone https://github.com/gagankarthik/farrier.git && cd farrier
+pip install -e .
+farrier demo                                   # engine on :8740 with the demo estate
+
+# in a second terminal
+cd web && npm install
+FARRIER_API_URL=http://127.0.0.1:8740 npm run dev
+```
+
+Open http://localhost:3000/dashboard.
+
+## One server
+
+For a team: one VM or machine with Docker. SQLite, a dashboard password, no cloud account.
+
+```bash
+git clone https://github.com/gagankarthik/farrier.git && cd farrier
+cat > .env <<EOF
+FARRIER_API_TOKEN=$(openssl rand -hex 32)
+FARRIER_DASHBOARD_PASSWORD=choose-a-long-password
+EOF
+docker compose up -d
+```
+
+Open http://localhost:3000 and sign in with the password. Put your usual TLS reverse proxy in front for other
+people to reach it.
+
+**Check it:** `docker compose ps` shows both services running.
+**Back up:** the `farrier-data` volume (it holds the database and the master key).
+
+Next: add a certificate authority and DNS in **Setup**, then **Discovery** to find what you already have.
+
+## One server, production
+
+The same on one server, with PostgreSQL, object storage for change packs and backups, and every secret as a
+file instead of an environment variable.
+
+```bash
+cd farrier/deploy/compose
+mkdir -p secrets
+openssl rand -hex 32 > secrets/api_token
+openssl rand -hex 32 > secrets/api_read_token
+openssl rand -hex 16 > secrets/dashboard_password
+openssl rand -hex 32 > secrets/db_password
+printf farrier-admin > secrets/minio_root_user
+openssl rand -hex 32 > secrets/minio_root_password
+openssl rand -hex 32 > secrets/minio_engine_secret
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode(), end='')" > secrets/master_key
+for f in secrets/*; do printf %s "$(cat "$f")" > "$f"; done && chmod 0444 secrets/*
+
+NEXT_PUBLIC_SITE_URL=https://farrier.example.internal docker compose -f production.yml up -d
+```
+
+**Check it:** `docker compose -f production.yml ps`. Keep `secrets/master_key` somewhere safe and separate
+from your backups. Details: [deploy/compose/README.md](https://github.com/gagankarthik/farrier/tree/main/deploy/compose).
+
+## Kubernetes
+
+Any cluster. Create the two Secrets, then install the chart.
+
+```bash
+kubectl create namespace farrier
+TOKEN=$(openssl rand -hex 32); READ=$(openssl rand -hex 32)
+kubectl -n farrier create secret generic farrier-engine \
+  --from-literal=api-token="$TOKEN" --from-literal=api-read-token="$READ" \
+  --from-literal=master-key="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+kubectl -n farrier create secret generic farrier-web \
+  --from-literal=api-token="$TOKEN" --from-literal=api-read-token="$READ" \
+  --from-literal=dashboard-password="$(openssl rand -hex 16)"
+
+helm install farrier deploy/helm/farrier -n farrier \
+  --set secrets.existingSecret.engine=farrier-engine \
+  --set secrets.existingSecret.web=farrier-web
+```
+
+**Check it:** `helm test farrier -n farrier`, then
+`kubectl -n farrier port-forward svc/farrier-web 3000:80` and open http://localhost:3000.
+For an ingress, SSO and PostgreSQL, see the [chart README](https://github.com/gagankarthik/farrier/tree/main/deploy/helm/farrier).
+
+## EKS, GKE, AKS
+
+Terraform creates what Farrier needs next to your existing cluster (identity, KMS, secrets, bucket, database);
+Helm installs Farrier with a ready-made values file for that cloud. No static cloud keys: pods use workload
+identity.
+
+```bash
+CLOUD=eks          # or gke, aks
+cd farrier
+# 1. the cloud side: set your cluster name (and project or resource group) in deploy/terraform/$CLOUD/examples/minimal
+terraform -chdir=deploy/terraform/$CLOUD apply
+terraform -chdir=deploy/terraform/$CLOUD output -raw kubernetes_manifests | kubectl apply -f -
+terraform -chdir=deploy/terraform/$CLOUD output -raw helm_values > cloud-values.yaml
+
+# 2. Farrier
+helm install farrier deploy/helm/farrier -n farrier --create-namespace \
+  -f deploy/helm/farrier/examples/values-$CLOUD.yaml -f cloud-values.yaml
+
+# 3. check it
+curl -fsS https://<your dashboard host>/api/health
+```
+
+| | EKS | GKE | AKS |
+|---|---|---|---|
+| Ingress | AWS Load Balancer Controller (ALB) | GCE Ingress with a managed certificate | Application routing add-on |
+| Database | RDS PostgreSQL | Cloud SQL | Azure Database for PostgreSQL |
+| Secrets | Secrets Manager | Secret Manager | Key Vault |
+
+## Cloud without Kubernetes
+
+One Terraform module per cloud builds everything: network access, database, secrets, KMS, storage and the two
+services behind a load balancer.
+
+| Cloud | Runs on | Module |
+|---|---|---|
+| AWS | ECS Fargate, RDS, ALB and CloudFront | `deploy/terraform/aws` |
+| Google Cloud | Cloud Run, Cloud SQL, a global load balancer | `deploy/terraform/gcp` |
+| Azure | Container Apps, PostgreSQL, Front Door | `deploy/terraform/azure` |
+
+Every module starts in two steps, so the master key never passes through Terraform:
+
+```bash
+cd farrier/deploy/terraform/aws/examples/minimal    # or gcp, azure; edit main.tf: VPC, domains, SSO
+terraform init && terraform apply                    # 1. creates everything; services stay stopped
+# seed the master key (and the SSO client secret) as the module README shows, then:
+terraform apply -var secrets_seeded=true             # 2. starts the services
+terraform output dashboard_url
+```
+
+## Air-gapped
+
+On a machine with internet access, save the two images; load them inside, then use any install above with your
+registry and the built-in private CA.
+
+```bash
+docker pull ghcr.io/gagankarthik/farrier:0.1.0 ghcr.io/gagankarthik/farrier-web:0.1.0
+docker save ghcr.io/gagankarthik/farrier:0.1.0 ghcr.io/gagankarthik/farrier-web:0.1.0 | gzip > farrier-0.1.0.tar.gz
+# inside
+docker load < farrier-0.1.0.tar.gz     # then retag and push to your registry
+```
+
+## Grow without reinstalling
+
+Start small; every step keeps your inventory, history and keys.
+
+1. **More people:** turn on single sign-on ([SSO](/docs/sso)) with viewer, operator and admin roles.
+2. **A real database:** `farrier db migrate --to postgresql://farrier@db/farrier`, then point the engine at it with `FARRIER_DATABASE_URL`.
+3. **High availability:** run two or more engine replicas on that database; one is leader at a time ([Databases and HA](/docs/databases)).
+4. **Cloud secrets and KMS:** move secrets to your secret manager and wrap the master key with your KMS ([Enterprise](/docs/enterprise)).
+
+Before Farrier changes anything in production, run the [pilot checklist](/docs/pilot).

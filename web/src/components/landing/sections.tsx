@@ -434,8 +434,8 @@ export function Deploy() {
                 <h3 className="mt-4 text-[17px] font-semibold">{p.t}</h3>
                 <p className="mt-1 text-sm text-[var(--l-sub)]">{p.d}</p>
               </div>
-              <Link href="/docs/deploy" className={cn(frame, "flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:text-[#2563eb]")}>
-                Deployment guide <ArrowRight className="size-4" />
+              <Link href="/docs/install" className={cn(frame, "flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:text-[#2563eb]")}>
+                Install guide <ArrowRight className="size-4" />
               </Link>
             </article>
           ))}

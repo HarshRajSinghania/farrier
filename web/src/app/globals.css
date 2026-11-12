@@ -194,6 +194,7 @@
 .docs-prose [data-rehype-pretty-code-title] + div pre { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0; }
 .docs-prose pre {
   border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--plane) !important;
+  color: var(--foreground); /* plain-text blocks have no token colours; the prose default is meant for dark code */
   padding: 1rem 0; font-size: 13px; line-height: 1.7; overflow-x: auto;
 }
 .docs-prose pre code { display: grid; background: transparent !important; padding: 0 !important; font-size: inherit; }

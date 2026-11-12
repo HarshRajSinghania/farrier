@@ -76,25 +76,33 @@ FARRIER_API_URL=http://127.0.0.1:8740 npm run dev    # site, docs and dashboard 
 
 Without `FARRIER_API_URL` the web app runs against a simulated estate, so you can preview it with no backend.
 
-## Deploy
+## Install
+
+Farrier is two containers and a database: **web** (the dashboard people open) talks to **engine** (API and
+renewal loop, never exposed), which talks to your devices, CAs and DNS. Nothing is installed on devices.
+
+| You want to | Use |
+|---|---|
+| See it work on your laptop | `farrier demo` (above) |
+| Run it for one team on one server | `docker compose up -d` with a two-line `.env` |
+| Run it in production on one server | `deploy/compose/production.yml` (PostgreSQL, object storage, file secrets) |
+| Run it on your Kubernetes | `helm install farrier deploy/helm/farrier` |
+| Run it on EKS, GKE or AKS | `deploy/terraform/{eks,gke,aks}` + `examples/values-{eks,gke,aks}.yaml` |
+| Run it on AWS, Google Cloud or Azure without Kubernetes | `deploy/terraform/{aws,gcp,azure}` (ECS Fargate, Cloud Run, Container Apps) |
+| Run it with no internet access | mirror the two images and use the built-in private CA |
+
+Copy-paste steps for each, and how to grow from one server to many teams without reinstalling:
+**[Install guide](web/src/app/docs/install/page.mdx)**.
 
 ```bash
 cat > .env <<EOF
 FARRIER_API_TOKEN=$(openssl rand -hex 32)
-FARRIER_DASHBOARD_PASSWORD=change-me
+FARRIER_DASHBOARD_PASSWORD=choose-a-long-password
 EOF
-docker compose up -d             # engine (private) + dashboard on http://localhost:3000/dashboard
+docker compose up -d             # http://localhost:3000
 ```
 
-| Where | How |
-|---|---|
-| Any VM, on-prem | `docker compose up -d` |
-| Kubernetes, OpenShift | `kubectl apply -k deploy/kubernetes` |
-| AWS · Google Cloud · Azure | EKS/EC2 · GKE · AKS, secrets from Secrets Manager · Secret Manager · Key Vault |
-| Several replicas | `FARRIER_DATABASE_URL=postgresql://…` ([guide](web/src/app/docs/databases/page.mdx)) |
-| Air-gapped | mirror the two images and use the built-in private CA |
-
-Images are multi-arch and signed with cosign. Push a `v*` tag to publish `ghcr.io/gagankarthik/farrier` and `farrier-web`.
+Images are multi-arch and signed with cosign: `ghcr.io/gagankarthik/farrier` and `farrier-web`.
 
 ## Security
 
