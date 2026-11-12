@@ -16,7 +16,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { checkBasic } from "@/lib/auth/basic";
 import { authMode, oidcConfig } from "@/lib/auth/config";
-import { clientAddress, requiredHeaderStatus } from "@/lib/auth/request";
+import { clientAddress, requiredHeaderStatus, appModeRedirect } from "@/lib/auth/request";
 import { clearSession, hasSessionCookie, readSession, touchSession } from "@/lib/auth/session";
 
 const MAX_FAILURES = 10;
@@ -98,6 +98,8 @@ export async function proxy(req: NextRequest) {
   const blocked = requiredHeaderStatus(req.headers, req.nextUrl.pathname, process.env);
   if (blocked === 500) return new NextResponse("FARRIER_REQUIRE_HEADER must look like Name:value", { status: 500 });
   if (blocked) return new NextResponse("Forbidden", { status: 403 });
+  const home = appModeRedirect(req.nextUrl.pathname, process.env);
+  if (home) return NextResponse.redirect(new URL(home, req.url));
   if (!gated(req.nextUrl.pathname)) return NextResponse.next();
   switch (authMode()) {
     case "oidc":

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isSameOrigin, safeReturnTo } from "./csrf.ts";
-import { clientAddress, configuredOrigin, redirectUriProblem, requiredHeaderStatus } from "./request.ts";
+import { appModeRedirect, clientAddress, configuredOrigin, redirectUriProblem, requiredHeaderStatus } from "./request.ts";
 import { actorName, claimValues, mapRole, parseList, permits, requiredRole } from "./roles.ts";
 import { seal, secretProblem, unseal } from "./seal.ts";
 
@@ -132,4 +132,14 @@ test("requiredHeaderStatus: FARRIER_REQUIRE_HEADER gates every path but /api/hea
   assert.equal(requiredHeaderStatus(headers({}), "/api/health", env), null);
   assert.equal(requiredHeaderStatus(headers({}), "/", {}), null); // unset: no check
   assert.equal(requiredHeaderStatus(ok, "/", { FARRIER_REQUIRE_HEADER: "no-colon" }), 500);
+});
+
+test("app mode sends the landing and legal pages to the dashboard; site mode and docs are untouched", () => {
+  const app = { FARRIER_MODE: "app" };
+  assert.equal(appModeRedirect("/", app), "/dashboard");
+  assert.equal(appModeRedirect("/privacy", app), "/dashboard");
+  assert.equal(appModeRedirect("/docs", app), null);
+  assert.equal(appModeRedirect("/dashboard", app), null);
+  assert.equal(appModeRedirect("/", {}), null);
+  assert.equal(appModeRedirect("/", { FARRIER_MODE: "site" }), null);
 });
