@@ -172,6 +172,9 @@ class Engine:
             nb, na = parse_dt(ep["not_before"]), parse_dt(ep["not_after"])
             lifetime = min(max(1, (na - nb).days), policy.max_lifetime_days(now))
             due = na - timedelta(days=policy.renew_before_days(lifetime, ep["lead_days"]))
+            ari = self._ari_due(ep)
+            if ari and ari < due:
+                due = ari                     # the CA asked for an earlier renewal (RFC 9773)
             if due > now + timedelta(days=self.settings["horizon_days"]):
                 continue
             latest = na - timedelta(days=self.settings["safety_days"])
@@ -183,7 +186,7 @@ class Engine:
                 start, reason = now, "urgent: no window before expiry"
             else:
                 start = level(ep["window"], max(now, due), latest, load[klass], cap)
-                reason = "due"
+                reason = "due (CA renewal window)" if ari and ari <= due else "due"
             load[klass][start.date().isoformat()] += 1
             rid = self.store.create_renewal(ep["id"], start.isoformat(timespec="seconds"),
                                             latest.isoformat(timespec="seconds"), ep["fingerprint"], reason)
@@ -191,6 +194,29 @@ class Engine:
                            f"current cert expires {na:%Y-%m-%d}", ep["id"], rid)
             created.append(rid)
         return created
+
+    def _served_by_farrier(self, ep) -> dict | None:
+        """The finished renewal whose certificate the endpoint serves right now, if any."""
+        last = self.store.q1("SELECT cert_pem, new_fingerprint FROM renewals WHERE endpoint_id=? AND state='done' "
+                             "ORDER BY id DESC LIMIT 1", (ep["id"],))
+        return last if last and last["cert_pem"] and last["new_fingerprint"] == ep["fingerprint"] else None
+
+    def _ari_due(self, ep) -> datetime | None:
+        """A point inside the CA's suggested renewal window (RFC 9773), for certificates Farrier issued
+        through an ACME CA that offers ARI. The point is fixed per certificate so plans don't flap."""
+        issuer = self.issuers.get(ep["issuer"]) or self.issuers.get("default")
+        last = self._served_by_farrier(ep)
+        if not last or not getattr(issuer, "supports_ari", False):
+            return None
+        try:
+            window = issuer.renewal_window(last["cert_pem"])
+        except Exception:  # noqa: BLE001 - ARI is advice; the lifetime policy still plans the renewal
+            return None
+        if not window:
+            return None
+        start, end = parse_dt(window[0]), parse_dt(window[1])
+        frac = int(ep["fingerprint"][:8], 16) / 0xFFFFFFFF
+        return start + (end - start) * frac
 
     def force_renewal(self, eid: int, reason: str = "requested") -> int:
         if (r := self.store.open_renewal(eid)):
@@ -286,6 +312,8 @@ class Engine:
             # per-endpoint DNS account (dns.json) overrides the issuer's zone matching
             acct = (ep.get("connector_config") or {}).get("dns_account")
             kw = {"dns_account": acct} if acct and getattr(issuer, "supports_dns_account", False) else {}
+            if getattr(issuer, "supports_ari", False) and (prev := self._served_by_farrier(ep)):
+                kw["replaces_pem"] = prev["cert_pem"]
             cert_pem, chain_pem = issuer.issue(csr, names, **kw)
             info = parse_pem(cert_pem)
         except Exception as e:  # noqa: BLE001

@@ -159,6 +159,12 @@ async function serveDemo(req: NextRequest, path: string[]) {
           return demo.tick();
         case "POST discover":
           return demo.discover(String((await body()).targets ?? ""));
+        case "POST notifiers/:id":
+          return { sent: 1 }; // demo: pretend the Slack test went out
+        case "GET config":
+          return demo.config();
+        case "PUT config/:id":
+          return demo.saveSettings(await body());
         case "GET zombies":
           return demo.zombies();
         case "GET endpoints/:id/health":
@@ -198,3 +204,4 @@ async function serveDemo(req: NextRequest, path: string[]) {
 export const GET = handle;
 export const POST = handle;
 export const DELETE = handle;
+export const PUT = handle;

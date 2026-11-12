@@ -36,3 +36,29 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run build
+
+  # The ACME client against Pebble, Let's Encrypt's official ACME test server, with DNS-01 through
+  # pebble-challtestsrv. Catches protocol drift a mock can't (nonce rejection, ARI, profiles, ordering).
+  letsencrypt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Start Pebble and its DNS test server
+        run: |
+          docker network create --subnet 10.30.50.0/24 acme
+          docker run -d --name challtestsrv --network acme --ip 10.30.50.3 -p 8055:8055 \
+            ghcr.io/letsencrypt/pebble-challtestsrv:latest -defaultIPv6 "" -defaultIPv4 10.30.50.3
+          docker run -d --name pebble --network acme -p 14000:14000 -e PEBBLE_VA_NOSLEEP=1 \
+            ghcr.io/letsencrypt/pebble:latest -config test/config/pebble-config.json -dnsserver 10.30.50.3:8053
+          for i in $(seq 1 30); do curl -skf https://localhost:14000/dir >/dev/null && break; sleep 1; done
+          curl -sk https://localhost:14000/dir
+      - run: python -m pytest -q tests/test_pebble.py
+        env:
+          FARRIER_TEST_PEBBLE: "1"
+      - if: failure()
+        run: docker logs pebble; docker logs challtestsrv

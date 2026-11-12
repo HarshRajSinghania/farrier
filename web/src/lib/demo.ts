@@ -7,6 +7,8 @@
 import "server-only";
 import { forecastTimeline, maxLifetimeDays, dcvReuseDays, renewBeforeDays, SCHEDULE } from "./policy";
 import type {
+  EngineSettings,
+  FarrierConfig,
   HealthReport,
   ZombieReport,
   ConnectorInfo,
@@ -321,6 +323,52 @@ export function events(limit = 100, endpointId?: number): FarrierEvent[] {
     .events.filter((e) => !endpointId || e.endpoint_id === endpointId)
     .sort((a, b) => b.id - a.id)
     .slice(0, limit);
+}
+
+/* -------------------------------------------------------------- configuration */
+
+const demoSettings: EngineSettings = {
+  horizon_days: 14, safety_days: 2, manual_daily_cap: 25, auto_daily_cap: 1000, verify_max_attempts: 6,
+  scan_timeout: 5, verify_chain_and_names: true, verify_all_addresses: false,
+};
+const LIMITS: FarrierConfig["limits"] = {
+  horizon_days: { min: 1, max: 60, type: "int" }, safety_days: { min: 0, max: 30, type: "int" },
+  manual_daily_cap: { min: 0, max: 10000, type: "int" }, auto_daily_cap: { min: 1, max: 100000, type: "int" },
+  verify_max_attempts: { min: 1, max: 50, type: "int" }, scan_timeout: { min: 1, max: 60, type: "float" },
+  verify_chain_and_names: { min: 0, max: 1, type: "bool" }, verify_all_addresses: { min: 0, max: 1, type: "bool" },
+};
+
+export function config(): FarrierConfig {
+  return {
+    settings: { ...demoSettings },
+    limits: LIMITS,
+    issuers: [
+      { name: "default", type: "local_ca", preset: null, directory: null, email: null, dns: null, eab: null },
+      { name: "public", type: "acme", preset: "letsencrypt", directory: "acme-v02.api.letsencrypt.org", email: "pki@example.com", dns: "auto", eab: null },
+    ],
+    issuers_error: null,
+    dns_accounts: [
+      { name: "cf-prod", provider: "cloudflare", zones: ["example.com"], credentials: { api_token: "env:FARRIER_SECRET_CF_PROD" } },
+      { name: "aws-main", provider: "route53", zones: ["example.net"], credentials: { access_key_id: "env:FARRIER_SECRET_AWS_ID", secret_access_key: "env:FARRIER_SECRET_AWS_KEY" } },
+    ],
+    dns_error: null,
+    notifiers: [{ type: "slack", events: ["failed", "rolled_back", "awaiting_manual"] }],
+    engine: { backend: "sqlite", leader: true, replica: "demo", schema_version: 3, data_dir: "(demo)", mcp_writes: false },
+  };
+}
+
+/** The same rules as farrier/config.py, so the demo rejects what the engine would. */
+export function saveSettings(changes: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(changes)) {
+    const lim = LIMITS[k as keyof EngineSettings];
+    if (!lim) throw new DemoError(400, `${k} can't be changed here`);
+    if (lim.type === "bool" ? typeof v !== "boolean" : typeof v !== "number" || v < lim.min || v > lim.max || (lim.type === "int" && !Number.isInteger(v)))
+      throw new DemoError(400, lim.type === "bool" ? `${k} must be true or false` : `${k} must be between ${lim.min} and ${lim.max}`);
+    out[k] = v;
+  }
+  Object.assign(demoSettings, out);
+  return { changed: out };
 }
 
 /** Zombie findings from the demo estate (farrier/zombie.py, stored-observation kinds only). */

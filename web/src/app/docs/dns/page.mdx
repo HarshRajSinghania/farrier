@@ -88,3 +88,30 @@ An issuer in `<data>/issuers.json` can name a preset:
 | `digicert`, `sectigo` | DigiCert, Sectigo (give `directory_url`) | yes |
 
 Use several issuers at once and pick one per endpoint, for example a public CA for internet-facing VIPs and the built-in `local_ca` for management interfaces.
+
+### Let's Encrypt
+
+Farrier follows Let's Encrypt's own client guidance:
+
+- **Renewal timing from the CA (ARI, RFC 9773).** For certificates Farrier issued, it asks Let's Encrypt for a suggested renewal window and renews inside it when that is earlier than its own schedule. This is how Let's Encrypt moves renewals forward during an incident or a mass revocation. New orders name the certificate they replace, which Let's Encrypt exempts from some rate limits.
+- **Rate limits.** A `429 rateLimited` error is recorded with the time Let's Encrypt says to retry, and the renewal is retried later. A brief `503` is retried once. Polling follows `Retry-After`.
+- **Staging first.** Use the `letsencrypt-staging` preset until a full renewal works, then switch to `letsencrypt`.
+
+```json title="issuers.json"
+{
+  "le": {
+    "preset": "letsencrypt",
+    "email": "pki@example.com",
+    "dns": "auto",
+    "profile": "tlsserver",
+    "preferred_chain": "ISRG Root X1"
+  }
+}
+```
+
+| Option | Meaning |
+|---|---|
+| `profile` | `classic` (default), `tlsserver`, or `shortlived` for 6-day certificates. Checked against the profiles the CA offers. |
+| `preferred_chain` | The root or issuer name of the chain to serve, picked from the alternates the CA offers. Falls back to the default chain. |
+
+The client is tested in CI against [Pebble](https://github.com/letsencrypt/pebble), Let's Encrypt's own ACME test server, with real DNS-01 validation.

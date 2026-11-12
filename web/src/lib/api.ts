@@ -7,6 +7,8 @@ import type {
   DiscoverResult,
   Endpoint,
   EndpointInput,
+  EngineSettings,
+  FarrierConfig,
   FarrierEvent,
   HealthReport,
   Renewal,
@@ -51,6 +53,7 @@ export const useEvents = (limit = 100, endpointId?: number) =>
   useSWR<FarrierEvent[]>(`/events?limit=${limit}${endpointId ? `&endpoint_id=${endpointId}` : ""}`, fetcher, live);
 export const useConnectors = () => useSWR<ConnectorInfo[]>("/connectors", fetcher);
 export const useZombies = () => useSWR<ZombieReport>("/zombies", fetcher, live);
+export const useConfig = () => useSWR<FarrierConfig>("/config", fetcher);
 export const useStatus = () => useSWR<BackendStatus>("/_status", fetcher, { refreshInterval: 60_000 });
 
 /** Revalidate every cached query after a mutation. */
@@ -63,6 +66,9 @@ async function act<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export const api = {
+  saveSettings: (changes: Partial<EngineSettings>) =>
+    act<{ changed: Partial<EngineSettings> }>("/config/settings", { method: "PUT", body: JSON.stringify(changes) }),
+  testNotifiers: () => request<{ sent: number }>("/notifiers/test", { method: "POST" }),
   // a live TLS probe: read-only, so no cache refresh afterwards
   health: (id: number) => request<HealthReport>(`/endpoints/${id}/health?caa=false`),
   renew: (id: number) => act<{ renewal_id: number; state: string }>(`/endpoints/${id}/renew`, { method: "POST" }),

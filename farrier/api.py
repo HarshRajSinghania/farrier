@@ -469,4 +469,21 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             raise HTTPException(400, "no notifiers configured in settings.json")
         return {"sent": sent}
 
+    @app.get("/api/config", dependencies=[Depends(auth)])
+    def get_config():
+        """The effective configuration for the dashboard. Secrets appear only as their env:/file: reference."""
+        from . import config
+        return config.view(engine)
+
+    @app.put("/api/config/settings", dependencies=[Depends(auth)])
+    async def put_settings(request: Request):
+        """Change planner settings (admin): validated, saved to settings.json and applied live."""
+        from . import config
+        try:
+            changed = config.update_settings(engine, await request.json())
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        S.log(f"settings changed by {actor(request)}: " + ", ".join(f"{k}={v}" for k, v in changed.items()))
+        return {"changed": changed}
+
     return app

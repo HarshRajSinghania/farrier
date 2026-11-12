@@ -1,6 +1,6 @@
 [project]
 name = "farrier-tls"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Certificate renewal for the machines ACME can't reach."
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,9 @@ farrier = "farrier.cli:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "farrier.__version__" }   # the one Python source of the version
 
 [tool.setuptools.packages.find]
 include = ["farrier*"]

@@ -192,3 +192,24 @@ export interface ZombieReport {
   count: number;
   findings: ZombieFinding[];
 }
+
+export type EngineSettings = {
+  horizon_days: number;
+  safety_days: number;
+  manual_daily_cap: number;
+  auto_daily_cap: number;
+  verify_max_attempts: number;
+  scan_timeout: number;
+  verify_chain_and_names: boolean;
+  verify_all_addresses: boolean;
+};
+export interface FarrierConfig {
+  settings: EngineSettings;
+  limits: Record<keyof EngineSettings, { min: number; max: number; type: "int" | "float" | "bool" }>;
+  issuers: { name: string; type: string; preset: string | null; directory: string | null; email: string | null; dns: string | null; eab: string | null }[];
+  issuers_error: string | null;
+  dns_accounts: { name: string; provider: string; zones: string[]; credentials: Record<string, string | null> }[];
+  dns_error: string | null;
+  notifiers: { type: string; events: string[] }[];
+  engine: { backend: string; leader: boolean; replica: string; schema_version: number; data_dir: string; mcp_writes: boolean };
+}

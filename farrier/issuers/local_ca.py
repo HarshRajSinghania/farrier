@@ -58,5 +58,8 @@ class LocalCA:
                 .add_extension(x509.SubjectAlternativeName([x509.DNSName(n) for n in names]), critical=False)
                 .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
                 .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+                # key identifiers: clients build chains with them, and RFC 9773 names certificates by AKI
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(self.key.public_key()), critical=False)
+                .add_extension(x509.SubjectKeyIdentifier.from_public_key(csr.public_key()), critical=False)
                 .sign(self.key, hashes.SHA384()))
         return cert.public_bytes(serialization.Encoding.PEM).decode(), self.ca_pem

@@ -1,4 +1,6 @@
 /** Single source for names and links. Forks change these and nothing else. */
+import pkg from "../../package.json";
+
 export const site = {
   name: "Farrier",
   tagline: "Certificate renewal for the machines ACME can't reach",
@@ -7,5 +9,5 @@ export const site = {
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   github: "https://github.com/gagankarthik/farrier",
   license: "MIT",
-  version: "0.1.0",
+  version: pkg.version, // bumped with farrier/__init__.py; the release workflow checks they match
 };
