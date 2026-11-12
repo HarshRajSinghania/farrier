@@ -213,3 +213,135 @@ export interface FarrierConfig {
   notifiers: { type: string; events: string[] }[];
   engine: { backend: string; leader: boolean; replica: string; schema_version: number; data_dir: string; mcp_writes: boolean };
 }
+
+/* ------------------------------------------------------------ integrations */
+
+/** `vault:NAME`, `env:NAME` or `file:/path`; never a secret value. */
+export type SecretRef = string;
+export type ConfigSource = "file" | "ui";
+
+export interface SecretInfo {
+  name: string;
+  created_at: string;
+  updated_at: string;
+  used_by: string[];
+}
+
+export interface CatalogField {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  help?: string | null;
+}
+export interface DnsProviderInfo {
+  id: string;
+  label: string;
+  fields: CatalogField[];
+}
+export interface CaPreset {
+  id: string;
+  label: string;
+  eab: boolean;
+  needs_directory_url: boolean;
+  /** true for a staging/test directory */
+  staging: boolean | string | null;
+}
+export interface NotifierTypeInfo {
+  id: string;
+  label: string;
+  fields: CatalogField[];
+}
+export interface IntegrationCatalog {
+  dns_providers: DnsProviderInfo[];
+  ca_presets: CaPreset[];
+  notifier_types: NotifierTypeInfo[];
+  alert_rule_types: { id: AlertWhen["type"]; label: string }[];
+}
+
+export interface Issuer {
+  name: string;
+  source: ConfigSource;
+  type: string;
+  preset: string | null;
+  directory_url: string | null;
+  email: string | null;
+  dns: string | null;
+  profile: string | null;
+  preferred_chain: string | null;
+  eab_kid: string | null;
+  eab_hmac_key: SecretRef | null;
+}
+export interface IssuerInput {
+  preset?: string;
+  type?: string;
+  email?: string;
+  dns?: string;
+  profile?: string;
+  preferred_chain?: string;
+  directory_url?: string;
+  eab_kid?: string;
+  eab_hmac_key?: SecretRef;
+}
+
+export interface DnsAccount {
+  name: string;
+  source: ConfigSource;
+  provider: string;
+  zones: string[];
+  credentials: Record<string, SecretRef | null>;
+  options: Record<string, string>;
+}
+export interface DnsAccountInput {
+  provider: string;
+  credentials: Record<string, SecretRef>;
+  options: Record<string, string>;
+  zones: string[];
+}
+
+export interface NotifierChannel {
+  name: string;
+  source: ConfigSource;
+  type: string;
+  events: string[];
+  /** a display string: the channel, host or address it sends to */
+  target: string | null;
+  /** some servers also return the non-secret fields and secret references */
+  [field: string]: unknown;
+}
+export type NotifierInput = { type: string; events?: string[] } & Record<string, unknown>;
+
+export type HealthGrade = "A" | "B" | "C" | "D";
+export type AlertWhen =
+  | { type: "event"; events: string[] }
+  | { type: "expiring"; days: number }
+  | { type: "health"; below: HealthGrade }
+  | { type: "zombie"; kinds?: string[] }
+  | { type: "unreachable"; days: number };
+export interface AlertFilter {
+  tags?: string[];
+  connectors?: string[];
+  name?: string;
+}
+export interface AlertRule {
+  name: string;
+  enabled: boolean;
+  when: AlertWhen;
+  filter: AlertFilter | null;
+  channels: string[];
+  cooldown_hours: number | null;
+  last_fired_at: string | null;
+}
+export interface AlertRuleInput {
+  enabled: boolean;
+  when: AlertWhen;
+  filter?: AlertFilter;
+  channels: string[];
+  cooldown_hours?: number;
+}
+
+export interface TestResult {
+  ok: boolean;
+  detail: string;
+  zones?: string[];
+}

@@ -118,7 +118,7 @@ def test_postgres_store_against_mock_driver(tmp_path, fake):
     ddl = fake[0].sql()
     assert "BIGSERIAL PRIMARY KEY" in ddl and "INTEGER PRIMARY KEY" not in ddl.replace("NOT NULL PRIMARY KEY", "")
     assert "pg_advisory_xact_lock(%s)" in ddl and '"window" TEXT NOT NULL' in ddl
-    assert s.migrated == [1, 2, 3]
+    assert s.migrated == [1, 2, 3, 4]
     fake[0].log.clear()
     assert s.x("INSERT INTO events(at, level, message) VALUES (?,?,?)", (now_iso(), "info", "hi")) == 42
     sql, params = fake[0].log[-1]
@@ -193,7 +193,7 @@ CREATE TABLE events (id INTEGER PRIMARY KEY, at TEXT NOT NULL, endpoint_id INTEG
 
 def test_migrations_apply_once_and_are_idempotent(tmp_path):
     s = Store(tmp_path)
-    assert s.migrated == [1, 2, 3] and s.schema_version() == db_migrations.latest_version()
+    assert s.migrated == [1, 2, 3, 4] and s.schema_version() == db_migrations.latest_version()
     s.close()
     s2 = Store(tmp_path)
     assert s2.migrated == [] and len(s2.q("SELECT * FROM schema_version")) == len(db_migrations.MIGRATIONS)
@@ -207,7 +207,7 @@ def test_legacy_sqlite_file_is_migrated_in_place(tmp_path):
     c.commit()
     c.close()
     s = Store(tmp_path)
-    assert s.migrated == [1, 2, 3]
+    assert s.migrated == [1, 2, 3, 4]
     assert s.q1("SELECT name, window FROM endpoints") == {"name": "old", "window": {"a": 1}}
     idx = {r["name"] for r in s.q("SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"obs_ep", "ren_state", "ren_ep", "ev_ep"} <= idx

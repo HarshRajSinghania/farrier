@@ -32,7 +32,7 @@ from pathlib import Path
 
 import httpx
 
-from ..vault import SecretRefused, check_secret_ref
+from ..vault import SecretRefused, check_secret_ref, is_ref
 from .base import DnsConfigError, DnsError, Provider, in_zone, norm
 from .providers import ALTERNATIVES, canonical, provider_class
 
@@ -47,7 +47,7 @@ ACCOUNT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def _is_ref(v) -> bool:
-    return isinstance(v, str) and (v.startswith("env:") and len(v) > 4 or v.startswith("file:") and len(v) > 5)
+    return is_ref(v)
 
 
 def _check_ref(account: str, where: str, v) -> None:
@@ -77,7 +77,7 @@ def validate_account(name: str, cfg) -> dict:
     for k, v in creds.items():
         if not _is_ref(v):
             raise DnsConfigError(
-                f"dns account {name!r}: credentials.{k} must be a reference (\"env:NAME\" or \"file:/path\"); "
+                f"dns account {name!r}: credentials.{k} must be a reference (\"env:NAME\", \"file:/path\" or \"vault:NAME\"); "
                 "inline secrets are refused so they never land in config files, backups or the API")
         _check_ref(name, f"credentials.{k}", v)
     if provider != "script":

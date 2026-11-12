@@ -6,6 +6,7 @@ The master key comes from FARRIER_MASTER_KEY, or is generated once into
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -80,6 +81,24 @@ class SecretRefused(ValueError):
     """A secret reference that the guardrails do not allow."""
 
 
+# References a config may hold instead of a secret. "vault:NAME" names a secret stored, sealed under the
+# master key, in the database (farrier.secrets_store); it is resolved through the lookup registered here.
+REF_PREFIXES = ("env:", "file:", "vault:")
+VAULT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_vault_lookup = None
+
+
+def set_vault_lookup(fn) -> None:
+    """Register how vault:NAME is resolved: ``fn(name) -> str | None`` (the engine's secret store)."""
+    global _vault_lookup
+    _vault_lookup = fn
+
+
+def is_ref(value) -> bool:
+    """True for a non-empty env:/file:/vault: reference."""
+    return isinstance(value, str) and any(value.startswith(p) and len(value) > len(p) for p in REF_PREFIXES)
+
+
 def _inside(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -98,7 +117,10 @@ def check_secret_ref(value) -> None:
     """
     if not isinstance(value, str):
         return
-    if value.startswith("env:"):
+    if value.startswith("vault:"):
+        if not VAULT_NAME.match(value[6:]):
+            raise SecretRefused(f"{value!r} is not a valid vault reference (vault:NAME, NAME 1-64 of A-Z a-z 0-9 _ . -)")
+    elif value.startswith("env:"):
         name = value[4:]
         if name in INTERNAL_ENV:
             raise SecretRefused(f"env:{name} is one of Farrier's own credentials and cannot be used by a connector")
@@ -128,10 +150,15 @@ def check_secret_refs(obj) -> None:
 
 
 def resolve_secret(value):
-    """Connector configs reference secrets as "env:NAME" or "file:/path" rather than inline."""
+    """Connector configs reference secrets as "env:NAME", "file:/path" or "vault:NAME" rather than inline."""
     if not isinstance(value, str):
         return value
     check_secret_ref(value)
+    if value.startswith("vault:"):
+        found = _vault_lookup(value[6:]) if _vault_lookup else None
+        if found is None:
+            raise KeyError(f"secret vault:{value[6:]} is not set")
+        return found
     if value.startswith("env:"):
         name = value[4:]
         if name not in os.environ:

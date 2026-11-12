@@ -30,7 +30,7 @@ def _ref(v) -> str | None:
     """A secret as the dashboard may see it: its env:/file: reference, or only that it is set."""
     if v in (None, ""):
         return None
-    return v if isinstance(v, str) and v.startswith(("env:", "file:")) else "set (inline)"
+    return v if isinstance(v, str) and v.startswith(("env:", "file:", "vault:")) else "set (inline)"
 
 
 def _read(path: Path) -> tuple[dict, str | None]:

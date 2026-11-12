@@ -160,7 +160,50 @@ async function serveDemo(req: NextRequest, path: string[]) {
         case "POST discover":
           return demo.discover(String((await body()).targets ?? ""));
         case "POST notifiers/:id":
-          return { sent: 1 }; // demo: pretend the Slack test went out
+          if (rawId !== "test") throw new demo.DemoError(404, "Not found");
+          return { sent: demo.listNotifiers().length }; // demo: pretend every channel's test went out
+        // integrations: rawId is the entry's name
+        case "GET integrations/:id":
+          if (rawId !== "catalog") throw new demo.DemoError(404, "Not found");
+          return demo.CATALOG;
+        case "GET secrets":
+          return demo.listSecrets();
+        case "PUT secrets/:id":
+          return demo.putSecret(rawId, await body());
+        case "DELETE secrets/:id":
+          return demo.deleteSecret(rawId);
+        case "GET issuers":
+          return demo.listIssuers();
+        case "PUT issuers/:id":
+          return demo.putIssuer(rawId, await body());
+        case "DELETE issuers/:id":
+          return demo.deleteIssuer(rawId);
+        case "POST issuers/:id/test":
+          return demo.testIssuer(rawId);
+        case "GET dns-accounts":
+          return demo.listDns();
+        case "PUT dns-accounts/:id":
+          return demo.putDns(rawId, await body());
+        case "DELETE dns-accounts/:id":
+          return demo.deleteDns(rawId);
+        case "POST dns-accounts/:id/test":
+          return demo.testDns(rawId);
+        case "GET notifiers":
+          return demo.listNotifiers();
+        case "PUT notifiers/:id":
+          return demo.putNotifier(rawId, await body());
+        case "DELETE notifiers/:id":
+          return demo.deleteNotifier(rawId);
+        case "POST notifiers/:id/test":
+          return demo.testNotifier(rawId);
+        case "GET alert-rules":
+          return demo.listRules();
+        case "PUT alert-rules/:id":
+          return demo.putRule(rawId, await body());
+        case "DELETE alert-rules/:id":
+          return demo.deleteRule(rawId);
+        case "POST alert-rules/:id/test":
+          return demo.testRule(rawId);
         case "GET config":
           return demo.config();
         case "PUT config/:id":

@@ -74,7 +74,7 @@ def _inline_secrets(obj, path="") -> list[str]:
     found = []
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if isinstance(v, str) and v and SECRET_KEY.search(str(k)) and not v.startswith(("env:", "file:")):
+            if isinstance(v, str) and v and SECRET_KEY.search(str(k)) and not v.startswith(("env:", "file:", "vault:")):
                 found.append(f"{path}{k}")
             found += _inline_secrets(v, f"{path}{k}.")
     elif isinstance(obj, list):
@@ -462,11 +462,14 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     from .mcp_server import mount as mount_mcp
     mount_mcp(app, engine, lock)
 
+    from .api_config import mount as mount_config
+    mount_config(app, engine, lock, auth, actor, allow_commands, allow_inline)
+
     @app.post("/api/notifiers/test", dependencies=[Depends(auth)])
     def test_notifiers():
         sent = engine.notifier.send("test", wait=True)
         if not sent:
-            raise HTTPException(400, "no notifiers configured in settings.json")
+            raise HTTPException(400, "no alert channels configured")
         return {"sent": sent}
 
     @app.get("/api/config", dependencies=[Depends(auth)])

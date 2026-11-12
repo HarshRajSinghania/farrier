@@ -32,6 +32,7 @@ TITLES = {
     "superseded": "superseded by another certificate",
     "cancelled": "renewal cancelled",
     "test": "test notification",
+    "alert": "alert",
 }
 
 
@@ -55,7 +56,9 @@ def payload(event: str, renewal: dict | None, endpoint: dict | None, dashboard_u
 
 def _text(p: dict) -> str:
     where = f"{p['endpoint']} ({p['host']}:{p['port']})" if p.get("endpoint") else "Farrier"
-    line = f"Farrier · {where}: {TITLES.get(p['event'], p['event'])}"
+    line = f"Farrier · {where}: {p.get('condition') or TITLES.get(p['event'], p['event'])}"
+    if p.get("rule"):
+        line += f"\nAlert rule {p['rule']}"
     if p.get("error"):
         line += f"\n{p['error']}"
     if p.get("ticket"):
@@ -130,6 +133,9 @@ def send_email(cfg: dict, p: dict) -> None:
 
 
 class Notifier:
+    """Each config may carry a ``name`` (settings.json entries are settings-1, settings-2...; dashboard
+    channels their own name) so alert rules can address a channel."""
+
     def __init__(self, configs: list[dict] | None, dashboard_url: str | None, log):
         self.configs = [c for c in (configs or []) if isinstance(c, dict)
                         and (c.get("url") or c.get("type") in EMAIL_TYPES)]
@@ -137,36 +143,70 @@ class Notifier:
         self.log = log  # store.log(message, endpoint_id, renewal_id, level=...)
 
     def wants(self, cfg: dict, event: str) -> bool:
-        return event == "test" or event in (cfg.get("events") or DEFAULT_EVENTS)
+        events = cfg.get("events")
+        return event == "test" or event in (DEFAULT_EVENTS if events is None else events)
 
     def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False) -> list[str]:
         targets = [c for c in self.configs if self.wants(c, event)]
         if not targets:
             return []
         p = payload(event, renewal, endpoint, self.dashboard_url)
-        names = []
+        self._dispatch(targets, p, wait)
+        return [cfg.get("type", "webhook") for cfg in targets]
+
+    def send_to(self, names, p: dict, wait: bool = False) -> dict[str, bool | None]:
+        """Deliver a prepared payload to the named channels. Returns {name: delivered}; a value is None
+        while its delivery is still running (always, when not waiting)."""
+        wanted = set(names)
+        targets = [c for c in self.configs if c.get("name") in wanted]
+        results = self._dispatch(targets, p, wait)
+        return {c["name"]: results.get(id(c)) for c in targets}
+
+    def _dispatch(self, targets: list[dict], p: dict, wait: bool) -> dict[int, bool]:
+        results: dict[int, bool] = {}
         threads = []
         for cfg in targets:
-            kind = cfg.get("type", "webhook")
-            names.append(kind)
-            t = threading.Thread(target=self._deliver, args=(cfg, kind, p), daemon=True, name="farrier-notify")
+            t = threading.Thread(target=self._deliver, args=(cfg, cfg.get("type", "webhook"), p, results),
+                                 daemon=True, name="farrier-notify")
             t.start()
             threads.append(t)
         if wait:
             for t in threads:
                 t.join(6)
-        return names
+        return results
 
-    def _deliver(self, cfg: dict, kind: str, p: dict):
+    @staticmethod
+    def deliver_one(cfg: dict, p: dict) -> None:
+        """Deliver synchronously; raises on failure. Show errors through failure_detail only: the raw
+        text may contain the (secret) URL."""
+        kind = cfg.get("type", "webhook")
+        if kind in EMAIL_TYPES:
+            send_email(cfg, p)
+            return
+        url = resolve_secret(cfg["url"])
+        headers = {k: resolve_secret(v) for k, v in (cfg.get("headers") or {}).items()}
+        r = httpx.post(url, json=body_for(kind, p), headers=headers, timeout=5)
+        r.raise_for_status()
+
+    def _deliver(self, cfg: dict, kind: str, p: dict, results: dict | None = None):
         try:
-            if kind in EMAIL_TYPES:
-                send_email(cfg, p)
-                return
-            url = resolve_secret(cfg["url"])
-            headers = {k: resolve_secret(v) for k, v in (cfg.get("headers") or {}).items()}
-            r = httpx.post(url, json=body_for(kind, p), headers=headers, timeout=5)
-            r.raise_for_status()
+            self.deliver_one(cfg, p)
+            ok = True
         except Exception as e:  # noqa: BLE001 - a notifier must never break a renewal
+            ok = False
             # never log the URL: webhook URLs are secrets
             self.log(f"{kind} notification for {p['event']} failed: {type(e).__name__}", None, p.get("renewal_id"),
                      level="warning")
+        if results is not None:
+            results[id(cfg)] = ok
+
+
+def failure_detail(e: Exception) -> str:
+    """A delivery error as the dashboard may see it: never a URL or a credential."""
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"the receiver answered HTTP {e.response.status_code}"
+    if isinstance(e, KeyError):
+        return str(e.args[0]) if e.args else "a referenced secret is not set"
+    if isinstance(e, (ValueError, OSError)) and not isinstance(e, httpx.HTTPError):
+        return f"{type(e).__name__}: {e}"[:300]
+    return type(e).__name__

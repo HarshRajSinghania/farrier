@@ -751,7 +751,20 @@ def check_endpoint(engine, ep: dict, caa: bool = True) -> dict:
                    store=engine.store, endpoint=ep, timeout=float(engine.settings.get("scan_timeout", 5.0)), caa=caa)
     report["endpoint"] = ep["name"]
     last_reports(engine.store)[ep["id"]] = report
+    store_grade(engine.store, ep["id"], report["grade"], report["checked_at"])
     return report
+
+
+def store_grade(store, endpoint_id: int, grade_: str, checked_at: str) -> None:
+    """Keep the last grade per endpoint in the database, where health alert rules (on any replica) read it."""
+    try:
+        with store.transaction():
+            if not store._run("UPDATE health_results SET grade=?, checked_at=? WHERE endpoint_id=?",
+                              (grade_, checked_at, endpoint_id))[1]:
+                store.x("INSERT INTO health_results(endpoint_id, grade, checked_at) VALUES (?,?,?)",
+                        (endpoint_id, grade_, checked_at))
+    except Exception:  # noqa: BLE001 - a report is still useful when it can't be stored
+        pass
 
 
 def check_targets(engine, targets: list[tuple[str, int, str | None]], caa: bool = True, workers: int = 8) -> list[dict]:

@@ -16,19 +16,6 @@ a tag that doesn't match both versions and this file.
 
 ## [Unreleased]
 
-### Added
-
-- Let's Encrypt: renewal timing from the CA (ARI, RFC 9773) and `replaces` on new orders,
-  certificate profiles (`classic`, `tlsserver`, `shortlived`), preferred alternate chains,
-  and rate-limit handling with `Retry-After`.
-- CI runs the ACME client against Pebble, Let's Encrypt's ACME test server.
-- Dashboard Settings: edit the renewal policy; view CAs, DNS accounts, notifiers and the engine.
-- `GET /api/config` and `PUT /api/config/settings`.
-
-### Changed
-
-- The private CA adds key identifiers (AKI, SKI) to the certificates it issues.
-
 ## [0.1.0] - 2026-11-12
 
 First public release.
@@ -47,6 +34,18 @@ First public release.
 - MCP server for Claude, Gemini CLI, Codex and other MCP clients, read-only by default.
 - Web dashboard with OIDC single sign-on and viewer, operator and admin roles; docs and site.
 - Prometheus metrics, CSV inventory, and Slack, Teams, webhook and email (SMTP, SES) alerts.
+- Let's Encrypt: renewal timing from the CA (ARI, RFC 9773) and `replaces` on new orders,
+  certificate profiles (`classic`, `tlsserver`, `shortlived`), preferred alternate chains,
+  and rate-limit handling with `Retry-After`.
+- CI runs the ACME client against Pebble, Let's Encrypt's ACME test server.
+- Dashboard Settings: edit the renewal policy; view CAs, DNS accounts, notifiers and the engine.
+- `GET /api/config` and `PUT /api/config/settings`.
+- Configure certificate authorities, DNS accounts, alert channels and custom alert rules from the
+  dashboard; secrets are write-only, stored through a pluggable secret backend (sealed locally by
+  default) and referenced as `vault:NAME`.
+- Custom alert rules: renewal events, expiring within N days, health grade below a threshold,
+  zombie certificates and unreachable endpoints, with filters, channels and a cooldown.
+- The private CA issues certificates with key identifiers (AKI, SKI).
 
 [Unreleased]: https://github.com/gagankarthik/farrier/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/gagankarthik/farrier/releases/tag/v0.1.0

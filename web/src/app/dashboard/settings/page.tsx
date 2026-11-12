@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BellRing, CheckCircle2, CircleDashed, Save, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronRight, CircleDashed, Globe, Landmark, Save, XCircle } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { EmptyState, Skeleton } from "@/components/ui/misc";
-import { api, useConfig, useStatus, useSummary } from "@/lib/api";
+import { Skeleton } from "@/components/ui/misc";
+import { api, useAlertRules, useConfig, useDnsAccounts, useIssuers, useNotifiers, useStatus, useSummary } from "@/lib/api";
 import { useAccess } from "@/lib/auth/client";
 import type { EngineSettings } from "@/lib/types";
 
@@ -32,15 +32,6 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
       <dt className="text-muted-foreground">{k}</dt>
       <dd className="min-w-0 truncate text-right font-medium">{v}</dd>
     </div>
-  );
-}
-
-function FileHint({ file }: { file: string }) {
-  return (
-    <p className="mt-4 text-xs text-muted-foreground">
-      Edit <code className="font-mono">&lt;data&gt;/{file}</code> to change these. Credentials stay <code className="font-mono">env:</code> or{" "}
-      <code className="font-mono">file:</code> references.
-    </p>
   );
 }
 
@@ -155,12 +146,62 @@ function Policy() {
   );
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Links to the pages that configure CAs, DNS and alerts, with what each holds today. */
+function IntegrationsCard() {
+  const issuers = useIssuers();
+  const dns = useDnsAccounts();
+  const channels = useNotifiers();
+  const rules = useAlertRules();
+  const count = (q: { data?: unknown[]; error?: unknown }, text: (n: number) => string) =>
+    q.data ? text(q.data.length) : q.error ? "Unavailable" : null;
+  const links = [
+    { href: "/dashboard/integrations/authorities", icon: Landmark, label: "Certificate authorities", detail: count(issuers, (n) => plural(n, "authority", "authorities")) },
+    { href: "/dashboard/integrations/dns", icon: Globe, label: "DNS accounts", detail: count(dns, (n) => plural(n, "account")) },
+    {
+      href: "/dashboard/integrations/alerts",
+      icon: BellRing,
+      label: "Alerts",
+      detail: rules.data && channels.data
+        ? `${plural(rules.data.length, "rule")} · ${plural(channels.data.length, "channel")}`
+        : rules.error || channels.error ? "Unavailable" : null,
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Integrations</CardTitle>
+          <CardDescription>Where certificates come from, how names are validated, and who hears about it.</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-4">
+        <ul className="divide-y">
+          {links.map(({ href, icon: Icon, label, detail }) => (
+            <li key={href}>
+              <Link href={href} className="group -mx-2 flex items-center gap-4 rounded-md px-2 py-2 text-sm hover:bg-muted">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
+                  <Icon className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{label}</span>
+                  {detail === null ? <Skeleton className="mt-1 h-3 w-24" /> : <span className="block text-xs text-muted-foreground">{detail}</span>}
+                </span>
+                <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { data: cfg } = useConfig();
   const { data: st } = useStatus();
   const { data: s } = useSummary();
-  const { can } = useAccess();
-  const [test, setTest] = useState<{ ok?: string; error?: Error }>({});
 
   return (
     <>
@@ -168,135 +209,7 @@ export default function SettingsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Policy />
 
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Certificate authorities</CardTitle>
-              <CardDescription>Endpoints choose one with their issuer field.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {cfg?.issuers_error && <ErrorNotice error={new Error(cfg.issuers_error)} />}
-            {!cfg ? (
-              <Skeleton className="h-24" />
-            ) : (
-              <ul className="divide-y text-sm">
-                {cfg.issuers.map((i) => (
-                  <li key={i.name} className="flex items-center justify-between gap-4 py-2">
-                    <span className="min-w-0">
-                      <span className="block font-medium">{i.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {i.type === "local_ca" ? "Built-in private CA" : i.directory}
-                        {i.dns && ` · DNS ${i.dns}`}
-                        {i.eab && ` · EAB ${i.eab}`}
-                      </span>
-                    </span>
-                    <Badge tone={i.type === "local_ca" ? "neutral" : "brand"}>{i.preset ?? (i.type === "local_ca" ? "private" : "ACME")}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <FileHint file="issuers.json" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>DNS accounts</CardTitle>
-              <CardDescription>Used for DNS-01; the most specific zone wins.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {cfg?.dns_error && <ErrorNotice error={new Error(cfg.dns_error)} />}
-            {!cfg ? (
-              <Skeleton className="h-24" />
-            ) : cfg.dns_accounts.length === 0 ? (
-              <EmptyState
-                className="py-8"
-                title="No DNS accounts"
-                action={
-                  <Button asChild variant="secondary" size="sm">
-                    <Link href="/docs/dns">Add a DNS account</Link>
-                  </Button>
-                }
-              >
-                Issuers use their DNS hook, and the private CA needs none.
-              </EmptyState>
-            ) : (
-              <ul className="divide-y text-sm">
-                {cfg.dns_accounts.map((a) => (
-                  <li key={a.name} className="py-2">
-                    <span className="flex items-center justify-between gap-4">
-                      <span className="font-medium">{a.name}</span>
-                      <Badge tone="neutral">{a.provider}</Badge>
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {a.zones.join(", ") || "no zones"} · {Object.values(a.credentials).filter(Boolean).join(", ")}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <FileHint file="dns.json" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Notifications</CardTitle>
-              <CardDescription>Where Farrier says a renewal failed, rolled back or needs a person.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {!cfg ? (
-              <Skeleton className="h-16" />
-            ) : cfg.notifiers.length === 0 ? (
-              <EmptyState
-                className="py-8"
-                title="No notifications"
-                action={
-                  <Button asChild variant="secondary" size="sm">
-                    <Link href="/docs/configuration#notifications">Set up alerts</Link>
-                  </Button>
-                }
-              >
-                Send failures and change packs to Slack, Teams, a webhook or email.
-              </EmptyState>
-            ) : (
-              <ul className="divide-y text-sm">
-                {cfg.notifiers.map((n, k) => (
-                  <li key={k} className="flex items-center justify-between gap-4 py-2">
-                    <span className="font-medium capitalize">{n.type}</span>
-                    <span className="truncate text-xs text-muted-foreground">{n.events.join(", ").replaceAll("_", " ")}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {cfg && cfg.notifiers.length > 0 && can("POST", "notifiers/test") && (
-              <div className="mt-4 flex items-center gap-4">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={async () => {
-                    setTest({});
-                    try {
-                      const r = await api.testNotifiers();
-                      setTest({ ok: `Sent to ${r.sent}` });
-                    } catch (e) {
-                      setTest({ error: e as Error });
-                    }
-                  }}
-                >
-                  <BellRing /> Send a test
-                </Button>
-                {test.ok && <span className="text-sm text-good-fg">{test.ok}</span>}
-                {test.error && <span className="text-sm text-critical-fg">{test.error.message}</span>}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <IntegrationsCard />
 
         <Card>
           <CardHeader>

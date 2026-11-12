@@ -105,10 +105,60 @@ def _m3_one_open_renewal(d: Dialect) -> list[str]:
             d.create_index("ren_open_slot", "renewals", "open_slot", unique=True)]
 
 
+def _m4_ui_config(d: Dialect) -> list[str]:
+    """Configuration edited in the dashboard, shared by every replica.
+
+    secrets        index of vault:NAME -> (backend, external reference); see farrier.secret_backends
+    secret_values  the local backend's values, sealed under the master key
+    config_items   issuers, DNS accounts, notifiers and alert rules (JSON body, no secret values)
+    config_version one row; bumped on every change so other replicas reload on their next tick
+    alert_state    when each (rule, subject) last fired, for the cooldown (survives restarts and failover)
+    health_results the last health grade per endpoint, for health alert rules
+    """
+    s = d.table_suffix
+    return [
+        # the index: which backend holds each vault:NAME and under what reference (never a value)
+        f"""CREATE TABLE secrets (
+  name {d.key} NOT NULL PRIMARY KEY,
+  backend {d.key} NOT NULL,
+  ref {d.text} NOT NULL,
+  created_at {d.key} NOT NULL,
+  updated_at {d.key} NOT NULL
+){s}""",
+        # the "local" backend's storage: values sealed under the master key
+        f"""CREATE TABLE secret_values (
+  ref {d.key} NOT NULL PRIMARY KEY,
+  value_sealed {d.text} NOT NULL
+){s}""",
+        f"""CREATE TABLE config_items (
+  kind {d.key} NOT NULL,
+  name {d.key} NOT NULL,
+  body {d.text} NOT NULL,
+  updated_at {d.key} NOT NULL,
+  updated_by {d.key},
+  PRIMARY KEY (kind, name)
+){s}""",
+        f"CREATE TABLE config_version (id {d.int_} NOT NULL PRIMARY KEY, version {d.int_} NOT NULL){s}",
+        "INSERT INTO config_version(id, version) VALUES (1, 0)",
+        f"""CREATE TABLE alert_state (
+  rule {d.key} NOT NULL,
+  subject {d.key} NOT NULL,
+  fired_at {d.key} NOT NULL,
+  PRIMARY KEY (rule, subject)
+){s}""",
+        f"""CREATE TABLE health_results (
+  endpoint_id {d.ref} NOT NULL PRIMARY KEY,
+  grade {d.key} NOT NULL,
+  checked_at {d.key} NOT NULL
+){s}""",
+    ]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
     (3, "one open renewal per endpoint", _m3_one_open_renewal),
+    (4, "dashboard configuration, secrets and alert state", _m4_ui_config),
 ]
 
 

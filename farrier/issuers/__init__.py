@@ -62,20 +62,53 @@ def apply_preset(name: str, c: dict) -> dict:
     return c
 
 
-def load_issuers(data_dir: Path) -> dict:
+# Keys an issuers.json entry may hold, per type (anything else is a typo or a misplaced setting).
+ACME_KEYS = {"type", "preset", "directory_url", "email", "dns", "dns_hook", "propagation_seconds", "eab_kid",
+             "eab_hmac_key", "profile", "preferred_chain"}
+LOCAL_CA_KEYS = {"type", "name", "lifetime_days", "simulate_date"}
+
+
+def build_issuer(name: str, c: dict, data_dir: Path, dns_accounts=None):
+    """Construct one issuer from its issuers.json entry (no network). ``dns_accounts`` is an optional
+    callable returning the shared DnsAccounts (file + dashboard); without it ACME loads dns.json itself."""
+    c = dict(c)
+    if "preset" in c:
+        c = apply_preset(name, c)
+    c = {k: resolve_secret(v) for k, v in c.items()}
+    kind = c.pop("type", None)
+    if kind == "local_ca":
+        return LocalCA(data_dir, **c)
+    if kind == "acme":
+        if c.get("dns") and dns_accounts is not None and "dns_accounts" not in c:
+            c["dns_accounts"] = dns_accounts()
+        return AcmeIssuer(data_dir, **c)
+    raise ValueError(f"issuer {name}: unknown type {kind}")
+
+
+def file_issuer_configs(data_dir: Path) -> tuple[dict, bool]:
+    """(entries, from_file): issuers.json, or the built-in {"default": local_ca} when there is none."""
     path = Path(data_dir) / "issuers.json"
-    cfg = json.loads(path.read_text()) if path.exists() else {"default": {"type": "local_ca"}}
+    if path.exists():
+        return json.loads(path.read_text()), True
+    return {"default": {"type": "local_ca"}}, False
+
+
+def load_issuers(data_dir: Path, ui: dict | None = None, dns_accounts=None, log=None) -> dict:
+    """Issuers from issuers.json plus those configured in the dashboard (``ui``: name -> entry).
+    A file entry always wins; a dashboard entry may replace the built-in default. A broken dashboard
+    entry is logged and skipped so it can never stop the engine; a broken file entry raises as before."""
+    cfg, from_file = file_issuer_configs(data_dir)
     out = {}
     for name, c in cfg.items():
-        c = dict(c)
-        if "preset" in c:
-            c = apply_preset(name, c)
-        c = {k: resolve_secret(v) for k, v in c.items()}
-        kind = c.pop("type", None)
-        if kind == "local_ca":
-            out[name] = LocalCA(data_dir, **c)
-        elif kind == "acme":
-            out[name] = AcmeIssuer(data_dir, **c)
-        else:
-            raise ValueError(f"issuer {name}: unknown type {kind}")
+        if not from_file and name in (ui or {}):
+            continue
+        out[name] = build_issuer(name, c, data_dir, dns_accounts)
+    for name, c in (ui or {}).items():
+        if from_file and name in cfg:
+            continue
+        try:
+            out[name] = build_issuer(name, c, data_dir, dns_accounts)
+        except Exception as e:  # noqa: BLE001
+            if log:
+                log(f"issuer {name} (dashboard) not loaded: {e}", level="error")
     return out

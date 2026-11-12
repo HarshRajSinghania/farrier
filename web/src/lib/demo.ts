@@ -7,6 +7,15 @@
 import "server-only";
 import { forecastTimeline, maxLifetimeDays, dcvReuseDays, renewBeforeDays, SCHEDULE } from "./policy";
 import type {
+  AlertRule,
+  AlertWhen,
+  CatalogField,
+  DnsAccount,
+  IntegrationCatalog,
+  Issuer,
+  NotifierChannel,
+  SecretInfo,
+  TestResult,
   EngineSettings,
   FarrierConfig,
   HealthReport,
@@ -342,17 +351,9 @@ export function config(): FarrierConfig {
   return {
     settings: { ...demoSettings },
     limits: LIMITS,
-    issuers: [
-      { name: "default", type: "local_ca", preset: null, directory: null, email: null, dns: null, eab: null },
-      { name: "public", type: "acme", preset: "letsencrypt", directory: "acme-v02.api.letsencrypt.org", email: "pki@example.com", dns: "auto", eab: null },
-    ],
+    ...integrationConfig(),
     issuers_error: null,
-    dns_accounts: [
-      { name: "cf-prod", provider: "cloudflare", zones: ["example.com"], credentials: { api_token: "env:FARRIER_SECRET_CF_PROD" } },
-      { name: "aws-main", provider: "route53", zones: ["example.net"], credentials: { access_key_id: "env:FARRIER_SECRET_AWS_ID", secret_access_key: "env:FARRIER_SECRET_AWS_KEY" } },
-    ],
     dns_error: null,
-    notifiers: [{ type: "slack", events: ["failed", "rolled_back", "awaiting_manual"] }],
     engine: { backend: "sqlite", leader: true, replica: "demo", schema_version: 3, data_dir: "(demo)", mcp_writes: false },
   };
 }
@@ -580,4 +581,493 @@ export class DemoError extends Error {
   ) {
     super(message);
   }
+}
+
+/* ------------------------------------------------------------ integrations */
+// The same shapes and refusals as the engine's integration routes, in memory.
+
+const fld = (key: string, label: string, opts: Partial<CatalogField> = {}): CatalogField => ({
+  key, label, secret: false, required: true, help: null, ...opts,
+});
+const secretFld = (key: string, label: string, opts: Partial<CatalogField> = {}) => fld(key, label, { secret: true, ...opts });
+const optionalFld = (key: string, label: string, help?: string) => fld(key, label, { required: false, help: help ?? null });
+
+export const CATALOG: IntegrationCatalog = {
+  dns_providers: [
+    { id: "cloudflare", label: "Cloudflare", fields: [secretFld("api_token", "API token", { help: "A token with Zone:Read and DNS:Edit on the zones below." })] },
+    { id: "route53", label: "Amazon Route 53", fields: [
+      secretFld("access_key_id", "Access key ID", { required: false, help: "Leave both keys empty to use the instance or pod role." }),
+      secretFld("secret_access_key", "Secret access key", { required: false }),
+      optionalFld("region", "Region", "Defaults to us-east-1."),
+      optionalFld("hosted_zone_id", "Hosted zone ID", "Skips the zone lookup when set."),
+    ] },
+    { id: "azure", label: "Azure DNS", fields: [
+      fld("tenant_id", "Tenant ID"), fld("client_id", "Client ID"), secretFld("client_secret", "Client secret"),
+      fld("subscription_id", "Subscription ID"), fld("resource_group", "Resource group"),
+    ] },
+    { id: "gcloud", label: "Google Cloud DNS", fields: [
+      fld("project", "Project ID"),
+      secretFld("service_account_json", "Service account key (JSON)", { required: false, help: "Leave empty to use workload identity." }),
+    ] },
+    { id: "digitalocean", label: "DigitalOcean", fields: [secretFld("auth_token", "API token")] },
+    { id: "godaddy", label: "GoDaddy", fields: [secretFld("api_key", "API key"), secretFld("api_secret", "API secret")] },
+    { id: "hetzner", label: "Hetzner DNS", fields: [secretFld("api_token", "API token")] },
+    { id: "namecheap", label: "Namecheap", fields: [
+      fld("api_user", "API user"), secretFld("api_key", "API key"),
+      fld("client_ip", "Allowed client IP", { help: "The engine's public IP, allow-listed in Namecheap." }),
+    ] },
+    { id: "ovh", label: "OVHcloud", fields: [
+      fld("endpoint", "Endpoint", { help: "ovh-eu, ovh-ca or ovh-us." }), fld("application_key", "Application key"),
+      secretFld("application_secret", "Application secret"), secretFld("consumer_key", "Consumer key"),
+    ] },
+    { id: "porkbun", label: "Porkbun", fields: [secretFld("api_key", "API key"), secretFld("secret_api_key", "Secret API key")] },
+    { id: "scaleway", label: "Scaleway", fields: [secretFld("secret_key", "Secret key"), optionalFld("project_id", "Project ID")] },
+    { id: "vultr", label: "Vultr", fields: [secretFld("api_key", "API key")] },
+    { id: "edgedns", label: "Akamai Edge DNS", fields: [
+      fld("host", "API host"), secretFld("client_token", "Client token"), secretFld("client_secret", "Client secret"),
+      secretFld("access_token", "Access token"),
+    ] },
+    { id: "infomaniak", label: "Infomaniak", fields: [secretFld("access_token", "Access token")] },
+    { id: "linode", label: "Akamai Cloud (Linode)", fields: [secretFld("token", "Personal access token")] },
+    { id: "gandi", label: "Gandi", fields: [secretFld("personal_access_token", "Personal access token")] },
+    { id: "powerdns", label: "PowerDNS", fields: [
+      fld("api_url", "API URL"), secretFld("api_key", "API key"), optionalFld("server_id", "Server ID", "Defaults to localhost."),
+    ] },
+    { id: "rfc2136", label: "RFC 2136 (BIND, Windows DNS)", fields: [
+      fld("nameserver", "Nameserver", { help: "host:port of the primary." }), fld("tsig_key", "TSIG key name"),
+      secretFld("tsig_secret", "TSIG secret"), optionalFld("tsig_algorithm", "TSIG algorithm", "Defaults to hmac-sha256."),
+    ] },
+  ],
+  ca_presets: [
+    { id: "letsencrypt", label: "Let's Encrypt", eab: false, needs_directory_url: false, staging: false },
+    { id: "letsencrypt-staging", label: "Let's Encrypt (staging)", eab: false, needs_directory_url: false, staging: true },
+    { id: "zerossl", label: "ZeroSSL", eab: true, needs_directory_url: false, staging: false },
+    { id: "google", label: "Google Trust Services", eab: true, needs_directory_url: false, staging: false },
+    { id: "google-staging", label: "Google Trust Services (staging)", eab: true, needs_directory_url: false, staging: true },
+    { id: "buypass", label: "Buypass", eab: false, needs_directory_url: false, staging: false },
+    { id: "sslcom", label: "SSL.com", eab: true, needs_directory_url: false, staging: false },
+    { id: "digicert", label: "DigiCert", eab: true, needs_directory_url: false, staging: false },
+    { id: "sectigo", label: "Sectigo", eab: true, needs_directory_url: true, staging: false },
+    { id: "local_ca", label: "Built-in private CA", eab: false, needs_directory_url: false, staging: false },
+  ],
+  notifier_types: [
+    { id: "slack", label: "Slack", fields: [
+      secretFld("webhook_url", "Incoming webhook URL"),
+      optionalFld("channel", "Channel", "Shown in the list; the webhook decides where it posts."),
+    ] },
+    { id: "teams", label: "Microsoft Teams", fields: [secretFld("webhook_url", "Workflow webhook URL")] },
+    { id: "webhook", label: "Webhook", fields: [
+      fld("url", "URL", { help: "Receives a JSON POST per alert." }),
+      secretFld("hmac_secret", "Signing secret", { required: false, help: "Signs each body with HMAC-SHA256 in X-Farrier-Signature." }),
+    ] },
+    { id: "email", label: "Email (SMTP)", fields: [
+      fld("host", "SMTP host"), optionalFld("port", "Port", "587 with STARTTLS by default."), optionalFld("username", "Username"),
+      secretFld("password", "Password", { required: false }), fld("from", "From address"), fld("to", "To", { help: "Comma-separated addresses." }),
+    ] },
+    { id: "ses", label: "Amazon SES", fields: [
+      fld("region", "Region"), fld("from", "From address"), fld("to", "To", { help: "Comma-separated addresses." }),
+      secretFld("access_key_id", "Access key ID", { required: false, help: "Leave both keys empty to use the instance or pod role." }),
+      secretFld("secret_access_key", "Secret access key", { required: false }),
+    ] },
+  ],
+  alert_rule_types: [
+    { id: "expiring", label: "Certificate expiring" },
+    { id: "event", label: "Renewal event" },
+    { id: "health", label: "Health grade drops" },
+    { id: "zombie", label: "Zombie certificate found" },
+    { id: "unreachable", label: "Endpoint unreachable" },
+  ],
+};
+
+const DIRECTORY: Record<string, string> = {
+  letsencrypt: "https://acme-v02.api.letsencrypt.org/directory",
+  "letsencrypt-staging": "https://acme-staging-v02.api.letsencrypt.org/directory",
+  zerossl: "https://acme.zerossl.com/v2/DV90",
+  google: "https://dv.acme-v02.api.pki.goog/directory",
+  "google-staging": "https://dv.acme-v02.test-api.pki.goog/directory",
+  buypass: "https://api.buypass.com/acme/directory",
+  sslcom: "https://acme.ssl.com/sslcom-dv-ecc",
+  digicert: "https://acme.digicert.com/v2/acme/directory/",
+};
+const ALERT_EVENTS = ["failed", "rolled_back", "awaiting_manual", "done", "issued"];
+const PROFILES = ["classic", "tlsserver", "shortlived"];
+const GRADES = ["A", "B", "C", "D"];
+
+interface StoredSecret extends Omit<SecretInfo, "used_by"> {
+  value: string;
+}
+type StoredNotifier = { name: string; source: "file" | "ui"; type: string; events: string[]; fields: Record<string, string> };
+interface IntegrationStore {
+  secrets: StoredSecret[];
+  issuers: Issuer[];
+  dns: DnsAccount[];
+  notifiers: StoredNotifier[];
+  rules: AlertRule[];
+}
+
+const gi = globalThis as unknown as { __farrierIntegrations?: IntegrationStore };
+
+function seedIntegrations(): IntegrationStore {
+  const now = Date.now();
+  return {
+    secrets: [
+      { name: "dns-cf-prod-api_token", value: "demo", created_at: isoAt(now - 40 * DAY), updated_at: isoAt(now - 40 * DAY) },
+      { name: "notifier-ops-slack-webhook_url", value: "demo", created_at: isoAt(now - 30 * DAY), updated_at: isoAt(now - 30 * DAY) },
+    ],
+    issuers: [
+      { name: "default", source: "file", type: "local_ca", preset: "local_ca", directory_url: null, email: null, dns: null,
+        profile: null, preferred_chain: null, eab_kid: null, eab_hmac_key: null },
+      { name: "letsencrypt", source: "ui", type: "acme", preset: "letsencrypt", directory_url: DIRECTORY.letsencrypt,
+        email: "pki@example.com", dns: "auto", profile: "tlsserver", preferred_chain: null, eab_kid: null, eab_hmac_key: null },
+    ],
+    dns: [
+      { name: "cf-prod", source: "ui", provider: "cloudflare", zones: ["example.com"],
+        credentials: { api_token: "vault:dns-cf-prod-api_token" }, options: {} },
+    ],
+    notifiers: [
+      { name: "ops-slack", source: "ui", type: "slack", events: ["failed", "rolled_back", "awaiting_manual"],
+        fields: { webhook_url: "vault:notifier-ops-slack-webhook_url", channel: "#pki-ops" } },
+    ],
+    rules: [
+      { name: "expiring-21d", enabled: true, when: { type: "expiring", days: 21 }, filter: null, channels: ["ops-slack"],
+        cooldown_hours: 24, last_fired_at: isoAt(now - 2 * DAY) },
+      { name: "renewal-failed", enabled: true, when: { type: "event", events: ["failed", "rolled_back"] }, filter: null,
+        channels: ["ops-slack"], cooldown_hours: 0, last_fired_at: isoAt(now - 3 * DAY) },
+    ],
+  };
+}
+
+function ix(): IntegrationStore {
+  gi.__farrierIntegrations ??= seedIntegrations();
+  return gi.__farrierIntegrations;
+}
+
+const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const REF = /^(vault:[A-Za-z0-9][A-Za-z0-9_-]{0,127}|env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/;
+const INLINE = "Use a stored secret or an env:/file: reference";
+
+function checkName(name: string, what: string) {
+  if (!NAME.test(name)) throw new DemoError(400, `${what} names use letters, digits, - and _ (up to 64)`);
+}
+const str = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
+const strList = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+const hostOf = (url: string | null) => {
+  try {
+    return url ? new URL(url).host : null;
+  } catch {
+    return url;
+  }
+};
+
+/** A secret field's value must be a reference, and a vault reference must exist. */
+function checkRef(v: unknown, field: string): string {
+  const ref = str(v);
+  if (!REF.test(ref)) throw new DemoError(400, `${field}: ${INLINE}`);
+  if (ref.startsWith("vault:") && !ix().secrets.some((s) => s.name === ref.slice(6)))
+    throw new DemoError(400, `${field}: no stored secret named ${ref.slice(6)}`);
+  return ref;
+}
+
+function refuseFile(entry: { source: string; name: string } | undefined, file: string) {
+  if (entry?.source === "file") throw new DemoError(409, `${entry.name} is managed in ${file}; edit the file to change it`);
+}
+
+/* secrets */
+
+function refsByOwner(): [string, string[]][] {
+  const s = ix();
+  return [
+    ...s.issuers.map((i): [string, string[]] => [`issuer:${i.name}`, [i.eab_hmac_key ?? ""]]),
+    ...s.dns.map((d): [string, string[]] => [`dns:${d.name}`, Object.values(d.credentials).map((v) => v ?? "")]),
+    ...s.notifiers.map((n): [string, string[]] => [`notifier:${n.name}`, Object.values(n.fields)]),
+  ];
+}
+
+export function listSecrets(): SecretInfo[] {
+  const owners = refsByOwner();
+  return ix().secrets.map((s) => ({
+    name: s.name,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    used_by: owners.filter(([, refs]) => refs.includes(`vault:${s.name}`)).map(([o]) => o),
+  }));
+}
+
+export function putSecret(name: string, body: Record<string, unknown>) {
+  checkName(name, "Secret");
+  const value = typeof body.value === "string" ? body.value : "";
+  if (!value.trim()) throw new DemoError(400, "value is required");
+  if (value.length > 16_384) throw new DemoError(400, "value is too long");
+  const now = isoAt(Date.now());
+  const s = ix().secrets.find((x) => x.name === name);
+  if (s) Object.assign(s, { value, updated_at: now });
+  else ix().secrets.push({ name, value, created_at: now, updated_at: now });
+  return { ok: true };
+}
+
+export function deleteSecret(name: string) {
+  const s = listSecrets().find((x) => x.name === name);
+  if (!s) throw new DemoError(404, `no secret named ${name}`);
+  if (s.used_by.length) throw new DemoError(409, `${name} is in use by ${s.used_by.join(", ")}`);
+  ix().secrets = ix().secrets.filter((x) => x.name !== name);
+  return { ok: true };
+}
+
+/* issuers */
+
+export const listIssuers = (): Issuer[] => ix().issuers.map((i) => ({ ...i }));
+
+export function putIssuer(name: string, b: Record<string, unknown>) {
+  checkName(name, "Issuer");
+  const s = ix();
+  const existing = s.issuers.find((i) => i.name === name);
+  refuseFile(existing, "issuers.json");
+  const presetId = str(b.preset);
+  const preset = presetId ? CATALOG.ca_presets.find((p) => p.id === presetId) : undefined;
+  if (presetId && !preset) throw new DemoError(400, `unknown preset ${presetId}`);
+  const type = preset ? (preset.id === "local_ca" ? "local_ca" : "acme") : str(b.type);
+  if (!["acme", "local_ca"].includes(type)) throw new DemoError(400, "choose a preset, or type acme with a directory_url");
+  const out: Issuer = {
+    name, source: "ui", type, preset: preset?.id ?? null, directory_url: null, email: null, dns: null,
+    profile: null, preferred_chain: null, eab_kid: null, eab_hmac_key: null,
+  };
+  if (type === "acme") {
+    const email = str(b.email);
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new DemoError(400, "email is not a valid address");
+    const dir = str(b.directory_url) || (preset ? DIRECTORY[preset.id] ?? "" : "");
+    if (!/^https:\/\/\S+$/.test(dir)) throw new DemoError(400, "directory_url must be an https:// URL");
+    const dns = str(b.dns) || "auto";
+    if (dns !== "auto" && !s.dns.some((d) => d.name === dns)) throw new DemoError(400, `no DNS account named ${dns}`);
+    const profile = str(b.profile);
+    if (profile && !PROFILES.includes(profile)) throw new DemoError(400, `profile must be one of ${PROFILES.join(", ")}`);
+    if (str(b.eab_hmac_key)) out.eab_hmac_key = checkRef(b.eab_hmac_key, "eab_hmac_key");
+    out.eab_kid = str(b.eab_kid) || null;
+    if (preset?.eab && (!out.eab_kid || !out.eab_hmac_key))
+      throw new DemoError(400, `${preset.label} needs an EAB key ID and HMAC key from your CA account`);
+    Object.assign(out, {
+      email: email || null, directory_url: dir, dns, profile: profile || null, preferred_chain: str(b.preferred_chain) || null,
+    });
+  }
+  if (existing) Object.assign(existing, out);
+  else s.issuers.push(out);
+  return out;
+}
+
+export function deleteIssuer(name: string) {
+  const s = ix();
+  const i = s.issuers.find((x) => x.name === name);
+  if (!i) throw new DemoError(404, `no issuer named ${name}`);
+  refuseFile(i, "issuers.json");
+  const users = db().endpoints.filter((e) => e.issuer === name).map((e) => e.name);
+  if (users.length) throw new DemoError(409, `${users.length} endpoint(s) use ${name}, including ${users.slice(0, 3).join(", ")}`);
+  s.issuers = s.issuers.filter((x) => x.name !== name);
+  return { ok: true };
+}
+
+export function testIssuer(name: string): TestResult {
+  const i = ix().issuers.find((x) => x.name === name);
+  if (!i) throw new DemoError(404, `no issuer named ${name}`);
+  if (i.type === "local_ca") return { ok: true, detail: "Private CA key loaded; it signs certificates locally." };
+  return {
+    ok: true,
+    detail: `Reached ${hostOf(i.directory_url) ?? "the directory"} and found the ACME account${i.email ? ` for ${i.email}` : ""} (demo: nothing contacted).`,
+  };
+}
+
+/* DNS accounts */
+
+export const listDns = (): DnsAccount[] => ix().dns.map((d) => ({ ...d, zones: [...d.zones] }));
+
+export function putDns(name: string, b: Record<string, unknown>) {
+  checkName(name, "DNS account");
+  const s = ix();
+  const existing = s.dns.find((d) => d.name === name);
+  refuseFile(existing, "dns.json");
+  const provider = CATALOG.dns_providers.find((p) => p.id === str(b.provider));
+  if (!provider) throw new DemoError(400, `unknown provider ${str(b.provider) || "(none)"}`);
+  const creds = (b.credentials ?? {}) as Record<string, unknown>;
+  const opts = (b.options ?? {}) as Record<string, unknown>;
+  const credentials: Record<string, string> = {};
+  const options: Record<string, string> = {};
+  for (const field of provider.fields) {
+    const v = field.secret ? creds[field.key] : opts[field.key];
+    if (!str(v)) {
+      if (field.required) throw new DemoError(400, `${field.label} is required for ${provider.label}`);
+      continue;
+    }
+    if (field.secret) credentials[field.key] = checkRef(v, field.key);
+    else options[field.key] = str(v);
+  }
+  const zones = strList(b.zones).map((z) => z.toLowerCase());
+  for (const z of zones) if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(z)) throw new DemoError(400, `${z} is not a DNS zone`);
+  const out: DnsAccount = { name, source: "ui", provider: provider.id, zones, credentials, options };
+  if (existing) Object.assign(existing, out);
+  else s.dns.push(out);
+  return out;
+}
+
+export function deleteDns(name: string) {
+  const s = ix();
+  const d = s.dns.find((x) => x.name === name);
+  if (!d) throw new DemoError(404, `no DNS account named ${name}`);
+  refuseFile(d, "dns.json");
+  const users = s.issuers.filter((i) => i.dns === name).map((i) => i.name);
+  if (users.length) throw new DemoError(409, `Issuer ${users.join(", ")} uses ${name}. Point it at another account first.`);
+  s.dns = s.dns.filter((x) => x.name !== name);
+  return { ok: true };
+}
+
+export function testDns(name: string): TestResult {
+  const d = ix().dns.find((x) => x.name === name);
+  if (!d) throw new DemoError(404, `no DNS account named ${name}`);
+  const label = CATALOG.dns_providers.find((p) => p.id === d.provider)?.label ?? d.provider;
+  const zones = [...new Set([...d.zones, "example.org", "internal.example.com"])];
+  return { ok: true, detail: `Signed in to ${label}; ${zones.length} zones visible (demo data).`, zones };
+}
+
+/* notifiers */
+
+function shownTarget(n: StoredNotifier) {
+  const v = n.fields;
+  if (n.type === "slack") return v.channel || "Slack webhook";
+  if (n.type === "teams") return "Teams workflow";
+  if (n.type === "webhook") return hostOf(v.url ?? null);
+  return v.to || null;
+}
+
+export function listNotifiers(): NotifierChannel[] {
+  return ix().notifiers.map((n) => ({
+    ...n.fields, name: n.name, source: n.source, type: n.type, events: [...n.events], target: shownTarget(n),
+  }));
+}
+
+export function putNotifier(name: string, b: Record<string, unknown>) {
+  checkName(name, "Channel");
+  const s = ix();
+  const existing = s.notifiers.find((n) => n.name === name);
+  refuseFile(existing, "notifiers.json");
+  const type = CATALOG.notifier_types.find((t) => t.id === str(b.type));
+  if (!type) throw new DemoError(400, `unknown channel type ${str(b.type) || "(none)"}`);
+  const fields: Record<string, string> = {};
+  for (const field of type.fields) {
+    // an omitted secret keeps the stored reference, so an edit never needs the value again
+    const v = field.key in b ? b[field.key] : field.secret && existing?.type === type.id ? existing.fields[field.key] : undefined;
+    if (!str(v)) {
+      if (field.required) throw new DemoError(400, `${field.label} is required for ${type.label}`);
+      continue;
+    }
+    fields[field.key] = field.secret ? checkRef(v, field.key) : str(v);
+  }
+  if (type.id === "webhook" && !/^https?:\/\/\S+$/.test(fields.url)) throw new DemoError(400, "url must start with https://");
+  const events = Array.isArray(b.events) ? strList(b.events) : existing?.events ?? [];
+  const bad = events.find((e) => !ALERT_EVENTS.includes(e));
+  if (bad) throw new DemoError(400, `unknown event ${bad}`);
+  const out: StoredNotifier = { name, source: "ui", type: type.id, events, fields };
+  if (existing) Object.assign(existing, out);
+  else s.notifiers.push(out);
+  return listNotifiers().find((n) => n.name === name);
+}
+
+export function deleteNotifier(name: string) {
+  const s = ix();
+  const n = s.notifiers.find((x) => x.name === name);
+  if (!n) throw new DemoError(404, `no channel named ${name}`);
+  refuseFile(n, "notifiers.json");
+  const users = s.rules.filter((r) => r.channels.includes(name)).map((r) => r.name);
+  if (users.length) throw new DemoError(409, `Rule ${users.join(", ")} sends to ${name}. Remove it from the rule first.`);
+  s.notifiers = s.notifiers.filter((x) => x.name !== name);
+  return { ok: true };
+}
+
+export function testNotifier(name: string): TestResult {
+  const n = listNotifiers().find((x) => x.name === name);
+  if (!n) throw new DemoError(404, `no channel named ${name}`);
+  return { ok: true, detail: `Demo mode: nothing was sent. A live server posts a test message to ${n.target ?? n.type}.` };
+}
+
+/* alert rules */
+
+export const listRules = (): AlertRule[] => ix().rules.map((r) => ({ ...r }));
+
+function checkWhen(w: unknown): AlertWhen {
+  const v = (w ?? {}) as Record<string, unknown>;
+  const days = (min: number, max: number) => {
+    const d = Number(v.days);
+    if (!Number.isInteger(d) || d < min || d > max) throw new DemoError(400, `days must be a whole number from ${min} to ${max}`);
+    return d;
+  };
+  switch (v.type) {
+    case "event": {
+      const events = strList(v.events);
+      if (!events.length) throw new DemoError(400, "choose at least one event");
+      const bad = events.find((e) => !ALERT_EVENTS.includes(e));
+      if (bad) throw new DemoError(400, `unknown event ${bad}`);
+      return { type: "event", events };
+    }
+    case "expiring":
+      return { type: "expiring", days: days(1, 365) };
+    case "unreachable":
+      return { type: "unreachable", days: days(1, 90) };
+    case "health":
+      if (!GRADES.includes(String(v.below))) throw new DemoError(400, "below must be A, B, C or D");
+      return { type: "health", below: v.below as "A" | "B" | "C" | "D" };
+    case "zombie": {
+      const kinds = strList(v.kinds);
+      return kinds.length ? { type: "zombie", kinds } : { type: "zombie" };
+    }
+    default:
+      throw new DemoError(400, "when.type must be event, expiring, health, zombie or unreachable");
+  }
+}
+
+export function putRule(name: string, b: Record<string, unknown>) {
+  checkName(name, "Rule");
+  const s = ix();
+  const channels = strList(b.channels);
+  if (!channels.length) throw new DemoError(400, "a rule needs at least one channel");
+  const missing = channels.find((c) => !s.notifiers.some((n) => n.name === c));
+  if (missing) throw new DemoError(400, `no channel named ${missing}`);
+  const cooldown = b.cooldown_hours === undefined || b.cooldown_hours === null ? 24 : Number(b.cooldown_hours);
+  if (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 720) throw new DemoError(400, "cooldown_hours must be 0 to 720");
+  const fl = (b.filter ?? {}) as Record<string, unknown>;
+  const tags = strList(fl.tags);
+  const connectors = strList(fl.connectors);
+  const pattern = str(fl.name);
+  const filter: AlertRule["filter"] =
+    tags.length || connectors.length || pattern
+      ? { ...(tags.length ? { tags } : {}), ...(connectors.length ? { connectors } : {}), ...(pattern ? { name: pattern } : {}) }
+      : null;
+  const existing = s.rules.find((r) => r.name === name);
+  const out: AlertRule = {
+    name, enabled: b.enabled !== false, when: checkWhen(b.when), filter, channels, cooldown_hours: cooldown,
+    last_fired_at: existing?.last_fired_at ?? null,
+  };
+  if (existing) Object.assign(existing, out);
+  else s.rules.push(out);
+  return out;
+}
+
+export function deleteRule(name: string) {
+  const s = ix();
+  if (!s.rules.some((r) => r.name === name)) throw new DemoError(404, `no rule named ${name}`);
+  s.rules = s.rules.filter((r) => r.name !== name);
+  return { ok: true };
+}
+
+export function testRule(name: string) {
+  const r = ix().rules.find((x) => x.name === name);
+  if (!r) throw new DemoError(404, `no rule named ${name}`);
+  return { ok: true, sent: r.channels.length };
+}
+
+/** The read-only /config view of the same integrations. */
+function integrationConfig(): Pick<FarrierConfig, "issuers" | "dns_accounts" | "notifiers"> {
+  const s = ix();
+  return {
+    issuers: s.issuers.map((i) => ({
+      name: i.name, type: i.type, preset: i.preset, directory: hostOf(i.directory_url), email: i.email, dns: i.dns, eab: i.eab_kid,
+    })),
+    dns_accounts: s.dns.map((d) => ({ name: d.name, provider: d.provider, zones: d.zones, credentials: d.credentials })),
+    notifiers: s.notifiers.map((n) => ({ type: n.type, events: n.events })),
+  };
 }

@@ -20,13 +20,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import policy
+from .alerts import Alerts
 from .connectors import Bundle, is_automated, make_connector
 from .db import OPEN_STATES, Store, now_iso, parse_dt
 from .discovery import fetch_cert
-from .issuers import load_issuers
+from .integrations import ConfigItems
+from .issuers import build_issuer, load_issuers
 from .notify import Notifier
 from .scheduler import level, next_window_start
-from .vault import PROTECTED_DIRS
+from .secrets_store import SecretStore
+from .vault import PROTECTED_DIRS, set_vault_lookup
 from .x509util import build_csr, generate_key, key_to_pem, parse_pem
 
 DEFAULT_SETTINGS = {
@@ -55,11 +58,19 @@ class Engine:
         sp = self.data_dir / "settings.json"
         file_settings = json.loads(sp.read_text()) if sp.exists() else {}
         self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
-        self._issuers = issuers
-        self.notifier = Notifier(self.settings.get("notifiers"),
-                                 self.settings.get("dashboard_url") or os.environ.get("FARRIER_DASHBOARD_URL"),
-                                 self.store.log)
-        self._lease = None                      # leader lease, opened on the first tick
+        # issuers passed in (tests, embedding) are kept; dashboard-configured ones are added around them
+        self._explicit_issuers = issuers
+        self._issuers = None
+        self._dns_accounts = None
+        # dashboard configuration (database): secrets resolve as vault:NAME, other replicas' changes are
+        # noticed through the config version (check_config, every tick)
+        self.items = ConfigItems(self.store)
+        self.secrets = SecretStore(self.store)
+        set_vault_lookup(self.secrets.get)
+        self._config_version = self.items.version()
+        self.notifier = self._build_notifier()
+        self.alerts = Alerts(self)
+        self._lease = None                     # leader lease, opened on the first tick
         self._tick_lock = threading.Lock()      # held for the duration of a tick
         self._stopping = threading.Event()
 
@@ -107,8 +118,53 @@ class Engine:
     @property
     def issuers(self) -> dict:
         if self._issuers is None:
-            self._issuers = load_issuers(self.data_dir)
+            ui = self.items.all("issuer")
+            if self._explicit_issuers is not None:
+                built = {}
+                for name, c in ui.items():
+                    if name in self._explicit_issuers:
+                        continue
+                    try:
+                        built[name] = build_issuer(name, c, self.data_dir, lambda: self.dns_accounts)
+                    except Exception as e:  # noqa: BLE001
+                        self.store.log(f"issuer {name} (dashboard) not loaded: {e}", level="error")
+                self._issuers = {**built, **self._explicit_issuers}
+            else:
+                self._issuers = load_issuers(self.data_dir, ui, lambda: self.dns_accounts, self.store.log)
         return self._issuers
+
+    @property
+    def dns_accounts(self):
+        """dns.json plus the dashboard's DNS accounts (shared by every ACME issuer)."""
+        if self._dns_accounts is None:
+            from .integrations import load_dns_accounts
+            self._dns_accounts = load_dns_accounts(self)
+        return self._dns_accounts
+
+    def _build_notifier(self) -> Notifier:
+        from .integrations import notifier_list
+        return Notifier(notifier_list(self),
+                        self.settings.get("dashboard_url") or os.environ.get("FARRIER_DASHBOARD_URL"),
+                        self.store.log)
+
+    def reload_config(self) -> None:
+        """Pick up configuration changes without a restart: issuers, DNS accounts and alert channels
+        are rebuilt on next use. Alert rules are read from the database each time anyway."""
+        self._config_version = self.items.version()
+        self._issuers = None
+        self._dns_accounts = None
+        self.notifier = self._build_notifier()
+
+    def check_config(self) -> bool:
+        """Reload if another replica (or the API) changed the configuration. Returns True on reload."""
+        try:
+            v = self.items.version()
+        except Exception:  # noqa: BLE001 - a database blip must not stop the tick
+            return False
+        if v == self._config_version:
+            return False
+        self.reload_config()
+        return True
 
     def connector(self, ep: dict):
         return make_connector(ep["connector"], ep["connector_config"], self.data_dir)
@@ -241,7 +297,12 @@ class Engine:
 
     def _notify(self, event: str, rid: int):
         r = self.store.renewal(rid)
-        self.notifier.send(event, r, self.store.endpoint(r["endpoint_id"]) if r else None)
+        ep = self.store.endpoint(r["endpoint_id"]) if r else None
+        self.notifier.send(event, r, ep)
+        try:
+            self.alerts.on_event(event, r, ep)
+        except Exception as e:  # noqa: BLE001 - alerting must never break a renewal
+            self.store.log(f"alert rules for {event} failed: {type(e).__name__}: {e}", level="warning")
 
     def _advance(self, rid: int, now: datetime | None = None) -> str:
         now = now or policy.utcnow()
@@ -436,6 +497,7 @@ class Engine:
         """One scan/plan/advance cycle, run only by the leader replica. A follower (or a replica
         shutting down) returns at once with ``skipped`` set; it re-tries for the lease every call,
         so it takes over within one cycle of the leader going away."""
+        self.check_config()  # every replica, leader or not, follows configuration changes
         if not self.try_lead():
             return {"planned": 0, "states": {}, "leader": False,
                     "skipped": "shutting down" if self._stopping.is_set() else "follower"}
@@ -455,4 +517,12 @@ class Engine:
         for r in self.store.renewals(OPEN_STATES, limit=100000):
             states[self.advance(r["id"], now)] += 1
         self.sweep_packs()
-        return {"planned": len(planned), "states": dict(states)}
+        out = {"planned": len(planned), "states": dict(states)}
+        try:
+            alerts = self.alerts.evaluate(now)
+        except Exception as e:  # noqa: BLE001
+            self.store.log(f"alert rule evaluation failed: {type(e).__name__}: {e}", level="error")
+            alerts = 0
+        if alerts:
+            out["alerts"] = alerts
+        return out

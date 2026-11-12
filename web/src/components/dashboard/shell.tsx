@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  BellRing,
   BookOpen,
   CalendarClock,
   Gauge,
-
+  Globe,
+  Landmark,
   LayoutDashboard,
   Plug,
   Radar,
@@ -41,6 +43,14 @@ const NAV = [
       { href: "/dashboard/forecast", label: "Forecast", icon: Gauge },
       { href: "/dashboard/health", label: "Health", icon: ShieldCheck },
       { href: "/dashboard/activity", label: "Activity", icon: Activity },
+    ],
+  },
+  {
+    group: "Integrations",
+    items: [
+      { href: "/dashboard/integrations/authorities", label: "Authorities", icon: Landmark },
+      { href: "/dashboard/integrations/dns", label: "DNS accounts", icon: Globe },
+      { href: "/dashboard/integrations/alerts", label: "Alerts", icon: BellRing },
     ],
   },
   {

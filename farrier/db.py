@@ -18,6 +18,8 @@ from .db_dialects import make_dialect, redact_url
 from .vault import Vault
 
 TABLES = ("endpoints", "observations", "renewals", "events")   # in foreign-key order
+# Dashboard configuration (migration 4): keyed tables without an id, copied as is (secrets stay sealed)
+CONFIG_TABLES = ("secrets", "secret_values", "config_items", "alert_state", "health_results")
 
 OPEN_STATES = ("planned", "issued", "deploying", "verifying", "awaiting_manual")
 JSON_COLS = {"sans", "connector_config", "window", "tags", "rollback"}
@@ -165,11 +167,19 @@ class Store:
     def copy_to(self, dest: Store, batch: int = 500, progress=None) -> dict:
         """Copy every table into ``dest`` verbatim, ids included. Sealed keys are copied as
         ciphertext; nothing is decrypted. ``dest`` must be empty."""
-        for t in TABLES:
+        for t in TABLES + CONFIG_TABLES:
             if dest._run(f"SELECT COUNT(*) AS n FROM {t}", (), fetch="one")["n"]:
                 raise ValueError(f"destination table {t} is not empty; refusing to merge")
         counts = {}
         with dest.transaction():
+            for t in CONFIG_TABLES:
+                rows = self._run(f"SELECT * FROM {t}", (), fetch=True)
+                for r in rows:
+                    cols = list(r)
+                    dest._run(f"INSERT INTO {t}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                              tuple(r[c] for c in cols))
+                if rows:  # reported only when there is something to report
+                    counts[t] = len(rows)
             for t in TABLES:
                 rows = self._run(f"SELECT * FROM {t} ORDER BY id", (), fetch=True)
                 counts[t] = len(rows)

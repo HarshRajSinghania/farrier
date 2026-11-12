@@ -164,7 +164,7 @@ class Provider:
 
     def opt(self, key: str, default=None):
         v = self.opts.get(key, default)
-        if isinstance(v, str) and v.startswith(("env:", "file:")):
+        if isinstance(v, str) and v.startswith(("env:", "file:", "vault:")):
             return resolve_secret(v)
         return v
 
