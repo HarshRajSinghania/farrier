@@ -8,6 +8,7 @@ import { ForecastChart } from "@/components/charts/forecast-chart";
 import { Legend, StackedBars } from "@/components/charts/stacked-bars";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { RenewalActions } from "@/components/dashboard/renewal-actions";
+import { CertificateHealth } from "@/components/dashboard/certificate-health";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { RunCycle } from "@/components/dashboard/topbar";
 import { SplitBar, StatTile } from "@/components/dashboard/widgets";
@@ -112,6 +113,8 @@ export default function OverviewPage() {
           footer={<span>Failed or rolled back · {open} in flight</span>}
         />
       </div>
+
+      <CertificateHealth />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
