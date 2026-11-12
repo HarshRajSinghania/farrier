@@ -128,6 +128,14 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             raise HTTPException(403, "this token is read-only")
         raise HTTPException(401, "missing or bad bearer token")
 
+    def secret_read(request: Request):
+        """A read that hands out key material (change packs): the admin token only, never the read token."""
+        if not token and not read_token:
+            return
+        header = request.headers.get("authorization", "")
+        if not _same(header[7:] if header.startswith("Bearer ") else None, token):
+            raise HTTPException(403, "change packs carry private keys; this needs the admin token")
+
     def actor(request: Request) -> str:
         """Who made a change, for the audit log. The dashboard forwards its signed-in user."""
         name = request.headers.get("x-farrier-actor", "")
@@ -296,7 +304,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                 raise HTTPException(400, str(e))
         return {"state": "cancelled"}
 
-    @app.get("/api/renewals/{rid}/pack", dependencies=[Depends(auth)])
+    @app.get("/api/renewals/{rid}/pack", dependencies=[Depends(auth), Depends(secret_read)])
     def pack(rid: int):
         r = S.renewal(rid)
         if not r or r["state"] != "awaiting_manual":

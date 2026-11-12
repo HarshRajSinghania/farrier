@@ -51,3 +51,17 @@ def test_token_required_when_set(tmp_path, monkeypatch):
     c = TestClient(create_app(Engine(tmp_path)))
     assert c.get("/api/summary").status_code == 401
     assert c.get("/api/summary", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
+def test_read_token_cannot_download_change_packs(tmp_path, monkeypatch):
+    """A pack holds the private key and PFX passphrase: monitoring-grade read tokens must not get it."""
+    monkeypatch.setenv("FARRIER_API_TOKEN", "admin-token")
+    monkeypatch.setenv("FARRIER_API_READ_TOKEN", "read-token")
+    eng, srv = start(tmp_path / "demo")
+    c = TestClient(create_app(eng))
+    admin, reader = {"authorization": "Bearer admin-token"}, {"authorization": "Bearer read-token"}
+    c.post("/api/tick", headers=admin)
+    rid = c.get("/api/renewals?state=awaiting_manual", headers=reader).json()[0]["id"]
+    assert c.get(f"/api/renewals/{rid}/pack", headers=reader).status_code == 403
+    assert c.get(f"/api/renewals/{rid}/runbook", headers=reader).status_code == 200   # no key material
+    assert c.get(f"/api/renewals/{rid}/pack", headers=admin).status_code == 200

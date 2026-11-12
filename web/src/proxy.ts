@@ -18,10 +18,14 @@ const MAX_FAILURES = 10;
 const WINDOW_MS = 5 * 60_000;
 // Per instance. Behind several replicas each keeps its own count, which still caps guessing.
 const failures = new Map<string, { count: number; until: number }>();
+// One budget across every address, so rotating addresses can't buy unlimited guesses.
+const GLOBAL_MAX_FAILURES = 200;
+let globalFailures = { count: 0, until: 0 };
 
 function clientKey(req: NextRequest) {
-  // the first hop as the load balancer reports it; falls back to one shared bucket
-  return req.headers.get("x-forwarded-for")?.split(",")[0].trim() || req.headers.get("x-real-ip") || "unknown";
+  // The right-most hop is the one our own proxy appended; anything left of it is whatever the client sent.
+  const hops = req.headers.get("x-forwarded-for")?.split(",").map((h) => h.trim()).filter(Boolean);
+  return hops?.at(-1) || req.headers.get("x-real-ip") || "unknown";
 }
 
 const isApi = (req: NextRequest) => req.nextUrl.pathname.startsWith("/api/");
@@ -57,10 +61,11 @@ function basicGate(req: NextRequest) {
   const key = clientKey(req);
   const now = Date.now();
   const entry = failures.get(key);
-  if (entry && entry.until > now && entry.count >= MAX_FAILURES) {
+  const globalLocked = globalFailures.until > now && globalFailures.count >= GLOBAL_MAX_FAILURES;
+  if (globalLocked || (entry && entry.until > now && entry.count >= MAX_FAILURES)) {
     return new NextResponse("Too many failed sign-ins. Try again in a few minutes.", {
       status: 429,
-      headers: { "Retry-After": String(Math.ceil((entry.until - now) / 1000)) },
+      headers: { "Retry-After": String(Math.ceil(((globalLocked ? globalFailures.until : entry!.until) - now) / 1000)) },
     });
   }
 
@@ -72,7 +77,11 @@ function basicGate(req: NextRequest) {
     }
     const next = entry && entry.until > now ? entry.count + 1 : 1;
     failures.set(key, { count: next, until: now + WINDOW_MS });
-    if (failures.size > 10_000) failures.clear(); // bound memory under a spray of addresses
+    globalFailures = globalFailures.until > now ? { ...globalFailures, count: globalFailures.count + 1 } : { count: 1, until: now + WINDOW_MS };
+    if (failures.size > 10_000) {
+      // bound memory: drop expired entries, never live ones (clearing everything would reset every lockout)
+      for (const [k, v] of failures) if (v.until <= now) failures.delete(k);
+    }
   }
   return new NextResponse("Authentication required", {
     status: 401,
