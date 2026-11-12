@@ -20,7 +20,7 @@ from .connectors import REGISTRY, is_automated, make_connector
 from .db import OPEN_STATES, parse_dt
 from .discovery import expand_targets, scan
 from .engine import Engine
-from .vault import SecretRefused, check_secret_refs
+from .vault import REF_PREFIXES, SecretRefused, check_secret_refs
 
 
 class EndpointIn(BaseModel):
@@ -74,7 +74,7 @@ def _inline_secrets(obj, path="") -> list[str]:
     found = []
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if isinstance(v, str) and v and SECRET_KEY.search(str(k)) and not v.startswith(("env:", "file:", "vault:")):
+            if isinstance(v, str) and v and SECRET_KEY.search(str(k)) and not v.startswith(REF_PREFIXES):
                 found.append(f"{path}{k}")
             found += _inline_secrets(v, f"{path}{k}.")
     elif isinstance(obj, list):
@@ -302,13 +302,14 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         if not r or r["state"] != "awaiting_manual":
             raise HTTPException(404, "no change pack for this renewal")
         ep = S.endpoint(r["endpoint_id"])
-        d = make_connector("manual", ep["connector_config"], engine.data_dir).pack_dir(rid)
-        if not d.exists():
+        from .storage.packs import pack_store
+        files = pack_store(engine.data_dir).read(rid)
+        if not files:
             raise HTTPException(404, "change pack already cleaned up")
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in sorted(d.iterdir()):
-                z.write(f, f.name)
+            for name, data in files.items():
+                z.writestr(name, data)
         buf.seek(0)
         S.log("change pack downloaded", ep["id"], rid)
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in ep["name"])
@@ -320,11 +321,11 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         r = S.renewal(rid)
         if not r:
             raise HTTPException(404)
-        ep = S.endpoint(r["endpoint_id"])
-        f = make_connector("manual", ep["connector_config"], engine.data_dir).pack_dir(rid) / "RUNBOOK.md"
-        if not f.exists():
+        from .storage.packs import pack_store
+        text = pack_store(engine.data_dir).read_text(rid, "RUNBOOK.md")
+        if text is None:
             raise HTTPException(404)
-        return {"markdown": f.read_text()}
+        return {"markdown": text}
 
     @app.get("/api/events", dependencies=[Depends(auth)])
     def events(limit: int = 100, endpoint_id: int | None = None):

@@ -12,6 +12,8 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .vault import REF_PREFIXES
+
 # key -> (type, min, max, label); the only settings the API may change
 EDITABLE: dict[str, tuple[type, float, float]] = {
     "horizon_days": (int, 1, 60),
@@ -30,7 +32,7 @@ def _ref(v) -> str | None:
     """A secret as the dashboard may see it: its env:/file: reference, or only that it is set."""
     if v in (None, ""):
         return None
-    return v if isinstance(v, str) and v.startswith(("env:", "file:", "vault:")) else "set (inline)"
+    return v if isinstance(v, str) and v.startswith(REF_PREFIXES) else "set (inline)"
 
 
 def _read(path: Path) -> tuple[dict, str | None]:

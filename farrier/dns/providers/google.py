@@ -5,13 +5,11 @@ options:     project (default: project_id from the key)
 """
 from __future__ import annotations
 
-import base64
 import json
 import time
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-
+from ...cloud_auth.google import DNS_SCOPE as SCOPE
+from ...cloud_auth.google import TOKEN_URI, jwt_bearer_form, service_account_jwt
 from ..base import (
     DnsConfigError,
     DnsError,
@@ -23,24 +21,7 @@ from ..base import (
 )
 
 API = "https://dns.googleapis.com/dns/v1"
-SCOPE = "https://www.googleapis.com/auth/ndev.clouddns.readwrite"
-
-
-def _b64u(b: bytes) -> str:
-    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
-
-
-def service_account_jwt(sa: dict, now: int, scope: str = SCOPE) -> str:
-    header = {"alg": "RS256", "typ": "JWT"}
-    if sa.get("private_key_id"):
-        header["kid"] = sa["private_key_id"]
-    aud = sa.get("token_uri", "https://oauth2.googleapis.com/token")
-    claims = {"iss": sa["client_email"], "scope": scope, "aud": aud, "iat": now, "exp": now + 3600}
-    signing_input = f"{_b64u(json.dumps(header, separators=(',', ':')).encode())}." \
-                    f"{_b64u(json.dumps(claims, separators=(',', ':')).encode())}"
-    key = serialization.load_pem_private_key(sa["private_key"].encode(), None)
-    sig = key.sign(signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
-    return f"{signing_input}.{_b64u(sig)}"
+__all__ = ["Google", "SCOPE", "service_account_jwt"]   # the JWT signer lives in farrier.cloud_auth.google
 
 
 class Google(RRsetProvider):
@@ -64,9 +45,7 @@ class Google(RRsetProvider):
         if self._token and self._token[1] > time.time() + 120:
             return self._token[0]
         sa = self._sa()
-        r = self.request("POST", sa.get("token_uri", "https://oauth2.googleapis.com/token"), data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": service_account_jwt(sa, int(time.time()))})
+        r = self.request("POST", sa.get("token_uri", TOKEN_URI), data=jwt_bearer_form(sa, SCOPE))
         j = r.json()
         self._redact.add(j["access_token"])
         self._token = (j["access_token"], time.time() + int(j.get("expires_in", 3600)))

@@ -24,7 +24,7 @@ class SecretStore:
 
     def _backend(self, kind: str):
         if kind not in self._others:
-            self._others[kind] = make_backend(kind, self.store)
+            self._others[kind] = make_backend(kind, self.store, strict=False)
         return self._others[kind]
 
     def put(self, name: str, value: str) -> bool:

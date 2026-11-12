@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from ..vault import SecretRefused, resolve_secret
+from ..vault import REF_PREFIXES, SecretRefused, resolve_secret
 
 log = logging.getLogger("farrier.dns")
 USER_AGENT = "farrier-dns/0.1"
@@ -164,7 +164,7 @@ class Provider:
 
     def opt(self, key: str, default=None):
         v = self.opts.get(key, default)
-        if isinstance(v, str) and v.startswith(("env:", "file:", "vault:")):
+        if isinstance(v, str) and v.startswith(REF_PREFIXES):
             return resolve_secret(v)
         return v
 

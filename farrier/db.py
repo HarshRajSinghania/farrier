@@ -132,6 +132,23 @@ class Store:
             self._tx_depth = 0
             self.dialect.commit(self.conn)
 
+    @contextmanager
+    def snapshot(self):
+        """Read-only transaction with one consistent view of every table (farrier backup)."""
+        with self._lock:
+            if self._tx_depth:
+                raise RuntimeError("snapshot() cannot run inside a transaction")
+            self.dialect.begin_snapshot(self.conn)
+            self._tx_depth = 1
+            try:
+                yield self
+            finally:
+                self._tx_depth = 0
+                try:
+                    self.dialect.rollback(self.conn)
+                except Exception:  # noqa: BLE001
+                    pass
+
     # ---- generic ----------------------------------------------------------
     def q(self, sql: str, args=()) -> list[dict]:
         return [_row(r) for r in self._run(sql, args, fetch=True)]

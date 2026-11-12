@@ -6,54 +6,17 @@ options:     hosted_zone_id (skip discovery), role_arn (STS AssumeRole into anot
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import time
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit
+from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
+from ...cloud_auth.aws import STS_NS, signing_key, sigv4_headers
 from ..base import DnsError, RRsetProvider, Zone, norm, quote_txt, unquote_txt
 
 ENDPOINT = "https://route53.amazonaws.com"
 NS = {"r": "https://route53.amazonaws.com/doc/2013-04-01/"}
-STS_NS = {"s": "https://sts.amazonaws.com/doc/2011-06-15/"}
-
-
-def _hmac(key: bytes, msg: str) -> bytes:
-    return hmac.new(key, msg.encode(), hashlib.sha256).digest()
-
-
-def signing_key(secret_key: str, date: str, region: str, service: str) -> bytes:
-    k = _hmac(("AWS4" + secret_key).encode(), date)
-    k = _hmac(k, region)
-    k = _hmac(k, service)
-    return _hmac(k, "aws4_request")
-
-
-def sigv4_headers(method: str, url: str, headers: dict, body: bytes, access_key: str, secret_key: str,
-                  region: str, service: str, amz_date: str | None = None, session_token: str | None = None) -> dict:
-    """Return `headers` plus X-Amz-Date, [X-Amz-Security-Token] and Authorization (AWS SigV4)."""
-    amz_date = amz_date or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    parts = urlsplit(url)
-    out = dict(headers)
-    out["X-Amz-Date"] = amz_date
-    if session_token:
-        out["X-Amz-Security-Token"] = session_token
-    canon_h = {k.lower().strip(): " ".join(str(v).split()) for k, v in out.items()}
-    canon_h["host"] = parts.netloc
-    signed = ";".join(sorted(canon_h))
-    q = sorted(parse_qsl(parts.query, keep_blank_values=True))
-    canon_q = "&".join(f"{quote(k, safe='-_.~')}={quote(v, safe='-_.~')}" for k, v in q)
-    creq = "\n".join([method, quote(parts.path or "/", safe="/-_.~%"), canon_q,
-                      "".join(f"{k}:{canon_h[k]}\n" for k in sorted(canon_h)), signed,
-                      hashlib.sha256(body).hexdigest()])
-    scope = f"{amz_date[:8]}/{region}/{service}/aws4_request"
-    sts = "\n".join(["AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(creq.encode()).hexdigest()])
-    sig = hmac.new(signing_key(secret_key, amz_date[:8], region, service), sts.encode(), hashlib.sha256).hexdigest()
-    out["Authorization"] = f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed}, Signature={sig}"
-    return out
+__all__ = ["Route53", "signing_key", "sigv4_headers"]   # the signer lives in farrier.cloud_auth.aws
 
 
 class Route53(RRsetProvider):

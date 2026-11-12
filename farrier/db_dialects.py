@@ -68,7 +68,8 @@ class DatabaseURL:
 
     @property
     def password(self) -> str | None:
-        """Resolved lazily, at connect time, so it is never stored on the Store or printed."""
+        """Resolved at every connect (and so every reconnect), never stored on the Store or printed: a
+        rotated password (a file a sidecar rewrites, a managed secret) is picked up without a restart."""
         from .vault import resolve_secret
         ref = self.password_ref or os.environ.get("FARRIER_DATABASE_PASSWORD")
         return None if ref is None else resolve_secret(ref)
@@ -103,7 +104,7 @@ def parse_url(url: str | None, data_dir: Path) -> DatabaseURL:
         else:
             user = userinfo
         user = unquote(user)
-    if pw is not None and not pw.startswith(("env:", "file:")):
+    if pw is not None and not pw.startswith(("env:", "file:", "aws-sm:", "gcp-sm:", "azure-kv:", "hcvault:")):
         raise ValueError("refusing a literal password in FARRIER_DATABASE_URL; set FARRIER_DATABASE_PASSWORD "
                          "or use an env:NAME / file:/path reference")
     return DatabaseURL(scheme, host=parts.hostname or "localhost", port=parts.port, user=user,
@@ -190,6 +191,11 @@ class Dialect:
     def begin(self, conn) -> None:
         conn.execute("BEGIN IMMEDIATE")
 
+    def begin_snapshot(self, conn) -> None:
+        """A read-only transaction whose reads all see one point in time (backups). SQLite in WAL mode
+        fixes the snapshot at the first read of a deferred transaction."""
+        conn.execute("BEGIN")
+
     def commit(self, conn) -> None:
         conn.commit()
 
@@ -259,6 +265,9 @@ class PostgresDialect(Dialect):
 
     def begin(self, conn):
         conn.execute("BEGIN")
+
+    def begin_snapshot(self, conn):
+        conn.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
 
     def commit(self, conn):
         conn.execute("COMMIT")
@@ -333,6 +342,9 @@ class MySQLDialect(Dialect):
 
     def begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
+
+    def begin_snapshot(self, conn):
+        conn.cursor().execute("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY")
 
     def commit(self, conn):
         conn.cursor().execute("COMMIT")

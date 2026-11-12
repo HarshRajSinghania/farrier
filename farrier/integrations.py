@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .db import now_iso
+from .publishers import EVENT_TYPES
 from .vault import SecretRefused, check_secret_refs, is_ref
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -300,6 +301,21 @@ NOTIFIER_FIELDS: dict[str, tuple[str, list[dict]]] = {
         _field("from", "From", required=True, help="A verified sender address"),
         _field("to", "To", required=True, help="One or more recipient addresses"),
     ]),
+    # Event buses: CloudEvents for automation. Identity comes from the platform (IRSA, Workload Identity,
+    # managed identity); only Event Grid can take a key instead.
+    "eventbridge": ("Amazon EventBridge", [
+        _field("bus", "Event bus", required=True, help="Bus name (e.g. default) or ARN"),
+        _field("region", "AWS region", help="Required for a bus name unless AWS_REGION is set; taken from an ARN"),
+    ]),
+    "pubsub": ("Google Cloud Pub/Sub", [
+        _field("topic", "Topic", required=True, help="projects/<project>/topics/<topic>"),
+    ]),
+    "eventgrid": ("Azure Event Grid", [
+        _field("endpoint", "Topic endpoint", required=True,
+               help="https://<topic>.<region>-1.eventgrid.azure.net/api/events"),
+        _field("key", "Access key", secret=True,
+               help="Leave empty to use the workload or managed identity (Event Grid Data Sender role)"),
+    ]),
 }
 
 
@@ -436,6 +452,25 @@ def dns_view(name: str, source: str, c: dict) -> dict:
             "options": c.get("options") or {}}
 
 
+def keep_dns_refs(old: dict | None, body):
+    """An edit of a dashboard DNS account may leave out credentials it does not replace: keep the stored
+    references (the rule alert channels follow). Only for the same provider."""
+    from .dns.base import DnsConfigError
+    from .dns.providers import canonical
+    if not old or not isinstance(body, dict) or not isinstance(old.get("credentials"), dict):
+        return body
+    try:
+        same = canonical(body.get("provider", "")) == canonical(old.get("provider", ""))
+    except DnsConfigError:
+        return body
+    creds = body.get("credentials")
+    if not same or not (creds is None or isinstance(creds, dict)):
+        return body
+    kept = {k: v for k, v in old["credentials"].items() if v not in (None, "")}
+    kept.update({k: v for k, v in (creds or {}).items() if v not in (None, "")})
+    return {**body, "credentials": kept}
+
+
 def validate_dns(engine, name: str, body, allow_commands: bool, allow_inline: bool) -> dict:
     from .dns.accounts import validate_account
     from .dns.base import DnsConfigError
@@ -508,6 +543,13 @@ def test_dns(engine, name: str) -> dict:
 # ---- notifiers -------------------------------------------------------------------------------------
 def notifier_target(c: dict) -> str:
     kind = c.get("type", "webhook")
+    if kind == "eventbridge":
+        return f"{c.get('bus')} on EventBridge"
+    if kind == "pubsub":
+        return f"{c.get('topic')} on Pub/Sub"
+    if kind == "eventgrid":
+        from urllib.parse import urlparse as _u
+        return f"{_u(str(c.get('endpoint'))).hostname} on Event Grid"
     if kind in ("email", "ses"):
         to = c.get("to") or []
         return ", ".join([to] if isinstance(to, str) else to)
@@ -519,7 +561,7 @@ def notifier_target(c: dict) -> str:
 
 def notifier_view(name: str, source: str, c: dict) -> dict:
     """``fields`` pre-fills the edit form: non-secret values, and secret fields only as their reference."""
-    from .notify import DEFAULT_EVENTS
+    from .notify import default_events
     events = c.get("events")
     kind = c.get("type", "webhook")
     fields = {}
@@ -527,7 +569,7 @@ def notifier_view(name: str, source: str, c: dict) -> dict:
         if c.get(f["key"]) not in (None, ""):
             fields[f["key"]] = _ref_view(c[f["key"]]) if f["secret"] else c[f["key"]]
     return {"name": name, "source": source, "type": kind,
-            "events": list(DEFAULT_EVENTS) if events is None else events, "target": notifier_target(c),
+            "events": list(default_events(kind)) if events is None else events, "target": notifier_target(c),
             "fields": fields}
 
 
@@ -595,6 +637,12 @@ def validate_notifier(engine, name: str, body, allow_commands: bool, allow_inlin
             _email_target(body)
         except (ValueError, KeyError) as e:
             raise Invalid(str(e)) from None
+    elif kind in EVENT_TYPES:
+        from .publishers import check
+        try:
+            check(body)
+        except ValueError as e:
+            raise Invalid(f"{kind}: {e}") from None
     else:
         u = body["url"]
         if not is_ref(u) and urlparse(u).scheme not in ("https", "http"):

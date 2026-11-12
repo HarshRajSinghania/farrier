@@ -1,12 +1,14 @@
 """Encrypts private keys and connector secrets at rest.
 
-The master key comes from FARRIER_MASTER_KEY, or is generated once into
-<data_dir>/master.key (chmod 600 where the OS supports it).
+The master key comes from FARRIER_MASTER_KEY, from a KMS-wrapped blob (FARRIER_MASTER_KEY_KMS), or is
+generated once into <data_dir>/master.key (chmod 600 where the OS supports it). See master_key.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
+import threading
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -25,15 +27,80 @@ def _write_private(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+WRAPPED_FILE = "master.key.wrapped"
+_unwrapped: dict[str, bytes] = {}       # wrapped blob -> key, process memory only
+_kms_lock = threading.Lock()
+
+
 def master_key(data_dir: Path) -> bytes:
-    """FARRIER_MASTER_KEY, else <data_dir>/master.key (generated once, owner-only)."""
+    """The Fernet master key. Precedence, first that is set wins:
+
+    1. FARRIER_MASTER_KEY_KMS    envelope encryption: aws-kms:<key ARN> | gcp-kms:projects/.../cryptoKeys/<k>
+                                 | azure-kv:https://<vault>.vault.azure.net/keys/<name>. Then
+         + FARRIER_MASTER_KEY    is the wrapped key: the base64 KMS ciphertext of the Fernet key (what the
+                                 deploy modules create; shared by every replica). Unwrapped once per process.
+         alone                   the wrapped key lives in <data_dir>/master.key.wrapped: on first boot a key is
+                                 generated, wrapped and only the ciphertext written; every boot unwraps it. A
+                                 plaintext <data_dir>/master.key left from before is adopted: wrapped, the blob
+                                 written and checked, then the plaintext file deleted.
+                                 The plaintext key is never written to disk.
+    2. FARRIER_MASTER_KEY        (without _KMS) the key itself, e.g. injected from a secret manager
+    3. <data_dir>/master.key     generated once, owner-only
+
+    Errors name the setting: an unknown KMS reference, a blob wrapped by a different key than
+    FARRIER_MASTER_KEY_KMS names, or a KMS that refuses (permissions, key disabled) stop startup.
+    """
     env = os.environ.get("FARRIER_MASTER_KEY")
+    if os.environ.get("FARRIER_MASTER_KEY_KMS"):
+        return _kms_master_key(Path(data_dir), os.environ["FARRIER_MASTER_KEY_KMS"].strip(), env)
     if env:
         return env.encode()
     path = Path(data_dir) / "master.key"
     if not path.exists():
         _write_private(path, Fernet.generate_key())
     return path.read_bytes().strip()
+
+
+def _kms_master_key(data_dir: Path, spec: str, wrapped: str | None) -> bytes:
+    from . import kms
+    kms.parse(spec)
+    with _kms_lock:
+        path = data_dir / WRAPPED_FILE
+        raw, source = None, ""
+        if wrapped and wrapped.strip():
+            raw, source = wrapped.strip(), "FARRIER_MASTER_KEY"
+        elif path.exists():
+            raw, source = path.read_text(), str(path)
+        if raw:
+            if raw in _unwrapped:
+                return _unwrapped[raw]
+            try:
+                blob = json.loads(raw) if raw.startswith("{") else {"kms": spec, "ciphertext": raw}
+                if not isinstance(blob, dict) or "ciphertext" not in blob:
+                    raise ValueError
+            except ValueError:
+                raise ValueError(f"{source} is not a wrapped master key (base64 KMS ciphertext)") from None
+            if blob.get("kms") != spec:
+                raise ValueError(f"{source} was wrapped with {blob.get('kms')}, but FARRIER_MASTER_KEY_KMS is "
+                                 f"{spec}; set FARRIER_MASTER_KEY_KMS back to the key that wrapped it")
+            key = kms.unwrap(blob).strip()
+            try:
+                Fernet(key)                     # a wrong or corrupted key fails here, not on first decrypt
+            except ValueError:
+                raise ValueError(f"{source}: FARRIER_MASTER_KEY_KMS unwrapped something that is not a Fernet "
+                                 "key") from None
+            _unwrapped[raw] = key
+            return key
+        plain = data_dir / "master.key"
+        key = plain.read_bytes().strip() if plain.exists() else Fernet.generate_key()
+        blob = json.dumps(kms.wrap(spec, key), sort_keys=True)
+        if kms.unwrap(json.loads(blob)) != key:
+            raise ValueError("FARRIER_MASTER_KEY_KMS: the KMS did not give back the key it wrapped")
+        _write_private(path, blob.encode())
+        if plain.exists():
+            plain.unlink()                      # adopted: the key now exists only wrapped
+        _unwrapped[blob] = key
+        return key
 
 
 def save_private_key(path: Path, key, data_dir: Path) -> None:
@@ -83,7 +150,10 @@ class SecretRefused(ValueError):
 
 # References a config may hold instead of a secret. "vault:NAME" names a secret stored, sealed under the
 # master key, in the database (farrier.secrets_store); it is resolved through the lookup registered here.
-REF_PREFIXES = ("env:", "file:", "vault:")
+# External references (aws-sm:, gcp-sm:, azure-kv:, hcvault:) name secrets in the organisation's own
+# secret manager; see farrier.secret_backends.external.
+EXTERNAL_PREFIXES = ("aws-sm:", "gcp-sm:", "azure-kv:", "hcvault:")
+REF_PREFIXES = ("env:", "file:", "vault:", *EXTERNAL_PREFIXES)
 VAULT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _vault_lookup = None
 
@@ -95,7 +165,7 @@ def set_vault_lookup(fn) -> None:
 
 
 def is_ref(value) -> bool:
-    """True for a non-empty env:/file:/vault: reference."""
+    """True for a non-empty env:/file:/vault: or external (aws-sm: gcp-sm: azure-kv: hcvault:) reference."""
     return isinstance(value, str) and any(value.startswith(p) and len(value) > len(p) for p in REF_PREFIXES)
 
 
@@ -114,10 +184,18 @@ def check_secret_ref(value) -> None:
     Optional allowlists for hosted deployments:
       FARRIER_SECRET_ENV_PREFIX  env refs must start with it (e.g. FARRIER_SECRET_)
       FARRIER_SECRET_DIRS        file refs must sit under one of these (os.pathsep-separated)
+      FARRIER_SECRET_EXTERNAL_PREFIXES  external refs must start with one of these (comma-separated);
+                                 unset: only refs under the configured secret backend's prefix
     """
     if not isinstance(value, str):
         return
-    if value.startswith("vault:"):
+    if value.startswith(EXTERNAL_PREFIXES):
+        from .secret_backends import external
+        try:
+            external.check(value)
+        except ValueError as e:
+            raise SecretRefused(str(e)) from None
+    elif value.startswith("vault:"):
         if not VAULT_NAME.match(value[6:]):
             raise SecretRefused(f"{value!r} is not a valid vault reference (vault:NAME, NAME 1-64 of A-Z a-z 0-9 _ . -)")
     elif value.startswith("env:"):
@@ -150,10 +228,17 @@ def check_secret_refs(obj) -> None:
 
 
 def resolve_secret(value):
-    """Connector configs reference secrets as "env:NAME", "file:/path" or "vault:NAME" rather than inline."""
+    """Connector configs reference secrets as "env:NAME", "file:/path", "vault:NAME" or an external
+    reference (aws-sm:, gcp-sm:, azure-kv:, hcvault:) rather than inline."""
     if not isinstance(value, str):
         return value
     check_secret_ref(value)
+    if value.startswith(EXTERNAL_PREFIXES):
+        from .secret_backends import external
+        found = external.resolve(value)
+        if found is None:
+            raise KeyError(f"secret {value.split(':', 1)[0]} reference does not exist (or has no value)")
+        return found
     if value.startswith("vault:"):
         found = _vault_lookup(value[6:]) if _vault_lookup else None
         if found is None:

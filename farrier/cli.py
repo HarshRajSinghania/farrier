@@ -57,6 +57,27 @@ def cmd_db_migrate(args):
           f"Point FARRIER_DATABASE_URL at the new database and restart.")
 
 
+def cmd_backup(args):
+    from .backup import backup
+    from .db import Store
+    from .storage import from_url
+    url = backup(Store(Path(args.data)), from_url(args.to, Path(args.data)))
+    print(f"backup written to {url}\nSealed keys and secrets stay sealed: restoring needs the same master key.")
+
+
+def cmd_restore(args):
+    from .backup import restore, split_object_url
+    from .db import Store
+    storage, key = split_object_url(args.source)
+    data = storage.get(key)
+    if data is None:
+        sys.exit(f"no backup at {args.source}")
+    dst = Store(Path(args.data), url=args.to)
+    for t, n in restore(dst, data).items():
+        print(f"  {t:<13} {n} rows")
+    print("done. Every replica needs the master key the backup was sealed with.")
+
+
 def cmd_demo(args):
     import uvicorn
 
@@ -139,6 +160,17 @@ def main(argv=None):
     m.add_argument("--from", dest="source", default=None,
                    help="source URL (default: FARRIER_DATABASE_URL, else the SQLite file in --data)")
     m.set_defaults(fn=cmd_db_migrate)
+
+    s = sub.add_parser("backup", help="export the database (JSON lines, sealed values stay sealed) to object storage")
+    s.add_argument("--to", required=True, help="storage URL: s3://bucket/prefix, gs://bucket/prefix, "
+                   "azblob://account/container/prefix or file:///path")
+    s.set_defaults(fn=cmd_backup)
+
+    s = sub.add_parser("restore", help="load a backup into an empty database")
+    s.add_argument("--from", dest="source", required=True, help="URL of the backup object written by farrier backup")
+    s.add_argument("--to", default=None, help="destination database URL (default: FARRIER_DATABASE_URL, else the "
+                   "SQLite file in --data); must be empty")
+    s.set_defaults(fn=cmd_restore)
 
     s = sub.add_parser("demo", help="spin up a simulated estate of real TLS endpoints and open the dashboard")
     s.add_argument("--port", type=int, default=8740)

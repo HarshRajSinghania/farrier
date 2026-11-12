@@ -134,7 +134,8 @@ def mount(app, engine, lock, auth, actor, allow_commands: bool, allow_inline: bo
     async def put_dns(name: str, request: Request):
         check_name(name)
         not_file("dns", name)
-        acc = run(I.validate_dns, engine, name, await body_of(request), allow_commands, allow_inline)
+        body = I.keep_dns_refs(engine.items.get("dns", name), await body_of(request))
+        acc = run(I.validate_dns, engine, name, body, allow_commands, allow_inline)
         engine.items.put("dns", name, acc, actor(request))
         changed(f"dns account {name} saved", request)
         return I.dns_view(name, "ui", acc)

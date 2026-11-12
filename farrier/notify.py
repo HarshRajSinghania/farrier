@@ -1,4 +1,5 @@
-"""Notifications on renewal state changes: generic webhook, Slack, Microsoft Teams and email (SMTP, Amazon SES).
+"""Notifications on renewal state changes: generic webhook, Slack, Microsoft Teams, email (SMTP, Amazon SES),
+and CloudEvents to Amazon EventBridge, Google Pub/Sub and Azure Event Grid (farrier.publishers).
 
 Configured in <data>/settings.json:
 
@@ -20,9 +21,16 @@ from datetime import UTC, datetime
 
 import httpx
 
+from .publishers import EVENT_TYPES
 from .vault import resolve_secret
 
 DEFAULT_EVENTS = ("failed", "rolled_back", "awaiting_manual")
+# event buses feed automation, so by default they carry every outcome, not only the ones a person must see
+DEFAULT_BUS_EVENTS = ("issued", "awaiting_manual", "done", "failed", "rolled_back", "cancelled")
+
+
+def default_events(kind: str | None) -> tuple[str, ...]:
+    return DEFAULT_BUS_EVENTS if kind in EVENT_TYPES else DEFAULT_EVENTS
 EVENTS = {"planned", "issued", "verifying", "awaiting_manual", "done", "failed", "rolled_back", "superseded", "cancelled", "test"}
 TITLES = {
     "done": "renewed and verified",
@@ -136,23 +144,35 @@ class Notifier:
     """Each config may carry a ``name`` (settings.json entries are settings-1, settings-2...; dashboard
     channels their own name) so alert rules can address a channel."""
 
-    def __init__(self, configs: list[dict] | None, dashboard_url: str | None, log):
+    def __init__(self, configs: list[dict] | None, dashboard_url: str | None, log, instance_id: str | None = None):
         self.configs = [c for c in (configs or []) if isinstance(c, dict)
-                        and (c.get("url") or c.get("type") in EMAIL_TYPES)]
+                        and (c.get("url") or c.get("type") in EMAIL_TYPES or c.get("type") in EVENT_TYPES)]
         self.dashboard_url = dashboard_url
         self.log = log  # store.log(message, endpoint_id, renewal_id, level=...)
+        self.instance_id = instance_id or "farrier"   # CloudEvents source farrier://<instance id>
 
     def wants(self, cfg: dict, event: str) -> bool:
         events = cfg.get("events")
-        return event == "test" or event in (DEFAULT_EVENTS if events is None else events)
+        return event == "test" or event in (default_events(cfg.get("type")) if events is None else events)
 
-    def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False) -> list[str]:
+    def send(self, event: str, renewal: dict | None = None, endpoint: dict | None = None, wait: bool = False,
+             refs: dict | None = None) -> list[str]:
+        """``refs`` (chain_ref, private_key_ref) go into the CloudEvent for event-bus channels."""
         targets = [c for c in self.configs if self.wants(c, event)]
         if not targets:
             return []
         p = payload(event, renewal, endpoint, self.dashboard_url)
-        self._dispatch(targets, p, wait)
-        return [cfg.get("type", "webhook") for cfg in targets]
+        buses = [c for c in targets if c.get("type") in EVENT_TYPES]
+        others = [c for c in targets if c.get("type") not in EVENT_TYPES]
+        if buses:
+            from .cloudevents import build
+            ce = build(event, renewal, endpoint, self.instance_id, **(refs or {}))
+            if ce is None:
+                buses = []                        # a state outside the event contract (superseded)
+            else:
+                self._dispatch(buses, {**p, "cloudevent": ce}, wait)
+        self._dispatch(others, p, wait)
+        return [cfg.get("type", "webhook") for cfg in others + buses]
 
     def send_to(self, names, p: dict, wait: bool = False) -> dict[str, bool | None]:
         """Deliver a prepared payload to the named channels. Returns {name: delivered}; a value is None
@@ -183,6 +203,16 @@ class Notifier:
         if kind in EMAIL_TYPES:
             send_email(cfg, p)
             return
+        if kind in EVENT_TYPES:
+            from .cloudevents import test_event
+            from .publishers import publish
+            ce = p.get("cloudevent")
+            if ce is None and p.get("event") == "test":
+                ce = test_event()
+            if ce is None:
+                raise ValueError(f"{kind} channels publish renewal events only (not {p.get('event')} messages)")
+            publish(cfg, ce)
+            return
         url = resolve_secret(cfg["url"])
         headers = {k: resolve_secret(v) for k, v in (cfg.get("headers") or {}).items()}
         r = httpx.post(url, json=body_for(kind, p), headers=headers, timeout=5)
@@ -207,6 +237,9 @@ def failure_detail(e: Exception) -> str:
         return f"the receiver answered HTTP {e.response.status_code}"
     if isinstance(e, KeyError):
         return str(e.args[0]) if e.args else "a referenced secret is not set"
+    from .cloud_auth.http import CloudError
+    if isinstance(e, CloudError):                 # built without URLs' queries, bodies or credentials
+        return str(e)[:300]
     if isinstance(e, (ValueError, OSError)) and not isinstance(e, httpx.HTTPError):
         return f"{type(e).__name__}: {e}"[:300]
     return type(e).__name__

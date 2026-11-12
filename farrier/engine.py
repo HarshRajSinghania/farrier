@@ -7,6 +7,11 @@
 
 Whenever a renewal leaves the open states, any change pack it produced (which holds a
 plaintext private key) is deleted.
+
+On done, with FARRIER_STORAGE_URL set, fullchain.pem (certificate + chain, never the key) is written to
+chains/<renewal id>/fullchain.pem in that store; for endpoints tagged export-key, with a cloud secret backend
+(aws, gcp, azure), the private key is stored as secret keys/<renewal id> there. Event-bus channels receive
+both references (chain_ref, private_key_ref) in the CloudEvent.
 """
 from __future__ import annotations
 
@@ -145,7 +150,15 @@ class Engine:
         from .integrations import notifier_list
         return Notifier(notifier_list(self),
                         self.settings.get("dashboard_url") or os.environ.get("FARRIER_DASHBOARD_URL"),
-                        self.store.log)
+                        self.store.log, instance_id=self.instance_id)
+
+    @property
+    def instance_id(self) -> str:
+        """This installation's id in CloudEvents (farrier://<id>); shared by replicas with one master key."""
+        if getattr(self, "_instance_id", None) is None:
+            from .cloudevents import instance_id
+            self._instance_id = instance_id(self.data_dir)
+        return self._instance_id
 
     def reload_config(self) -> None:
         """Pick up configuration changes without a restart: issuers, DNS accounts and alert channels
@@ -298,7 +311,8 @@ class Engine:
     def _notify(self, event: str, rid: int):
         r = self.store.renewal(rid)
         ep = self.store.endpoint(r["endpoint_id"]) if r else None
-        self.notifier.send(event, r, ep)
+        refs = self._export_artifacts(r, ep) if event == "done" and r and ep and r.get("cert_pem") else None
+        self.notifier.send(event, r, ep, refs=refs)
         try:
             self.alerts.on_event(event, r, ep)
         except Exception as e:  # noqa: BLE001 - alerting must never break a renewal
@@ -318,6 +332,36 @@ class Engine:
             if after == before:
                 return after
         return self.store.renewal(rid)["state"]
+
+    def _export_artifacts(self, r: dict, ep: dict) -> dict:
+        """Publish a finished renewal's chain (and, if asked, its key) for other systems. Never raises:
+        a failed export is logged and the event goes out with a null reference."""
+        from .secret_backends import CLOUD
+        from .storage import configured, explicit, is_remote
+        refs = {"chain_ref": None, "private_key_ref": None}
+        if explicit():
+            try:
+                st = configured(self.data_dir)
+                url = st.put(f"chains/{r['id']}/fullchain.pem", (r["cert_pem"] + (r["chain_pem"] or "")).encode(),
+                             "application/x-pem-file")
+                refs["chain_ref"] = url if is_remote(st) else None
+            except Exception as e:  # noqa: BLE001 - exporting must never undo a renewal
+                self.store.log(f"certificate chain export failed: {type(e).__name__}: {e}"[:500], ep["id"], r["id"],
+                               level="warning")
+        if "export-key" in (ep.get("tags") or []):
+            backend = self.secrets.backend
+            if backend.name not in CLOUD:
+                self.store.log(f"tag export-key ignored: the {backend.name} secret backend cannot share keys; set "
+                               "FARRIER_SECRET_BACKEND to aws, gcp or azure", ep["id"], r["id"], level="warning")
+            else:
+                try:
+                    ref = backend.put(f"keys/{r['id']}", self.store.vault.open(r["key_sealed"]))
+                    refs["private_key_ref"] = backend.external(ref)
+                    self.store.log(f"private key exported to {backend.describe()['location']}", ep["id"], r["id"])
+                except Exception as e:  # noqa: BLE001
+                    self.store.log(f"private key export failed: {type(e).__name__}: {e}"[:500], ep["id"], r["id"],
+                                   level="warning")
+        return refs
 
     def _fail(self, r, ep, msg: str, state: str = "failed"):
         if not self.store.update_renewal(r["id"], expect_state=r["state"], state=state, error=msg):
@@ -346,16 +390,12 @@ class Engine:
 
     def sweep_packs(self) -> int:
         """Remove change packs left behind by renewals that are no longer awaiting a human."""
-        root = self.data_dir / "packs"
-        if not root.is_dir():
-            return 0
+        from .storage.packs import pack_store
         removed = 0
-        for d in root.iterdir():
-            if not d.name.isdigit():
-                continue
-            r = self.store.renewal(int(d.name))
+        for rid in pack_store(self.data_dir).ids():
+            r = self.store.renewal(rid)
             if r is None or r["state"] != "awaiting_manual":
-                self._discard_pack(int(d.name), None)
+                self._discard_pack(rid, None)
                 removed += 1
         return removed
 

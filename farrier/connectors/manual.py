@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import secrets
-import shutil
 from pathlib import Path
 
 import httpx
@@ -21,6 +20,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 
+from ..storage.packs import pack_store
 from ..vault import resolve_secret
 from ..x509util import load_key, split_pem_chain
 from .base import Bundle, Connector, check
@@ -74,27 +74,28 @@ class ManualConnector(Connector):
     automated = False
 
     def pack_dir(self, renewal_id: int) -> Path:
+        """Where a local pack lives (without FARRIER_STORAGE_URL); see farrier.storage.packs."""
         return self.data_dir / "packs" / str(renewal_id)
 
+    @property
+    def packs(self):
+        return pack_store(self.data_dir)
+
     def deploy(self, b: Bundle, *, addr: str = "", fingerprint: str = "", due: str = "") -> dict:
-        d = self.pack_dir(b.renewal_id)
-        d.mkdir(parents=True, exist_ok=True)
         passphrase = secrets.token_urlsafe(18)
         cas = [x509.load_pem_x509_certificate(c.encode()) for c in split_pem_chain(b.chain_pem)]
         pfx = pkcs12.serialize_key_and_certificates(
             b.object_name.encode(), load_key(b.key_pem), x509.load_pem_x509_certificate(b.cert_pem.encode()),
             cas or None, serialization.BestAvailableEncryption(passphrase.encode()))
         files = {"cert.pem": b.cert_pem, "chain.pem": b.chain_pem, "fullchain.pem": b.fullchain_pem,
-                 "key.pem": b.key_pem, "passphrase.txt": passphrase + "\n"}
-        for name, content in files.items():
-            (d / name).write_text(content)
-        (d / "bundle.pfx").write_bytes(pfx)
+                 "key.pem": b.key_pem, "passphrase.txt": passphrase + "\n", "bundle.pfx": pfx}
         steps = RUNBOOKS.get(self.cfg.get("runbook", "generic"), RUNBOOKS["generic"]).format(
             obj=b.object_name, addr=addr, fp_short=fingerprint[:16])
         summary = f"Install renewed TLS certificate on {b.name}"
         runbook = (f"# {summary}\n\n- Endpoint: `{addr}`\n- Install before: **{due}**\n"
                    f"- New cert expires: {b.not_after}\n- SHA-256: `{fingerprint}`\n\n## Steps\n\n{steps}\n")
-        (d / "RUNBOOK.md").write_text(runbook)
+        files["RUNBOOK.md"] = runbook
+        where = self.packs.write(b.renewal_id, files)
 
         ticket_ref = None
         t = self.raw.get("ticket")
@@ -108,10 +109,10 @@ class ManualConnector(Connector):
                 ticket_ref = str(_dig(r.json(), t.get("ref_field", "id")))
             except (KeyError, IndexError, ValueError, json.JSONDecodeError):
                 ticket_ref = r.headers.get("Location")
-        return {"pack_dir": str(d), "ticket_ref": ticket_ref}
+        return {"pack_dir": where, "ticket_ref": ticket_ref}
 
     def cleanup(self, renewal_id: int):
-        shutil.rmtree(self.pack_dir(renewal_id), ignore_errors=True)
+        self.packs.delete(renewal_id)
 
     def rollback(self, token: dict) -> None:
         pass  # nothing was changed on the device by us

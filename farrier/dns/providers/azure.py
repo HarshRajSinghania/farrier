@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 
+from ...cloud_auth.azure import AUTHORITY, client_credentials_form, token_expiry, token_url
 from ..base import DnsConfigError, DnsError, RRsetProvider, Zone, norm, relative
 
 API_VERSION = "2018-05-01"
@@ -28,13 +29,12 @@ class Azure(RRsetProvider):
     def _bearer(self) -> str:
         if self._token and self._token[1] > time.time() + 120:
             return self._token[0]
-        authority = self.opts.get("authority", "https://login.microsoftonline.com").rstrip("/")
-        r = self.request("POST", f"{authority}/{self.secret('tenant_id')}/oauth2/v2.0/token", data={
-            "grant_type": "client_credentials", "client_id": self.secret("client_id"),
-            "client_secret": self.secret("client_secret"), "scope": f"{self.mgmt}/.default"})
+        authority = self.opts.get("authority", AUTHORITY)
+        r = self.request("POST", token_url(authority, self.secret("tenant_id")), data=client_credentials_form(
+            self.secret("client_id"), self.secret("client_secret"), f"{self.mgmt}/.default"))
         j = r.json()
         self._redact.add(j["access_token"])
-        self._token = (j["access_token"], time.time() + int(j.get("expires_in", 3600)))
+        self._token = (j["access_token"], token_expiry(j))
         return self._token[0]
 
     def _sub(self) -> str:
