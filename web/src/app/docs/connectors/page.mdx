@@ -1,0 +1,250 @@
+export const metadata = {
+  title: "Connectors",
+  description: "Configuration reference for every Farrier connector, and how to write your own.",
+};
+
+# Connectors
+
+A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Five connectors are automated (deploy, verify, roll back). The sixth, `manual`, prepares everything for a human and verifies their work.
+
+Rules that apply to every connector:
+
+- Missing required keys are rejected when the endpoint is added or imported.
+- Any string value can be a secret reference: `env:NAME` reads an environment variable, `file:/path` reads a file (trimmed). Store secrets this way rather than inline. Connector configs are never returned by the API.
+- For connectors that call a management API, `verify_tls` controls certificate checking on the management plane: `true` (default), `false`, or a path to a CA bundle. Prefer a CA bundle over `false`. `timeout` (seconds, default 60) applies to those HTTP calls.
+- New certificates are installed under a unique object name per renewal, `farrier_<endpoint>_<YYYYMMDD of expiry>_<renewal id>`, so a new certificate never overwrites the one in use before switch-over.
+
+| Kind | Automated | Required keys |
+| --- | --- | --- |
+| `files` | yes | `cert_path`, `key_path` |
+| `keystore` | yes | `path`, `password` |
+| `f5` | yes | `url`, `username`, `password`, `profile` |
+| `fortigate` | yes | `url`, `api_token`, `bind` |
+| `panos` | yes | `url`, `api_key`, `profile` |
+| `manual` | no | none |
+
+<Callout type="warning">
+The `f5`, `fortigate` and `panos` connectors follow the vendors' documented APIs and are tested against mock management APIs, but have not yet been run against real hardware. Validate them on a lab device first.
+</Callout>
+
+## files
+
+PEM files on a host: nginx, HAProxy, Apache, Postfix, or any appliance with a shell. Runs locally, or over SSH with the system `ssh`/`scp` and key-based auth (`BatchMode=yes`).
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `cert_path` | yes | Leaf certificate |
+| `key_path` | yes | Private key (written mode 600) |
+| `chain_path` | no | Intermediates only |
+| `fullchain_path` | no | Leaf + intermediates |
+| `combined_path` | no | Key + leaf + chain in one file (HAProxy) |
+| `test_command` | no | Pre-reload check, e.g. `nginx -t` |
+| `reload_command` | no | e.g. `systemctl reload nginx` |
+| `ssh` | no | `user@host`; commands then run on the target |
+
+Each file is backed up as `<path>.farrier-bak-<renewal id>` and replaced atomically. If `test_command` or `reload_command` fails, the backups are restored and the service reloaded. Rollback does the same.
+
+```json
+{
+  "connector": "files",
+  "connector_config": {
+    "ssh": "farrier@edge1.example.com",
+    "fullchain_path": "/etc/nginx/tls/site.crt",
+    "cert_path": "/etc/nginx/tls/site.leaf.crt",
+    "key_path": "/etc/nginx/tls/site.key",
+    "test_command": "sudo nginx -t",
+    "reload_command": "sudo systemctl reload nginx"
+  }
+}
+```
+
+## keystore
+
+Java keystores for Tomcat, Jetty, WebLogic, Kafka, Elasticsearch and vendor Java apps. Writes a PKCS#12 keystore, the default keystore type since Java 9, on the local filesystem.
+
+| Key | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `path` | yes | | e.g. `/opt/tomcat/conf/tls.p12` |
+| `password` | yes | | Keystore and key password |
+| `alias` | no | `tomcat` | Entry alias the app uses |
+| `format` | no | `pkcs12` | `pkcs12-legacy` (3DES/SHA1) for JREs older than 8u301 |
+| `reload_command` | no | | Most Java apps need a restart |
+
+```json
+{
+  "connector": "keystore",
+  "connector_config": {
+    "path": "/opt/atlassian/jira/tls.p12",
+    "password": "env:JIRA_KS_PASS",
+    "alias": "tomcat",
+    "reload_command": "systemctl restart jira"
+  }
+}
+```
+
+## f5
+
+F5 BIG-IP LTM client-ssl profiles via iControl REST. Uploads the key, certificate and chain, installs them as new crypto objects, repoints the profile's `default` `certKeyChain` entry (other entries, such as a second RSA/ECDSA pair, are kept), then saves the system config. Old objects stay in place for audit; clean them up on your own schedule. Rollback restores the previous `certKeyChain` and saves.
+
+| Key | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `url` | yes | | Management URL |
+| `username` | yes | | Needs Certificate Manager and profile edit rights |
+| `password` | yes | | |
+| `profile` | yes | | Full path, e.g. `/Common/clientssl_app1` |
+| `partition` | no | `Common` | Where crypto objects are created |
+| `verify_tls` | no | `true` | |
+
+```json
+{
+  "connector": "f5",
+  "connector_config": {
+    "url": "https://bigip-mgmt.example.com",
+    "username": "farrier",
+    "password": "env:F5_PASSWORD",
+    "profile": "/Common/clientssl_www",
+    "verify_tls": "/etc/farrier/mgmt-ca.pem"
+  }
+}
+```
+
+## fortigate
+
+Fortinet FortiGate via the FortiOS REST API. Imports the CA chain (an existing one is tolerated) and the certificate as a local certificate (name truncated to FortiOS's 35-character limit), then binds it. Rollback rebinds the previous certificate.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `url` | yes | Management URL |
+| `api_token` | yes | REST API admin with vpn/system write |
+| `bind` | yes | `sslvpn`, `admin`, or a custom binding object (below) |
+| `vdom` | no | Sent as the `vdom` query parameter |
+| `verify_tls` | no | |
+
+`sslvpn` sets `servercert` on `/api/v2/cmdb/vpn.ssl/settings`. `admin` sets `admin-server-cert` on `/api/v2/cmdb/system/global`. For any other cmdb reference, pass `path` and `field`:
+
+```json
+{
+  "connector": "fortigate",
+  "connector_config": {
+    "url": "https://fgt-mgmt.example.com",
+    "api_token": "env:FGT_TOKEN",
+    "bind": { "path": "/api/v2/cmdb/firewall/vip/web-vip", "field": "ssl-certificate" }
+  }
+}
+```
+
+## panos
+
+Palo Alto Networks PAN-OS firewalls and GlobalProtect portals/gateways via the XML API. Imports the keypair as an encrypted PEM under a new name (up to 63 characters) with a random one-time passphrase, points the SSL/TLS service profile at it, and commits. Rollback points the profile back and commits.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `url` | yes | Management URL |
+| `api_key` | yes | |
+| `profile` | yes | SSL/TLS service profile name |
+| `profile_xpath` | no | Default `/config/shared/ssl-tls-service-profile/entry[@name='<profile>']` |
+| `verify_tls` | no | |
+
+```json
+{
+  "connector": "panos",
+  "connector_config": {
+    "url": "https://fw-mgmt.example.com",
+    "api_key": "env:PANOS_KEY",
+    "profile": "gp-portal-tls"
+  }
+}
+```
+
+## manual
+
+For devices with no usable API: Cisco ASA, Citrix ADC, IIS, vCenter, old appliances, anything behind a change advisory board. Farrier does everything except the last click. It issues the certificate, writes a change pack to `<data>/packs/<renewal id>/`, optionally opens a ticket, and watches the endpoint. The renewal closes itself when the new fingerprint is seen live, and the pack is then deleted.
+
+The change pack contains `cert.pem`, `chain.pem`, `fullchain.pem`, `key.pem`, `bundle.pfx`, `passphrase.txt` (for the PFX) and `RUNBOOK.md`. Download it as a zip from the dashboard or `GET /api/renewals/{id}/pack`.
+
+| Key | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `runbook` | no | `generic` | `generic`, `cisco-asa`, `citrix-adc`, `windows-iis`, `vmware-vcenter` |
+| `ticket` | no | | Webhook to open a change ticket (below) |
+
+### Ticket webhook
+
+When `ticket` is set, Farrier POSTs JSON to `ticket.url` once the pack is ready, and stores the returned reference on the renewal.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `url` | required | e.g. ServiceNow `change_request` table API |
+| `headers` | `{}` | Values may be secret references |
+| `template` | summary + description | JSON body; string values are formatted with the placeholders below |
+| `ref_field` | `id` | Dotted path to the ticket number in the response, e.g. `result.number`. Falls back to the `Location` header |
+
+Placeholders: `{summary}`, `{description}` (the full runbook), `{due}` (install-before date), `{endpoint}`, `{renewal_id}`.
+
+```json
+{
+  "connector": "manual",
+  "lead_days": 10,
+  "window": { "days": ["sat"], "start": "02:00", "hours": 4 },
+  "connector_config": {
+    "runbook": "cisco-asa",
+    "ticket": {
+      "url": "https://example.service-now.com/api/now/table/change_request",
+      "headers": { "Authorization": "env:SNOW_AUTH" },
+      "template": {
+        "short_description": "{summary}",
+        "description": "{description}",
+        "end_date": "{due}"
+      },
+      "ref_field": "result.number"
+    }
+  }
+}
+```
+
+Farrier doesn't close the ticket itself. The event log records when the ticket can be closed.
+
+<Callout type="danger" title="Change packs hold a plaintext private key">
+`key.pem` and `bundle.pfx` sit unencrypted (the PFX is passphrase-protected) in the data directory until the install is verified. Restrict access to the data directory and the pack download endpoint.
+</Callout>
+
+## Writing a connector
+
+A connector is one Python class. Subclass `Connector` from `farrier/connectors/base.py`:
+
+```python
+from .base import Bundle, Connector, DeployError, check
+
+
+class CitrixConnector(Connector):
+    kind = "citrix"                       # value of the endpoint's "connector" field
+    automated = True                      # False: a human installs it; Farrier only verifies
+    required = ("url", "username", "password")
+
+    def deploy(self, b: Bundle) -> dict:
+        """Install under a NEW name, switch over, return a JSON-able rollback token."""
+        with self.http(auth=(self.cfg["username"], self.cfg["password"])) as c:
+            previous = check(c.get("/nitro/v1/config/sslvserver_sslcertkey_binding/vs1"), "read binding").json()
+            # upload b.key_pem / b.fullchain_pem as b.object_name, bind it ...
+        return {"previous": previous}
+
+    def rollback(self, token: dict) -> None:
+        """Restore what the token describes. Raise on failure."""
+        ...
+```
+
+What the base class gives you:
+
+- `self.cfg`: the config with `env:` and `file:` references resolved. `self.raw` holds the unresolved config.
+- `self.http(**kw)`: an `httpx.Client` with `base_url=cfg["url"]`, honouring `verify_tls` and `timeout`. Tests inject an `httpx.MockTransport` through the `transport` class attribute.
+- `self.run(command)`: run a shell command and raise `DeployError` on a non-zero exit.
+- `check(response, what)`: raise `DeployError` on HTTP 4xx/5xx.
+- `Bundle`: `name`, `renewal_id`, `key_pem`, `cert_pem`, `chain_pem`, `fullchain_pem`, `not_after`, and `object_name`, the unique per-renewal name to install under.
+
+Contract:
+
+1. **Never overwrite the live certificate before switch-over.** Install under `b.object_name`, or back up first.
+2. **Return everything rollback needs** in the token. It is stored as JSON with the renewal.
+3. **Raise on failure.** Any exception moves the renewal to `failed` with the message. If a step after the install fails, roll back inside `deploy` before raising.
+4. **Don't verify.** The engine checks the live fingerprint with a real handshake.
+
+Then register the class in `REGISTRY` in `farrier/connectors/__init__.py`, add tests against a mock transport (see `tests/test_appliances.py`), and document it on this page. In the web app, add a display label to `CONNECTOR_LABEL` in `web/src/components/status.tsx`.

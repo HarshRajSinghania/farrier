@@ -1,0 +1,68 @@
+export const metadata = {
+  title: "Databases and high availability",
+  description: "Run Farrier on SQLite, PostgreSQL or MySQL, and run several replicas for zero-downtime upgrades.",
+};
+
+# Databases and high availability
+
+Farrier starts on SQLite in its data directory, which suits one machine. For more than one replica, or to use a database your team already backs up and monitors, point it at PostgreSQL or MySQL.
+
+| Database | Install | Replicas |
+|---|---|---|
+| SQLite (default) | built in | one |
+| PostgreSQL 13+ | `pip install 'farrier-tls[postgres]'` | many |
+| MySQL 8.0.13+ / MariaDB 10.2+ | `pip install 'farrier-tls[mysql]'` | many |
+
+## Connect your own database
+
+```bash title="farrier.env"
+FARRIER_DATABASE_URL=postgresql://farrier@db.internal/farrier?sslmode=verify-full&sslrootcert=/etc/farrier/db-ca.pem
+FARRIER_DATABASE_PASSWORD=file:/run/secrets/farrier-db
+```
+
+The password never goes in the URL. Give it as `env:NAME` or `file:/path`, or in `FARRIER_DATABASE_PASSWORD`. A plain password in the URL is refused, and status output masks it.
+
+TLS options follow libpq: `sslmode` (use `verify-full` in production), `sslrootcert`, `sslcert` and `sslkey`.
+
+The schema is created and upgraded automatically. Each upgrade is a numbered migration recorded in `schema_version`, applied under a lock so replicas starting together don't race.
+
+## Move from SQLite
+
+```bash
+farrier db migrate --to "postgresql://farrier@db.internal/farrier?sslmode=verify-full"
+```
+
+This copies every table with its ids into an empty database and refuses one that already has data. Sealed private keys are copied as ciphertext, so the destination needs the same `FARRIER_MASTER_KEY`.
+
+## Run several replicas
+
+With PostgreSQL or MySQL, run as many engine replicas as you like behind a load balancer.
+
+- **One leader.** Exactly one replica runs the renewal loop. It holds a PostgreSQL advisory lock or MySQL `GET_LOCK` on its own connection. If that replica dies, its connection drops, the lock frees, and another replica takes over within one cycle.
+- **Every replica serves the API.** Reads and writes go to the shared database.
+- **No double work.** Every state change is a compare-and-set (`UPDATE … WHERE state = ?`), so two replicas can't advance the same renewal. A unique index keeps one open renewal per endpoint.
+- **Clean rolling upgrades.** On `SIGTERM` a replica finishes its current cycle, releases the lock and exits. Give pods at least `serve --grace` (20 seconds by default) plus a margin.
+
+```yaml title="farrier-engine.yaml"
+replicas: 3
+template:
+  spec:
+    terminationGracePeriodSeconds: 45
+    containers:
+      - name: engine
+        args: ["serve", "--host", "0.0.0.0", "--grace", "20"]
+        envFrom: [{ secretRef: { name: farrier } }]   # same FARRIER_MASTER_KEY on every replica
+```
+
+<Callout type="warning" title="Connection poolers">
+Don't route the engine through PgBouncer in transaction-pooling mode. The leader lock lives on a session, and transaction pooling hands that session to other clients.
+</Callout>
+
+| Variable | Meaning |
+|---|---|
+| `FARRIER_DATABASE_URL` | `sqlite:///path`, `postgresql://…` or `mysql://…`. Unset means SQLite in the data dir. |
+| `FARRIER_DATABASE_PASSWORD` | Literal, `env:NAME` or `file:/path`. |
+| `FARRIER_LEADER_KEY` | Separates two Farrier deployments that share one database server. |
+| `FARRIER_LEADER_ELECTION` | `off` makes every replica a leader. Only for tests. |
+| `FARRIER_REPLICA_ID` | Name shown in status. Defaults to the hostname. |
+| `FARRIER_SHUTDOWN_GRACE` | Default for `serve --grace`, in seconds. |

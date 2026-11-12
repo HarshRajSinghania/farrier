@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Components never use raw hex — they reference these roles,
+ * so light/dark (and a fork's rebrand) swap in one place.
+ *
+ * Signal palette, shared with the landing page (public/index.html), 60-30-10:
+ *   60  white and warm grey (grounds, cards, trays)
+ *   30  near-black #141414 (text, primary buttons, dark grounds)
+ *   10  signal lime #c5f04a, only under black text or as a mark; never text on white
+ * Data language: blue = renewed automatically, teal = needs a person
+ * (a validated categorical pair). Status hues are reserved for state and
+ * always ship with an icon and a label.
+ */
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #141414;
+  --plane: #f8f8f6;
+  --card: #ffffff;
+  --card-foreground: #141414;
+  --popover: #ffffff;
+  --muted: #f4f3f0;
+  --muted-foreground: #52514d;
+  --border: #e6e4df;
+  --input: #d9d7d1;
+  --ring: #141414;
+
+  --brand: #141414;
+  --brand-hover: #2b2b29;
+  --brand-foreground: #ffffff;
+  --brand-soft: #eef9cf;
+  --brand-ink: #141414;
+
+  /* data series */
+  --series-auto: #2a78d6;
+  --series-manual: #16956a;
+  --chart-grid: #ecebe7;
+  --chart-axis: #c9c8c3;
+
+  /* status: reserved, always paired with an icon + label */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-neutral: #8b8b94;
+  --status-good-fg: #146c14;
+  --status-warning-fg: #8a5a00;
+  --status-serious-fg: #a8431c;
+  --status-critical-fg: #b42828;
+  --status-info-fg: #1f5fae;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0f0f0f;
+  --foreground: #f5f5f3;
+  --plane: #0a0a0a;
+  --card: #171717;
+  --card-foreground: #f5f5f3;
+  --popover: #1c1c1c;
+  --muted: #222221;
+  --muted-foreground: #b4b3ae;
+  --border: #2a2a28;
+  --input: #363633;
+  --ring: #c5f04a;
+
+  --brand: #c5f04a;
+  --brand-hover: #d4f76e;
+  --brand-foreground: #141414;
+  --brand-soft: #26300f;
+  --brand-ink: #d4f76e;
+
+  --series-auto: #3987e5;
+  --series-manual: #199e70;
+  --chart-grid: #242423;
+  --chart-axis: #3a3a37;
+
+  --status-good-fg: #4cc94c;
+  --status-warning-fg: #fab219;
+  --status-serious-fg: #ef9472;
+  --status-critical-fg: #ec6b6b;
+  --status-info-fg: #6aa6ee;
+}
+
+/* Type scale and elevation (design rules):
+   H1 39 / H2 31 / H3 25 / subhead 20 / body 16; display 110-120% leading, body 150%.
+   text-sm and text-xs stay for dense UI (tables, badges). Shadows are tinted with the ink,
+   never pure black, and blur is always twice the Y offset. */
+@theme {
+  --text-base: 16px;   --text-base--line-height: 1.5;
+  --text-lg: 20px;     --text-lg--line-height: 1.5;
+  --text-xl: 20px;     --text-xl--line-height: 1.4;
+  --text-2xl: 25px;    --text-2xl--line-height: 1.2;
+  --text-3xl: 31px;    --text-3xl--line-height: 1.2;
+  --text-4xl: 39px;    --text-4xl--line-height: 1.15;
+  --text-5xl: 39px;    --text-5xl--line-height: 1.15;
+  --text-6xl: 39px;    --text-6xl--line-height: 1.15;
+  --shadow-2xs: 0 1px 2px rgb(20 20 20 / 0.05);
+  --shadow-xs: 0 1px 2px rgb(20 20 20 / 0.06);
+  --shadow-sm: 0 2px 4px rgb(20 20 20 / 0.06);
+  --shadow-md: 0 4px 8px rgb(20 20 20 / 0.08);
+  --shadow-lg: 0 8px 16px rgb(20 20 20 / 0.10);
+  --shadow-xl: 0 12px 24px rgb(20 20 20 / 0.12);
+  --shadow-2xl: 0 24px 48px rgb(20 20 20 / 0.16);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-plane: var(--plane);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+  --color-series-auto: var(--series-auto);
+  --color-series-manual: var(--series-manual);
+  --color-good: var(--status-good);
+  --color-warning: var(--status-warning);
+  --color-serious: var(--status-serious);
+  --color-critical: var(--status-critical);
+  --color-neutral-status: var(--status-neutral);
+  --color-good-fg: var(--status-good-fg);
+  --color-warning-fg: var(--status-warning-fg);
+  --color-serious-fg: var(--status-serious-fg);
+  --color-critical-fg: var(--status-critical-fg);
+  --color-info-fg: var(--status-info-fg);
+
+  --font-sans: var(--font-chivo), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-chivo-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+  ::selection {
+    background: color-mix(in oklab, #c5f04a 55%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------- docs code blocks (rehype-pretty-code) */
+.docs-prose figure[data-rehype-pretty-code-figure] { margin: 1.5rem 0; }
+.docs-prose [data-rehype-pretty-code-title] {
+  border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--muted); padding: 0.5rem 1rem; font: 500 12.5px var(--font-mono); color: var(--muted-foreground);
+}
+.docs-prose [data-rehype-pretty-code-title] + div pre { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0; }
+.docs-prose pre {
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--plane) !important;
+  padding: 1rem 0; font-size: 13px; line-height: 1.7; overflow-x: auto;
+}
+.docs-prose pre code { display: grid; background: transparent !important; padding: 0 !important; font-size: inherit; }
+.docs-prose pre [data-line] { padding: 0 1rem; }
+.docs-prose code[data-theme] span { color: var(--shiki-light); }
+.dark .docs-prose code[data-theme] span { color: var(--shiki-dark); }
+
+/* ---------------------------------------------------------------- landing motion
+   Hero: a staged entrance on load. Below it: each card rises as it scrolls in, and the
+   lifetime bars grow. Scroll-driven, so no JS; browsers without view timelines and
+   reduced-motion users get the finished page. */
+@media (prefers-reduced-motion: no-preference) {
+  .enter, .enter-up { animation: enter 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+  .enter-up { animation-duration: 1s; --y: 48px; }
+  @keyframes enter { from { opacity: 0; transform: translateY(var(--y, 14px)); filter: blur(4px); } }
+
+  @supports (animation-timeline: view()) {
+    .reveal { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 60%; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(28px) scale(0.98); } }
+    .grow-x { animation: grow-x linear both; animation-timeline: view(); animation-range: entry 20% cover 45%; }
+    @keyframes grow-x { from { transform: scaleX(0.04); } }
+  }
+}

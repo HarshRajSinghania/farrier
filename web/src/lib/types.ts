@@ -1,0 +1,194 @@
+/**
+ * Types mirroring the Farrier HTTP API (farrier/api.py). Keep in sync when the
+ * Python side changes — these are the only contract the dashboard relies on.
+ */
+
+export type RenewalState =
+  | "planned"
+  | "issued"
+  | "deploying"
+  | "verifying"
+  | "awaiting_manual"
+  | "done"
+  | "failed"
+  | "rolled_back"
+  | "superseded"
+  | "cancelled";
+
+export const OPEN_STATES: RenewalState[] = ["planned", "issued", "deploying", "verifying", "awaiting_manual"];
+
+export type ExpiryBucket = "expired" | "7d" | "30d" | "90d" | "later" | "unknown";
+
+export interface ForecastRow {
+  on: string;
+  lifetime_days: number;
+  interval_days: number;
+  renewals_per_year: number;
+  per_calendar_day: number;
+  per_working_day: number;
+  manual_renewals_per_year: number;
+  manual_hours_per_year: number;
+  manual_fte: number;
+}
+
+export interface CalendarDay {
+  date: string;
+  auto: number;
+  manual: number;
+  projected_auto: number;
+  projected_manual: number;
+}
+
+export interface Summary {
+  now: string;
+  policy: {
+    max_lifetime_days: number;
+    dcv_reuse_days: number;
+    schedule: { from: string; days: number; dcv: number }[];
+  };
+  endpoints: number;
+  automated: number;
+  manual: number;
+  by_connector: Record<string, number>;
+  expiry: Partial<Record<ExpiryBucket, number>>;
+  renewal_states: Partial<Record<RenewalState, number>>;
+  awaiting_manual: number;
+  attention: number;
+  forecast: ForecastRow[];
+  calendar: CalendarDay[];
+}
+
+export interface MaintenanceWindow {
+  days?: string[];
+  start?: string;
+  hours?: number;
+}
+
+export interface Endpoint {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  sni: string | null;
+  common_name: string | null;
+  sans: string[];
+  key_type: string;
+  connector: string;
+  issuer: string;
+  window: MaintenanceWindow;
+  lead_days: number;
+  owner: string | null;
+  tags: string[];
+  enabled: number | boolean;
+  created_at: string;
+  fingerprint: string | null;
+  not_after: string | null;
+  not_before: string | null;
+  cert_issuer: string | null;
+  subject_cn: string | null;
+  observed_at: string | null;
+  scan_error: string | null;
+  automated: boolean;
+  days_left: number | null;
+}
+
+export interface EndpointInput {
+  name: string;
+  host: string;
+  port?: number;
+  sni?: string | null;
+  common_name?: string | null;
+  sans?: string[];
+  key_type?: string;
+  connector?: string;
+  connector_config?: Record<string, unknown>;
+  issuer?: string;
+  window?: MaintenanceWindow;
+  lead_days?: number;
+  owner?: string | null;
+  tags?: string[];
+  enabled?: boolean;
+}
+
+export interface Renewal {
+  id: number;
+  endpoint_id: number;
+  state: RenewalState;
+  reason: string | null;
+  scheduled_for: string;
+  deadline: string | null;
+  prev_fingerprint: string | null;
+  new_fingerprint: string | null;
+  not_after: string | null;
+  ticket_ref: string | null;
+  attempts: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  name: string;
+  connector: string;
+  host: string;
+  port: number;
+}
+
+export interface FarrierEvent {
+  id: number;
+  at: string;
+  endpoint_id: number | null;
+  renewal_id: number | null;
+  level: "info" | "warning" | "error" | string;
+  message: string;
+  name: string | null;
+}
+
+export interface ConnectorInfo {
+  kind: string;
+  automated: boolean;
+  required: string[];
+  doc: string;
+}
+
+export interface DiscoverResult {
+  new: number;
+  seen: number;
+  scanned: number;
+  with_tls: number;
+}
+
+export interface BackendStatus {
+  mode: "live" | "demo";
+  upstream: string | null;
+  reachable: boolean;
+  error?: string;
+  /** the signed-in dashboard user ("demo" in demo mode) */
+  user?: string;
+  /** whether the dashboard is behind FARRIER_DASHBOARD_PASSWORD */
+  auth?: boolean;
+}
+
+export type HealthStatus = "pass" | "warn" | "fail";
+export interface HealthCheck {
+  id: string;
+  status: HealthStatus;
+  detail: string;
+}
+export interface HealthReport {
+  endpoint: string;
+  grade: "A" | "B" | "C" | "D" | "F";
+  checked_at: string;
+  summary: Record<HealthStatus, number>;
+  checks: HealthCheck[];
+}
+export interface ZombieFinding {
+  kind: string;
+  severity: "critical" | "warning" | "info";
+  endpoint_id: number | null;
+  endpoint: string | null;
+  target: string;
+  action: string;
+}
+export interface ZombieReport {
+  generated_at: string;
+  count: number;
+  findings: ZombieFinding[];
+}

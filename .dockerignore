@@ -1,0 +1,10 @@
+.git
+web
+tests
+examples
+**/__pycache__
+*.egg-info
+.pytest_cache
+farrier-data
+farrier-demo
+.env

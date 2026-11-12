@@ -1,0 +1,92 @@
+export const metadata = {
+  title: "Deploy anywhere",
+  description: "Run Farrier with Docker Compose, on Kubernetes, on AWS, Google Cloud or Azure, or on-prem and air-gapped.",
+};
+
+# Deploy anywhere
+
+Farrier is two containers: the **engine** (`ghcr.io/gagankarthik/farrier`, the API and the renewal loop) and the **web app** (`ghcr.io/gagankarthik/farrier-web`, the dashboard, these docs and the landing page). Both images are multi-arch (amd64 and arm64), run as a non-root user, and are signed with cosign on every release.
+
+Two facts shape every deployment:
+
+1. **The engine must reach your devices.** It talks to F5, FortiGate and PAN-OS management interfaces, SSH hosts and TLS endpoints. Run it in the network segment, VPC or cluster that can route to them. The dashboard only needs to reach the engine.
+2. **The engine keeps state in SQLite.** Run exactly one engine replica, on block storage (EBS, Persistent Disk, Azure Managed Disk, a local or SAN volume). Do not put the data directory on NFS, SMB, EFS or Azure Files: SQLite locking on network filesystems is unreliable. The web app is stateless and scales freely.
+
+| Where | Engine | Data | Secrets | DNS-01 hook |
+| --- | --- | --- | --- | --- |
+| Any VM or on-prem host | Docker Compose | local volume | `.env` or files under `/run/secrets` | BIND `nsupdate`, Infoblox |
+| Kubernetes, OpenShift | StatefulSet, 1 replica | PVC (RWO) | Kubernetes Secret, External Secrets | any |
+| AWS | EKS or one EC2 instance | EBS gp3 | Secrets Manager | Route 53 |
+| Google Cloud | GKE or Compute Engine | Persistent Disk | Secret Manager | Cloud DNS |
+| Azure | AKS or a VM | Managed Disk | Key Vault | Azure DNS |
+
+## Docker Compose (any VM, on-prem)
+
+The quickest production setup, on one Linux host:
+
+```bash
+git clone https://github.com/gagankarthik/farrier && cd farrier
+cat > .env <<EOF
+FARRIER_API_TOKEN=$(openssl rand -hex 32)
+FARRIER_DASHBOARD_PASSWORD=$(openssl rand -hex 16)
+EOF
+docker compose up -d
+```
+
+The dashboard listens on port 3000. Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik or your load balancer) in front, and keep port 8740 unpublished: only the web container talks to the engine. Back up the `farrier-data` volume.
+
+## Kubernetes (EKS, GKE, AKS, OpenShift, any cluster)
+
+Manifests live in `deploy/kubernetes/`:
+
+| File | What it creates |
+| --- | --- |
+| `farrier.yaml` | The engine StatefulSet (1 replica, PVC, non-root, read-only root filesystem, all capabilities dropped), its ClusterIP Service and a ServiceAccount with no token |
+| `web.yaml` | The dashboard Deployment (2 replicas) and Service |
+| `network-policy.yaml` | Only the dashboard (and a `monitoring` namespace, for `/metrics`) may reach the engine |
+| `ingress.example.yaml` | An ingress for the dashboard with TLS and a source-range allowlist |
+| `secrets.example.yaml` | The secrets to create, with the commands that generate them |
+
+```bash
+kubectl create namespace farrier
+kubectl apply -f my-secrets.yaml   # from secrets.example.yaml, or External Secrets
+kubectl apply -k deploy/kubernetes
+kubectl apply -f my-ingress.yaml   # from ingress.example.yaml
+```
+
+Set the storage class on the volume claim to your cluster's block storage. OpenShift assigns its own UID range: remove `runAsUser` and `fsGroup` from `farrier.yaml` and the restricted-v2 SCC will run it as is.
+
+## AWS
+
+- **Compute.** EKS with the manifests above, or one EC2 instance with Docker Compose. Place the engine in subnets that route to your devices' management VLANs, through Direct Connect or a site-to-site VPN for on-prem appliances.
+- **Storage.** An EBS gp3 volume (the `gp3` storage class on EKS). Snapshot it with AWS Backup.
+- **Secrets.** Store the API token, dashboard password, master key and device credentials in Secrets Manager, and sync them into the cluster with the External Secrets Operator using IRSA. Mount device credentials under `/run/secrets/farrier`.
+- **DNS-01.** A hook script that calls `aws route53 change-resource-record-sets`, with an IAM role allowed to change only the `_acme-challenge` records of your zones.
+- **Access.** An internal ALB with Cognito or OIDC authentication in front of the dashboard.
+
+## Google Cloud
+
+- **Compute.** GKE (Standard or Autopilot) with the manifests above, or a Compute Engine VM with Docker Compose. Reach on-prem devices over Cloud VPN or Interconnect.
+- **Storage.** A Persistent Disk through the `standard-rwo` or `premium-rwo` storage class, with snapshot schedules.
+- **Secrets.** Secret Manager with the Secret Manager CSI add-on or External Secrets, using Workload Identity.
+- **DNS-01.** A hook that calls `gcloud dns record-sets` with a service account limited to DNS record changes on your zone.
+- **Access.** An internal HTTPS load balancer with Identity-Aware Proxy in front of the dashboard.
+
+## Azure
+
+- **Compute.** AKS with the manifests above, or a Linux VM with Docker Compose. Reach on-prem devices over VPN Gateway or ExpressRoute.
+- **Storage.** An Azure Managed Disk through the `managed-csi` storage class. Do not use Azure Files for the engine.
+- **Secrets.** Key Vault through the Secrets Store CSI driver with workload identity.
+- **DNS-01.** A hook that calls `az network dns record-set txt` with a managed identity scoped to your DNS zone.
+- **Access.** Application Gateway with Entra ID authentication, or an internal ingress behind your VPN.
+
+## On-prem and air-gapped
+
+- Run Docker Compose on a VM in the management network, or use the Kubernetes manifests on your own cluster or OpenShift.
+- For internal names, use the built-in private CA or your own ACME server (step-ca, an internal EJBCA or AD CS with an ACME front end), so nothing leaves the network.
+- Mirror the two images into your registry (`docker pull`, `docker save`, `docker load`, then `docker push`) and pin them by digest.
+- Back up the data directory and keep the master key in a separate vault: a backup without its key cannot be decrypted, which is the point.
+
+## After deploying
+
+Work through the [hosting checklist](/docs/security#hosting-checklist): tokens set, dashboard behind a login, secrets allowlisted, least-privilege device accounts, backups tested, and `/metrics` scraped with an expiry alert.

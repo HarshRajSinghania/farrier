@@ -1,0 +1,57 @@
+export const metadata = {
+  title: "Domain health and zombie certificates",
+  description: "TLS report cards for every endpoint, deployment verification, and certificates that are alive but shouldn't be.",
+};
+
+# Domain health and zombie certificates
+
+## Domain health
+
+A health check grades one endpoint, or any `host:port`, from A to F. Each check returns `pass`, `warn` or `fail` with a detail line.
+
+| Check | Fails when |
+|---|---|
+| chain | an intermediate is missing, out of order, or the chain doesn't reach a trusted root |
+| hostname | a configured name isn't covered by the certificate's SANs |
+| expiry, lifetime | the certificate is close to expiry, or longer than the current CA/B Forum maximum |
+| key, signature | RSA under 2048 bits, SHA-1 or MD5 signatures |
+| tls_versions | the server still accepts TLS 1.0 or 1.1 |
+| ocsp_stapling | no stapled OCSP response (warning) |
+| caa | CAA records don't allow the issuing CA |
+| deployed_match | the server isn't serving the certificate Farrier last deployed |
+
+```bash
+curl -H "Authorization: Bearer $FARRIER_API_TOKEN" https://farrier.example.com/api/endpoints/12/health
+curl -H "Authorization: Bearer $FARRIER_API_TOKEN" -X POST https://farrier.example.com/api/health \
+  -d '{"targets": "www.example.com, 10.0.4.0/28:8443"}'
+```
+
+`/metrics` exports `farrier_health_check_failed{endpoint,check}` so you can alert on any failing check. Probing arbitrary hosts needs the admin token. Read tokens can check inventory endpoints only.
+
+## Deployment verification
+
+After an automated deploy, Farrier calls a renewal done only when:
+
+1. the endpoint serves the new certificate's fingerprint, and
+2. the chain is complete and trusted (a private CA's root counts), and
+3. every name on the endpoint is covered, and
+4. every VIP listed in the connector's `vips` serves it too.
+
+Otherwise it retries and then rolls back. Set `verify_all_addresses` to also probe every A and AAAA record of the host, which catches one stale node behind round-robin DNS. Leave it off if the engine can't reach every address.
+
+## Zombie certificates
+
+A zombie is a certificate that is still alive but shouldn't be.
+
+| Kind | Meaning |
+|---|---|
+| `expired_served` | an expired certificate is still being served |
+| `stale_duplicate` | an endpoint serves an old fingerprint after a newer renewal was verified |
+| `unexpected_issuer` | a managed name serves a certificate from a different CA |
+| `unexpected_issuance` | a managed name has a certificate Farrier didn't issue |
+| `dead_endpoint` | an inventory endpoint hasn't answered for 7 days |
+| `pack_never_installed` | a change pack has waited 3 days, or is past its deadline |
+| `discovered_unowned` | discovered, with no owner and never renewed |
+| `not_in_inventory` | an active scan found a certificate on a host Farrier doesn't manage |
+
+`GET /api/zombies` reads stored observations and is cheap. `POST /api/zombies/scan` with `{"targets": "…"}` scans the network actively, needs the admin token, and never changes the inventory.

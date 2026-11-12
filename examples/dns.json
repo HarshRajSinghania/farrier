@@ -1,0 +1,60 @@
+{
+  "cf-prod": {
+    "provider": "cloudflare",
+    "credentials": {"api_token": "env:FARRIER_SECRET_CF_PROD"},
+    "zones": ["example.com"]
+  },
+  "cf-staging": {
+    "provider": "cloudflare",
+    "credentials": {"api_token": "env:FARRIER_SECRET_CF_STAGING"},
+    "zones": ["staging.example.com"]
+  },
+  "aws-main": {
+    "provider": "route53",
+    "credentials": {"access_key_id": "env:FARRIER_SECRET_AWS_ID", "secret_access_key": "env:FARRIER_SECRET_AWS_KEY"},
+    "zones": ["example.net"]
+  },
+  "aws-validation": {
+    "provider": "route53",
+    "credentials": {"access_key_id": "env:FARRIER_SECRET_AWS_ID", "secret_access_key": "env:FARRIER_SECRET_AWS_KEY",
+                    "external_id": "env:FARRIER_SECRET_AWS_EXTERNAL_ID"},
+    "options": {"role_arn": "arn:aws:iam::222222222222:role/farrier-dns01"},
+    "zones": ["acme-validation.example.org"]
+  },
+  "azure-sub-a": {
+    "provider": "azure",
+    "credentials": {"tenant_id": "env:FARRIER_SECRET_AZ_TENANT", "client_id": "env:FARRIER_SECRET_AZ_CLIENT",
+                    "client_secret": "file:/run/secrets/azure-dns-sp"},
+    "options": {"subscription_id": "00000000-0000-0000-0000-000000000000"},
+    "zones": ["corp.example.com"]
+  },
+  "gcp": {
+    "provider": "google",
+    "credentials": {"service_account": "file:/run/secrets/gcp-dns-sa.json"},
+    "zones": ["example.dev"]
+  },
+  "bind-internal": {
+    "provider": "rfc2136",
+    "credentials": {"tsig_secret": "file:/run/secrets/tsig-farrier.b64"},
+    "options": {"server": "ns1.internal.example", "tsig_key": "farrier-key", "tsig_algorithm": "hmac-sha256"},
+    "zones": ["internal.example"],
+    "propagation_timeout": 120
+  },
+  "legacy-acmedns": {
+    "provider": "acme-dns",
+    "credentials": {"registrations": "file:/run/secrets/acmedns-registrations.json"},
+    "options": {"api_url": "https://auth.acme-dns.io"},
+    "zones": ["legacy.example"]
+  },
+  "infoblox-hook": {
+    "provider": "script",
+    "credentials": {"wapi_password": "env:FARRIER_SECRET_INFOBLOX"},
+    "options": {"dns_hook": "/opt/farrier/hooks/infoblox.sh"},
+    "zones": ["ib.example.com"]
+  },
+
+  "aliases": {
+    "_acme-challenge.shop.example.com": "shop-example-com.acme-validation.example.org"
+  },
+  "follow_cname": true
+}

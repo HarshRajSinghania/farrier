@@ -1,0 +1,57 @@
+# Farrier dashboard, docs and landing page. Stateless: scale it freely.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: farrier-web
+  namespace: farrier
+  labels: { app.kubernetes.io/name: farrier, app.kubernetes.io/component: web }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: farrier, app.kubernetes.io/component: web }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: farrier, app.kubernetes.io/component: web }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: ghcr.io/gagankarthik/farrier-web:0.1.0
+          ports: [{ name: http, containerPort: 3000 }]
+          env:
+            - { name: FARRIER_API_URL, value: "http://farrier.farrier.svc.cluster.local:8740" }
+            - { name: NEXT_PUBLIC_SITE_URL, value: "https://farrier.example.internal" }
+            - name: FARRIER_API_TOKEN
+              valueFrom: { secretKeyRef: { name: farrier-secrets, key: api-token } }
+            - name: FARRIER_DASHBOARD_PASSWORD
+              valueFrom: { secretKeyRef: { name: farrier-secrets, key: dashboard-password } }
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 15
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: next-cache, mountPath: /app/.next/cache }
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: farrier-web
+  namespace: farrier
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: farrier, app.kubernetes.io/component: web }
+  ports: [{ name: http, port: 80, targetPort: http }]

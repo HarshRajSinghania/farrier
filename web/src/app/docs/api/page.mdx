@@ -1,0 +1,335 @@
+export const metadata = {
+  title: "API reference",
+  description: "Every Farrier REST endpoint: parameters, request bodies, responses and errors.",
+};
+
+# API reference
+
+`farrier serve` exposes a JSON REST API under `/api`. The web dashboard is built entirely on these endpoints, and you can script against them directly. Interactive OpenAPI docs are served at `/docs` on the API server, and `/` redirects there.
+
+## Basics
+
+**Base URL**: `http://127.0.0.1:8740` by default.
+
+**Authentication**: when the server has `FARRIER_API_TOKEN` set, every `/api/*` request needs it as a bearer token, or it gets `401`:
+
+```bash
+curl -H "Authorization: Bearer $FARRIER_API_TOKEN" http://127.0.0.1:8740/api/summary
+```
+
+Without `FARRIER_API_TOKEN` the API is open, and `farrier serve` refuses to bind anything but loopback.
+
+**Scopes**: `FARRIER_API_TOKEN` can read and change everything. `FARRIER_API_READ_TOKEN`, if set, can call every `GET` (including `/metrics`) and gets `403` on anything else. Send `X-Farrier-Actor: <name>` with a change to record who made it in the event log; the dashboard sends its signed-in user.
+
+**Errors** use FastAPI's shape:
+
+```json
+{ "detail": "renewal is not open" }
+```
+
+**Timestamps** are ISO 8601 in UTC, for example `2026-11-12T15:54:09+00:00`.
+
+<Callout type="info" title="From the dashboard">
+The browser never calls the API directly. The Next.js app proxies `/api/farrier/<path>` to `FARRIER_API_URL/api/<path>` on the server and adds the bearer token there, so the token never reaches the browser. See [Self-hosting](/docs/self-hosting).
+</Callout>
+
+## Summary
+
+### `GET /api/summary`
+
+Estate overview used by the dashboard's Overview screen.
+
+```json
+{
+  "now": "2026-11-12T15:54:10+00:00",
+  "policy": {
+    "max_lifetime_days": 200,
+    "dcv_reuse_days": 200,
+    "schedule": [{ "from": "2026-03-15", "days": 200, "dcv": 200 }]
+  },
+  "endpoints": 41,
+  "automated": 18,
+  "manual": 23,
+  "by_connector": { "manual": 23, "files": 18 },
+  "expiry": { "expired": 1, "7d": 4, "30d": 6, "90d": 12, "later": 18 },
+  "renewal_states": { "awaiting_manual": 3, "done": 9, "planned": 14 },
+  "awaiting_manual": 3,
+  "attention": 0,
+  "forecast": [{ "on": "2026-03-15", "per_working_day": 11.0, "manual_fte": 0.51 }],
+  "calendar": [
+    { "date": "2026-11-12", "auto": 2, "manual": 1, "projected_auto": 0, "projected_manual": 0 }
+  ]
+}
+```
+
+- `expiry` buckets endpoints by days left: `expired`, `7d` (under 7), `30d`, `90d`, `later`, and `unknown` (no certificate seen).
+- `attention` counts `failed` and `rolled_back` renewals.
+- `forecast` has one row per CA/B Forum step for this estate's size and manual share; rows have the same fields as `/api/forecast`.
+- `calendar` covers the next 90 days. `auto`/`manual` count open renewals by scheduled day (overdue ones count today). `projected_*` count endpoints with no open renewal by their computed due date.
+
+### `GET /api/forecast`
+
+Renewal workload under the lifetime schedule.
+
+| Query | Default | |
+| --- | --- | --- |
+| `certs` | `1000` | Certificate count |
+| `manual` | `0.4` | Fraction installed by hand, 0 to 1 |
+| `minutes` | `45` | Hands-on minutes per manual renewal |
+| `lead` | `0` | Change lead time in days |
+
+```json
+{
+  "timeline": [
+    {
+      "on": "2029-03-15",
+      "lifetime_days": 47,
+      "interval_days": 31,
+      "renewals_per_year": 11774,
+      "per_calendar_day": 32.3,
+      "per_working_day": 47.1,
+      "manual_renewals_per_year": 4710,
+      "manual_hours_per_year": 3532.5,
+      "manual_fte": 2.21
+    }
+  ],
+  "naive_2029": { "renewals_per_year": 7766, "per_working_day": 31.1 }
+}
+```
+
+`naive_2029` is the commonly quoted figure, which assumes each certificate is replaced on its expiry day. FTE assumes 1,600 working hours a year, and per-working-day figures assume 250 working days.
+
+## Endpoints
+
+### `GET /api/endpoints`
+
+All endpoints with their latest observation, ordered by expiry (soonest first, unknown last). `connector_config` is never included.
+
+```json
+[
+  {
+    "id": 37,
+    "name": "iis-07.corp.test",
+    "host": "127.0.0.1",
+    "port": 61632,
+    "sni": "iis-07.corp.test",
+    "common_name": "iis-07.corp.test",
+    "sans": ["iis-07.corp.test"],
+    "key_type": "ec256",
+    "connector": "manual",
+    "issuer": "default",
+    "window": { "days": ["wed", "sat"], "start": "20:00", "hours": 4 },
+    "lead_days": 7,
+    "owner": "network-team",
+    "tags": ["iis"],
+    "enabled": 1,
+    "created_at": "2026-11-12T15:54:09+00:00",
+    "fingerprint": "5dbbd55c4a3a611a…",
+    "not_after": "2026-11-09T15:54:09+00:00",
+    "not_before": "2025-10-07T15:54:09+00:00",
+    "cert_issuer": "Farrier Local CA",
+    "subject_cn": "iis-07.corp.test",
+    "observed_at": "2026-11-12T15:54:10+00:00",
+    "scan_error": null,
+    "automated": false,
+    "days_left": -3.0
+  }
+]
+```
+
+When the latest scan failed, `scan_error` holds the reason and the certificate fields are `null`.
+
+### `POST /api/endpoints`
+
+Create or update an endpoint, upserting by `name`. The body uses the inventory fields described in [Configuration](/docs/configuration#inventory-farrier-import). Only `name` and `host` are required. The endpoint is scanned immediately.
+
+```json
+{
+  "name": "vpn-fgt",
+  "host": "vpn.example.com",
+  "port": 443,
+  "connector": "fortigate",
+  "connector_config": { "url": "https://fgt-mgmt.example.com", "api_token": "env:FGT_TOKEN", "bind": "sslvpn" },
+  "issuer": "le",
+  "window": { "days": ["sat"], "start": "02:00", "hours": 4 },
+  "owner": "network"
+}
+```
+
+Response: `{ "id": 42 }`.
+
+Errors: `400` for an unknown connector, missing connector config keys (`f5 connector missing config: url, username, password, profile`), or a secret reference to an unset environment variable.
+
+### `DELETE /api/endpoints/{id}`
+
+Remove an endpoint, with its observations and renewal history. The device is not touched. Response: `{ "ok": true }`. Errors: `404` for an unknown id.
+
+### `POST /api/endpoints/{id}/renew`
+
+Renew now. Creates a renewal scheduled for now, or pulls an existing `planned` one forward, then advances it as far as it can go in this request. An automated endpoint can reach `done` in one call.
+
+```json
+{ "renewal_id": 21, "state": "done" }
+```
+
+Errors: `404`.
+
+## Discovery
+
+### `POST /api/discover`
+
+Handshake with every target, then register each unknown listener that serves TLS as a `manual` endpoint tagged `discovered`. The call is synchronous, so large ranges take a while.
+
+```json
+{ "targets": "10.20.0.0/24:443|8443, vpn.example.com, www.example.com@10.20.1.10:443" }
+```
+
+```json
+{ "new": 3, "seen": 17, "scanned": 508, "with_tls": 17 }
+```
+
+Errors: `400` for invalid targets (bad hostname, SNI, port or CIDR) or more than 4,096 targets. Target syntax is in [Configuration](/docs/configuration#target-syntax).
+
+## Renewals
+
+### `GET /api/renewals`
+
+Renewals ordered by `scheduled_for`, up to 500.
+
+| Query | |
+| --- | --- |
+| `state` | Comma-separated filter, e.g. `awaiting_manual,failed,rolled_back` |
+
+```json
+[
+  {
+    "id": 1,
+    "endpoint_id": 37,
+    "state": "awaiting_manual",
+    "reason": "expired",
+    "scheduled_for": "2026-11-12T15:54:10+00:00",
+    "deadline": "2026-11-07T15:54:09+00:00",
+    "prev_fingerprint": "5dbbd55c…",
+    "new_fingerprint": "dd08257a…",
+    "not_after": "2027-05-31T15:54:10+00:00",
+    "ticket_ref": "CHG0041206",
+    "attempts": 0,
+    "error": null,
+    "created_at": "2026-11-12T15:54:10+00:00",
+    "updated_at": "2026-11-12T15:54:10+00:00",
+    "name": "iis-07.corp.test",
+    "connector": "manual",
+    "host": "127.0.0.1",
+    "port": 61632
+  }
+]
+```
+
+States are described in [Concepts](/docs/concepts#renewal-states).
+
+### `POST /api/renewals/{id}/advance`
+
+Push one renewal as far as it can go now, for example to check whether a manual install is live yet. Response: `{ "state": "done" }`. Errors: `404`.
+
+### `POST /api/renewals/{id}/cancel`
+
+Cancel an open renewal. Response: `{ "state": "cancelled" }`. Errors: `400` (`renewal is not open`) for unknown ids and for renewals that are already closed.
+
+### `GET /api/renewals/{id}/pack`
+
+Download the change pack for a renewal in `awaiting_manual` as `application/zip`, named `<endpoint>-renewal-<id>.zip`. Each download is recorded in the event log. Errors: `404` if the renewal isn't awaiting a manual install, or the pack was already cleaned up.
+
+### `GET /api/renewals/{id}/runbook`
+
+The device runbook from the change pack: `{ "markdown": "# Install renewed TLS certificate on …" }`. Errors: `404` if there is no pack.
+
+## Events
+
+### `GET /api/events`
+
+Audit log, newest first.
+
+| Query | Default | |
+| --- | --- | --- |
+| `limit` | `100` | |
+| `endpoint_id` | | Only events for this endpoint |
+
+```json
+[
+  {
+    "id": 120,
+    "at": "2026-11-12T16:02:41+00:00",
+    "endpoint_id": 16,
+    "renewal_id": 21,
+    "level": "info",
+    "message": "verified live on 127.0.0.1:61632",
+    "name": "nginx-03.corp.test"
+  }
+]
+```
+
+`level` is `info`, `warn` or `error`.
+
+## Operations
+
+### `POST /api/tick`
+
+Run one scan/plan/advance cycle now, the same one the server runs every `--tick` seconds.
+
+```json
+{ "planned": 2, "states": { "awaiting_manual": 3, "planned": 14, "done": 1 } }
+```
+
+`states` counts the state each open renewal ended this cycle in.
+
+### `GET /api/connectors`
+
+Available connector kinds.
+
+```json
+[
+  {
+    "kind": "f5",
+    "automated": true,
+    "required": ["url", "username", "password", "profile"],
+    "doc": "F5 BIG-IP via iControl REST. …"
+  }
+]
+```
+
+## Observability
+
+### `GET /healthz`
+
+Unauthenticated liveness and readiness check for load balancers and Kubernetes. Returns `{"ok": true}` once the database answers, and nothing else.
+
+### `GET /metrics`
+
+Prometheus text format. Needs a token (use the read-only one). Names follow x509-certificate-exporter and cert-manager where they overlap.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `farrier_cert_not_after_timestamp_seconds` | `endpoint`, `host`, `port`, `connector`, `automated`, `owner` | Expiry of the certificate the endpoint serves |
+| `farrier_cert_expires_in_seconds` | same | Seconds until expiry, negative once expired |
+| `farrier_cert_expired` | same | `1` once expired |
+| `farrier_endpoint_up` | same | `1` when the last TLS handshake succeeded |
+| `farrier_renewals` | `state` | Renewals by state |
+| `farrier_build_info` | `version` | Always `1` |
+
+```yaml
+# Prometheus alert rules
+- alert: FarrierCertificateExpiringSoon
+  expr: farrier_cert_expires_in_seconds < 7 * 86400
+  labels: { severity: warning }
+- alert: FarrierRenewalNeedsAttention
+  expr: farrier_renewals{state=~"failed|rolled_back"} > 0
+  labels: { severity: critical }
+```
+
+### `GET /api/inventory`
+
+Every endpoint and the certificate it serves: `name`, `host`, `port`, `connector`, `owner`, `subject_cn`, `cert_issuer`, `not_before`, `not_after`, `days_left`, `fingerprint`, `observed_at`, `scan_error`. Add `?format=csv` for a spreadsheet; text cells starting with `=`, `+`, `-` or `@` are prefixed so they never run as formulas.
+
+### `POST /api/notifiers/test`
+
+Sends a `test` event to every configured notifier and waits for delivery. Returns `{"sent": ["slack", "webhook"]}`, or `400` when none are configured. See [Notifications](/docs/configuration#notifications).

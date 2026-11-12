@@ -1,0 +1,31 @@
+# Farrier + dashboard. Create a .env next to this file first:
+#   FARRIER_API_TOKEN=<long random string>
+#   FARRIER_DASHBOARD_PASSWORD=<password for the dashboard login>
+# then: docker compose up -d   →   http://localhost:3000/dashboard
+services:
+  farrier:
+    build: .
+    restart: unless-stopped
+    environment:
+      FARRIER_API_TOKEN: ${FARRIER_API_TOKEN:?set FARRIER_API_TOKEN in .env}
+      # Optional: supply the vault key from a secret instead of /data/master.key
+      # FARRIER_MASTER_KEY: ${FARRIER_MASTER_KEY}
+    volumes:
+      - farrier-data:/data
+    # Not published: only the dashboard talks to the API.
+    expose: ["8740"]
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on: [farrier]
+    environment:
+      FARRIER_API_URL: http://farrier:8740
+      FARRIER_API_TOKEN: ${FARRIER_API_TOKEN}
+      FARRIER_DASHBOARD_PASSWORD: ${FARRIER_DASHBOARD_PASSWORD:?set FARRIER_DASHBOARD_PASSWORD in .env}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+
+volumes:
+  farrier-data:

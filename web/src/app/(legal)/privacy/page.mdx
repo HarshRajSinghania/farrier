@@ -1,0 +1,27 @@
+export const metadata = { title: "Privacy", description: "What data Farrier and this website collect, and where it stays." };
+
+# Privacy
+
+Last updated 12 November 2026.
+
+Farrier is open-source software that you run on your own infrastructure. This page covers two things: the software you install, and this website.
+
+## The software
+
+- **Nothing phones home.** Farrier sends no telemetry, usage statistics or crash reports to the project or to anyone else.
+- **Your data stays where you run it.** Endpoint inventory, certificates, sealed private keys and the event log are stored in the data directory you configure (SQLite by default). Private keys are encrypted with Fernet before they are written.
+- **Outbound connections are the ones you configure:** your certificate authority (for example Let's Encrypt or a CA with External Account Binding), your DNS provider's API through the hook you supply, the management interfaces of your devices, ticketing systems such as ServiceNow or Jira, and any notification webhooks you add.
+- **Certificate authorities see what every ACME client sends them:** the domain names in the certificate request and the account contact you set. Their own privacy policies apply.
+
+The operator of a Farrier installation is responsible for it, including who can reach the dashboard and API, and how long logs and backups are kept.
+
+## This website
+
+- The landing page and documentation set no tracking cookies and load no analytics or advertising scripts.
+- Fonts are served by Google Fonts, which receives your IP address and browser details when it serves them.
+- The live demo on `/dashboard` uses a simulated estate held in server memory. Nothing you enter there is stored beyond the server's next restart.
+- Server logs kept by whoever hosts this site may contain IP addresses and requested URLs.
+
+## Contact
+
+Questions about privacy go to the project's issue tracker on [GitHub](https://github.com/gagankarthik/farrier/issues). Report security problems privately as described in [Security](/docs/security).

@@ -1,0 +1,24 @@
+# Example ingress for the dashboard. Put SSO in front for per-user identity:
+#   EKS: ALB ingress with Cognito/OIDC auth   GKE: Identity-Aware Proxy (BackendConfig)
+#   AKS: Application Gateway + Entra ID       on-prem: oauth2-proxy beside ingress-nginx
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: farrier-web
+  namespace: farrier
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # restrict to your admin network; remove only behind SSO
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [farrier.example.internal]
+      secretName: farrier-web-tls
+  rules:
+    - host: farrier.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: farrier-web, port: { name: http } } }

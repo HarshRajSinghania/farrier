@@ -1,0 +1,91 @@
+export const metadata = {
+  title: "Quickstart",
+  description: "Run the Farrier demo estate and the web dashboard locally in five minutes.",
+};
+
+# Quickstart
+
+Run a simulated estate of 41 real TLS endpoints on your machine, watch Farrier renew the automated ones, close the loop on a manual one, and explore it all in the web dashboard.
+
+## Prerequisites
+
+- Python 3.11 or newer
+- Node.js 20 or newer (for the web dashboard)
+- Git
+
+## 1. Install Farrier
+
+```bash
+git clone https://github.com/gagankarthik/farrier.git
+cd farrier
+pip install -e ".[dev]"
+```
+
+This installs the `farrier` command. Check it works:
+
+```bash
+farrier forecast --certs 1000 --manual 0.4 --minutes 45
+```
+
+## 2. Start the demo estate
+
+```bash
+farrier demo
+```
+
+`farrier demo` creates a data directory at `./farrier-demo`, starts 41 TLS listeners on `127.0.0.1` (one port, routed by SNI), runs a first scan/plan/advance cycle, and serves the REST API on `http://127.0.0.1:8740` (interactive OpenAPI docs at `/docs`) with a cycle every 20 seconds. The API has no UI of its own; the dashboard is the Next.js app in `web/`, which you start in step 3.
+
+The estate mixes nginx- and HAProxy-style hosts on the `files` connector (automated) with Cisco ASAs, Citrix ADCs, IIS and vCenter on the `manual` connector. Certificates come from Farrier's built-in private CA, so nothing leaves your machine.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--port` | `8740` | API port |
+| `--tick` | `20` | Seconds between cycles |
+| `--simulate-date` | today | Issue certificates as if on this date |
+
+### Rehearse 47-day certificates
+
+```bash
+rm -rf farrier-demo
+farrier demo --simulate-date 2029-03-15
+```
+
+<Callout type="info">
+`--simulate-date` only takes effect when the demo estate is first seeded. Delete `./farrier-demo` to re-seed.
+</Callout>
+
+## 3. Run the dashboard
+
+In a second terminal:
+
+```bash
+cd web
+npm install
+echo "FARRIER_API_URL=http://127.0.0.1:8740" > .env.local
+npm run dev
+```
+
+Open [http://localhost:3000/dashboard](http://localhost:3000/dashboard). The pill in the top bar shows `127.0.0.1:8740` when connected. Without `FARRIER_API_URL` the dashboard runs in demo mode with a simulated in-memory estate, which is handy for UI work but doesn't exercise the engine.
+
+## 4. Watch an automated renewal
+
+Go to **Renewals**. Automated endpoints move `planned → issued → deploying → verifying → done` as their scheduled time arrives. To force one now, open **Endpoints**, pick a `Files / SSH` endpoint and choose **Renew now** from its menu. It is issued, written to disk, and verified by a fresh handshake in a single call.
+
+## 5. Close the loop on a manual renewal
+
+Manual endpoints stop at **Awaiting human**. That is the point where, in production, an engineer installs the certificate during a change window.
+
+1. In **Renewals → Awaiting human**, click **Change pack** to download the zip (`fullchain.pem`, `key.pem`, `bundle.pfx`, `passphrase.txt`, `RUNBOOK.md`).
+2. "Install" it on the simulated device by copying the two PEM files into its directory:
+
+   ```bash
+   cp fullchain.pem key.pem farrier-demo/devices/<endpoint-name>/
+   ```
+
+3. Wait for the next cycle, or click **Run cycle**. The scanner sees the new fingerprint live and the renewal moves to **Done** on its own. The change pack, including its private key, is then deleted.
+
+## Next steps
+
+- Learn the [lifecycle and state machine](/docs/concepts).
+- Point Farrier at real endpoints: [Configuration](/docs/configuration) and [Connectors](/docs/connectors).
+- Run it for your team: [Self-hosting](/docs/self-hosting).

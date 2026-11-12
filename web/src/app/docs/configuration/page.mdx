@@ -1,0 +1,257 @@
+export const metadata = {
+  title: "Configuration",
+  description: "Data directory, issuers, DNS-01 hooks, planner settings, inventory format, environment variables and CLI.",
+};
+
+# Configuration
+
+Farrier is configured with plain files in its data directory and a few environment variables. There is no configuration in the database, so a deployment is reproducible from a directory and a secret.
+
+## Data directory
+
+Set with `--data` or `FARRIER_DATA`. Defaults to `./farrier-data`, or `./farrier-demo` for `farrier demo`.
+
+```
+farrier-data/
+├── farrier.db                     # SQLite: endpoints, observations, renewals, events
+├── master.key                   # Fernet key sealing private keys (unless FARRIER_MASTER_KEY is set)
+├── issuers.json                 # which CAs to use (optional)
+├── settings.json                # planner tuning (optional)
+├── acme-account-<hash>.key      # one ACME account key per directory URL
+├── local-ca/                    # built-in private CA (ca.key, ca.pem)
+└── packs/<renewal-id>/          # manual change packs, deleted once verified
+```
+
+<Callout type="danger" title="Back up master.key">
+Without `master.key` (or `FARRIER_MASTER_KEY`), the sealed private keys in `farrier.db` can't be decrypted. Back up both together.
+</Callout>
+
+## Issuers: `issuers.json`
+
+Maps issuer names to CAs. Endpoints choose one with their `issuer` field. If an endpoint names an issuer that doesn't exist, `default` is used. Without the file, Farrier uses only the built-in private CA:
+
+```json
+{ "default": { "type": "local_ca" } }
+```
+
+Any string value can be a secret reference (`env:NAME` or `file:/path`).
+
+### Let's Encrypt
+
+```json
+{
+  "default": { "type": "local_ca" },
+  "le": {
+    "type": "acme",
+    "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
+    "email": "pki@example.com",
+    "dns_hook": "/opt/farrier/hooks/route53.sh",
+    "propagation_seconds": 60
+  }
+}
+```
+
+### Commercial CA with External Account Binding
+
+DigiCert, Sectigo, Entrust and others expose ACME with EAB credentials:
+
+```json
+{
+  "digicert": {
+    "type": "acme",
+    "directory_url": "https://acme.digicert.com/v2/acme/directory/",
+    "eab_kid": "env:DIGICERT_EAB_KID",
+    "eab_hmac_key": "env:DIGICERT_EAB_HMAC",
+    "dns_hook": "/opt/farrier/hooks/infoblox.sh"
+  }
+}
+```
+
+### `acme` options
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `directory_url` | Let's Encrypt **staging** | Set explicitly for production |
+| `email` | none | Account contact |
+| `dns_hook` | required | Shell command, see below |
+| `propagation_seconds` | `60` | Wait after publishing TXT records |
+| `eab_kid`, `eab_hmac_key` | none | External Account Binding |
+| `poll_interval` | `2.0` | Seconds between order polls |
+| `timeout` | `600` | Seconds before giving up on an order |
+
+Only the DNS-01 challenge is supported, by design: the device never needs to be reachable from the CA.
+
+### `local_ca` options
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `name` | `Farrier Local CA` | CA subject |
+| `lifetime_days` | public maximum for today | Override, e.g. `30` for a stress test |
+| `simulate_date` | none | Issue as if on this date |
+
+The private CA follows the public lifetime schedule by default, so you can rehearse the 47-day world today. Use it for labs and internal-only names; clients must trust `local-ca/ca.pem`.
+
+## DNS-01 hook contract
+
+`dns_hook` is run through the shell once per challenge, with these environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `FARRIER_DNS_ACTION` | `present` or `cleanup` |
+| `FARRIER_DNS_NAME` | e.g. `_acme-challenge.vpn.example.com` |
+| `FARRIER_DNS_VALUE` | the TXT value |
+
+`present` must **add** a TXT value, not replace the record: a certificate for `example.com` and `*.example.com` needs two values on the same name. `cleanup` removes only the given value. A non-zero exit fails the issuance attempt, which is retried on the next tick. Each call has a 300-second timeout.
+
+Example for BIND or any RFC 2136 server (`examples/dns-hook-nsupdate.sh`):
+
+```sh
+#!/bin/sh
+set -eu
+SERVER="${NSUPDATE_SERVER:-ns1.example.com}"
+KEY="${NSUPDATE_KEY:-/etc/farrier/tsig.key}"
+case "$FARRIER_DNS_ACTION" in
+  present) OP="update add $FARRIER_DNS_NAME. 60 IN TXT \"$FARRIER_DNS_VALUE\"" ;;
+  cleanup) OP="update delete $FARRIER_DNS_NAME. IN TXT \"$FARRIER_DNS_VALUE\"" ;;
+  *) echo "unknown action $FARRIER_DNS_ACTION" >&2; exit 2 ;;
+esac
+printf 'server %s\n%s\nsend\n' "$SERVER" "$OP" | nsupdate -k "$KEY"
+```
+
+Write equivalents for Route 53, Infoblox or Azure DNS with their CLIs.
+
+## Planner settings: `settings.json`
+
+All keys are optional; missing keys use these defaults.
+
+```json
+{
+  "horizon_days": 14,
+  "manual_daily_cap": 25,
+  "auto_daily_cap": 1000,
+  "verify_max_attempts": 6,
+  "verify_retry_seconds": 2.0,
+  "issue_max_attempts": 5,
+  "safety_days": 2,
+  "scan_timeout": 5.0
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `horizon_days` | Create renewals this many days ahead of their due date |
+| `manual_daily_cap` | Max manual renewals scheduled per day; excess spills to the next window |
+| `auto_daily_cap` | Same, for automated renewals |
+| `verify_max_attempts` | Ticks in `verifying` before an automated deploy is rolled back |
+| `verify_retry_seconds` | Pause between the three handshakes within one verify attempt |
+| `issue_max_attempts` | Issuance attempts before a renewal is marked `failed` |
+| `safety_days` | A renewal's deadline is expiry minus this |
+| `scan_timeout` | Seconds per TLS handshake during the tick scan |
+
+See [Concepts](/docs/concepts) for how these interact.
+
+## Notifications
+
+Add `notifiers` to `settings.json` to hear about renewals in Slack, Microsoft Teams or any webhook:
+
+```json
+{
+  "dashboard_url": "https://farrier.example.internal/dashboard",
+  "notifiers": [
+    { "type": "slack", "url": "env:FARRIER_SECRET_SLACK_WEBHOOK" },
+    { "type": "teams", "url": "file:/run/secrets/farrier/teams-webhook", "events": ["failed", "rolled_back"] },
+    { "type": "webhook", "url": "https://hooks.example.internal/farrier",
+      "headers": { "Authorization": "env:FARRIER_SECRET_HOOK_TOKEN" },
+      "events": ["done", "failed", "rolled_back", "awaiting_manual"] }
+  ]
+}
+```
+
+- `events` defaults to `failed`, `rolled_back` and `awaiting_manual`. Others: `planned`, `issued`, `verifying`, `done`, `superseded`, `cancelled`.
+- `webhook` posts JSON: `event`, `endpoint`, `host`, `port`, `connector`, `owner`, `renewal_id`, `error`, `ticket`, `new_not_after`, `at`, `dashboard_url`. `slack` and `teams` post a one-paragraph `text` message.
+- URLs and header values go through the secret guardrails, are resolved at send time and are never logged. Delivery runs in the background with a 5 second timeout; a failure is written to the event log and never blocks a renewal.
+- Check the setup with `POST /api/notifiers/test`.
+
+## Inventory: `farrier import`
+
+Declare endpoints and their connectors in a JSON array and import them. Importing is an upsert by `name`, and each connector config is validated first.
+
+```json
+[
+  {
+    "name": "vpn-fgt",
+    "host": "vpn.example.com",
+    "port": 443,
+    "issuer": "le",
+    "connector": "fortigate",
+    "connector_config": {
+      "url": "https://fgt-mgmt.example.com",
+      "api_token": "env:FGT_TOKEN",
+      "bind": "sslvpn"
+    },
+    "window": { "days": ["sat"], "start": "02:00", "hours": 4 },
+    "owner": "network"
+  }
+]
+```
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `name` | required | Unique |
+| `host` | required | Hostname or IP to connect to |
+| `port` | `443` | |
+| `sni` | none | Server name to send; defaults to `host` when it is a hostname |
+| `common_name` | from the observed cert, else `host` | CN of the new certificate |
+| `sans` | from the observed cert | Additional names |
+| `key_type` | `ec256` | `ec256`, `ec384`, `rsa2048`, `rsa3072`, `rsa4096` |
+| `connector` | `manual` | See [Connectors](/docs/connectors) |
+| `connector_config` | `{}` | Connector-specific |
+| `issuer` | `default` | Key in `issuers.json` |
+| `window` | `{}` (any time) | UTC change window |
+| `lead_days` | `0` | Minimum days before expiry to start |
+| `owner`, `tags` | none | For filtering and reporting |
+| `enabled` | `true` | Disabled endpoints aren't scanned or renewed |
+
+`examples/inventory.json` has a complete example covering F5, FortiGate, PAN-OS, a Java keystore and a manual ASA with a ServiceNow ticket.
+
+## Environment variables
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `FARRIER_DATA` | CLI | Data directory (overridden by `--data`) |
+| `FARRIER_API_TOKEN` | `farrier serve` | Admin bearer token: read and change. Mandatory for a non-loopback bind |
+| `FARRIER_API_READ_TOKEN` | `farrier serve` | Optional read-only token: every `GET`, including `/metrics`; anything else gets `403` |
+| `FARRIER_MASTER_KEY` | engine | Fernet key for sealing private keys; overrides `master.key` |
+| `FARRIER_ALLOW_API_COMMANDS` | API | `1` lets `POST /api/endpoints` accept `test_command`, `reload_command`, `ssh` and `dns_hook`. Off by default |
+| `FARRIER_SECRET_ENV_PREFIX` | connectors, issuers, notifiers | If set, `env:` references must start with it (e.g. `FARRIER_SECRET_`) |
+| `FARRIER_SECRET_DIRS` | connectors, issuers, notifiers | If set, `file:` references must sit under one of these directories (`:`-separated, `;` on Windows) |
+| `FARRIER_DASHBOARD_URL` | notifiers | Link added to notifications (or `dashboard_url` in `settings.json`) |
+| any `NAME` referenced as `env:NAME` | connectors, issuers, notifiers | Secrets. `FARRIER_MASTER_KEY` and the API tokens can never be referenced |
+
+The web dashboard has its own variables; see [Self-hosting](/docs/self-hosting#dashboard-environment).
+
+## CLI
+
+Global option: `--data PATH`.
+
+| Command | What it does |
+| --- | --- |
+| `farrier serve [--host 127.0.0.1] [--port 8740] [--tick 300]` | REST API (OpenAPI docs at `/docs`) and background renewal loop |
+| `farrier demo [--port 8740] [--tick 20] [--simulate-date YYYY-MM-DD]` | Simulated estate on localhost |
+| `farrier scan TARGETS… [--register] [--timeout 3] [-v]` | Report what certificates targets serve; `--register` adds unknown ones as manual endpoints |
+| `farrier import FILE` | Upsert endpoints from a JSON inventory |
+| `farrier tick` | Run one scan/plan/advance cycle and print the result |
+| `farrier forecast [--certs 1000] [--manual 0.4] [--minutes 45] [--lead 0]` | Renewal workload under the CA/B Forum schedule |
+
+### Target syntax
+
+Used by `farrier scan` and the Discovery screen. Items are separated by spaces or commas.
+
+| Form | Example |
+| --- | --- |
+| host (port 443) | `vpn.example.com` |
+| host:port | `jira.example.com:8443` |
+| CIDR with several ports (separated by a pipe) | <code>10.20.0.0/22:443&#124;8443&#124;4443</code> |
+| connect to an IP, send an SNI | `www.example.com@10.20.1.10:443` |
+
+Hostnames, ports and ranges are validated, and malformed targets are rejected rather than scanned. A single range may not exceed 65,536 addresses, and the API accepts at most 4,096 targets per request.

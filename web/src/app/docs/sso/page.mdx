@@ -1,0 +1,61 @@
+export const metadata = {
+  title: "Single sign-on and roles",
+  description: "Sign in to the Farrier dashboard with Okta, Entra ID, Google, Keycloak or any OIDC provider, with viewer, operator and admin roles.",
+};
+
+# Single sign-on and roles
+
+The dashboard signs people in with OpenID Connect (authorization code flow with PKCE) and gives each person a role from their identity provider's groups. It works with Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Authentik, JumpCloud, PingFederate and any compliant provider.
+
+## Register Farrier with your provider
+
+Create a confidential web application with:
+
+- **Redirect URI:** `https://farrier.example.com/auth/callback`
+- **Sign-out redirect:** `https://farrier.example.com/auth/signin?signed_out=1`
+- **Scopes:** `openid profile email`, plus `groups` where the provider supports it
+
+```bash title="web.env"
+FARRIER_OIDC_ISSUER=https://example.okta.com/oauth2/default
+FARRIER_OIDC_CLIENT_ID=0oa1b2c3d4
+FARRIER_OIDC_CLIENT_SECRET=...
+FARRIER_SESSION_SECRET=...            # 32+ random bytes: openssl rand -base64 48
+FARRIER_OIDC_ADMIN_GROUPS=pki-admins
+FARRIER_OIDC_OPERATOR_GROUPS=netops,secops
+```
+
+If the issuer is set but anything else is missing or invalid, the dashboard fails closed. It never falls back to open access or to Basic auth.
+
+## Roles
+
+| Role | Can |
+|---|---|
+| **viewer** | Read endpoints, renewals, forecasts and events. No change packs or runbooks, because those contain keys. |
+| **operator** | Everything a viewer can, plus renew, advance, cancel, run a cycle, discover, and download change packs and runbooks. |
+| **admin** | Everything, including adding and deleting endpoints and testing notifiers. |
+
+Admin groups win over operator groups; anyone else who signs in is a viewer. Set `FARRIER_OIDC_ALLOWED_GROUPS` to refuse people outside those groups. Admin and operator groups always count as allowed. Group names match case-insensitively.
+
+The server enforces roles on every API call; the UI only hides buttons a role can't use. Viewers call the engine with `FARRIER_API_READ_TOKEN` when it is set. Every change is logged with the person's email as the actor.
+
+Roles are fixed at sign-in, so a group change takes effect at the next sign-in.
+
+## Provider notes
+
+- **Okta:** add a `groups` claim to the ID token, or Farrier reads groups from the UserInfo endpoint.
+- **Microsoft Entra ID:** use the tenant issuer `https://login.microsoftonline.com/<tenant-id>/v2.0`. App roles are better than groups here: assign them and set `FARRIER_OIDC_ROLE_CLAIM=roles`.
+- **Google Workspace:** sends no groups. Everyone who signs in is a viewer unless you put a broker such as Keycloak in front.
+- **Keycloak:** add a group-membership mapper, or set `FARRIER_OIDC_ROLE_CLAIM=realm_access.roles`.
+
+## Sessions
+
+The session is one encrypted cookie: HttpOnly, SameSite=Lax, and `Secure` with a `__Host-` name over HTTPS. It ends after `FARRIER_SESSION_IDLE_MINUTES` (default 60) of inactivity or `FARRIER_SESSION_MAX_HOURS` (default 12) in total. Changes from another site are refused (`Sec-Fetch-Site` and `Origin` checks). Signing out clears the cookie and ends the provider session when the provider supports it.
+
+| Variable | Default |
+|---|---|
+| `FARRIER_OIDC_SCOPES` | `openid profile email groups` |
+| `FARRIER_OIDC_ROLE_CLAIM` | `groups` (dotted paths work) |
+| `FARRIER_OIDC_REDIRECT_URI` | derived from the request. Set it behind a proxy that rewrites `Host`. |
+| `FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI` | derived from the request |
+
+Without OIDC, `FARRIER_DASHBOARD_PASSWORD` turns on HTTP Basic auth with a lockout. A production dashboard refuses to front a live engine with neither.

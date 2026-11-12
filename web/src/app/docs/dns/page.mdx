@@ -1,0 +1,90 @@
+export const metadata = {
+  title: "DNS providers and CAs",
+  description: "DNS-01 with 29 providers, several accounts per provider, CNAME delegation, and presets for Let's Encrypt, ZeroSSL, Google Trust Services and more.",
+};
+
+# DNS providers and CAs
+
+Appliances behind a firewall can't answer an HTTP challenge, so Farrier proves domain control with DNS-01. It writes the `_acme-challenge` TXT record through your DNS provider's API and waits until **every authoritative nameserver** serves it. There is no fixed sleep. Records are always cleaned up, including when validation fails.
+
+## Providers
+
+| Provider | `provider` |
+|---|---|
+| Cloudflare | `cloudflare` |
+| AWS Route 53 (with STS AssumeRole for other accounts) | `route53` |
+| Azure DNS (whole subscription) | `azure` |
+| Google Cloud DNS | `google` |
+| RFC 2136 dynamic update with TSIG (BIND, Knot, Windows DNS) | `rfc2136` |
+| ACME-DNS (CNAME delegation) | `acme-dns` |
+| DigitalOcean, Linode, Vultr, Hetzner DNS, Hetzner Cloud, Scaleway | `digitalocean`, `linode`, `vultr`, `hetzner`, `hetzner-cloud`, `scaleway` |
+| PowerDNS, deSEC, NS1, DNS Made Easy, Akamai Edge DNS | `powerdns`, `desec`, `ns1`, `dnsmadeeasy`, `akamai` |
+| Gandi, OVH, Namecheap, Porkbun, GoDaddy, Dynu, Infomaniak, ArvanCloud | `gandi`, `ovh`, `namecheap`, `porkbun`, `godaddy`, `dynu`, `infomaniak`, `arvancloud` |
+| DuckDNS, Hurricane Electric | `duckdns`, `he` (one TXT value per name, so no apex plus wildcard in one order) |
+| EfficientIP SOLIDserver | `solidserver` |
+| Anything else, through your own script | `script` |
+
+<Callout type="info" title="Tested against real APIs?">
+Cloudflare, Route 53, Azure, Google Cloud DNS, DigitalOcean, ACME-DNS and RFC 2136 have request-level tests. The others follow each provider's published API. Try a staging certificate first, and open an issue if one misbehaves.
+</Callout>
+
+## Accounts
+
+Each entry in `<data>/dns.json` is a named account. You can have several per provider: prod and staging Cloudflare, several AWS accounts, several Azure subscriptions.
+
+```json title="dns.json"
+{
+  "cf-prod": {
+    "provider": "cloudflare",
+    "credentials": { "api_token": "env:FARRIER_SECRET_CF_PROD" },
+    "zones": ["example.com"]
+  },
+  "aws-validation": {
+    "provider": "route53",
+    "credentials": { "access_key_id": "env:FARRIER_SECRET_AWS_ID", "secret_access_key": "env:FARRIER_SECRET_AWS_KEY" },
+    "options": { "role_arn": "arn:aws:iam::222222222222:role/farrier-dns01" },
+    "zones": ["acme-validation.example.org"]
+  },
+  "bind-internal": {
+    "provider": "rfc2136",
+    "credentials": { "tsig_secret": "file:/run/secrets/tsig-farrier.b64" },
+    "options": { "server": "ns1.internal.example", "tsig_key": "farrier-key", "tsig_algorithm": "hmac-sha256" },
+    "zones": ["internal.example"]
+  }
+}
+```
+
+Credentials are always `env:` or `file:` references. Inline values are refused when the file loads, and secrets are resolved only when a request is made, never written to disk or into an error message. More examples are in [`examples/dns.json`](https://github.com/gagankarthik/farrier/blob/main/examples/dns.json).
+
+**Which account is used:**
+
+1. An endpoint's `dns_account` (in its connector config), or the issuer's `"dns": "<account>"`.
+2. Otherwise, with `"dns": "auto"`, the account whose zone matches the name most specifically. Matching is by whole labels, so `badexample.com` never matches `example.com`. Two accounts claiming one zone is an error, not a guess.
+
+**CNAME delegation.** Point `_acme-challenge.app.example.com` at a record in a validation zone (`CNAME app.acme-validation.example.org`). Farrier follows the CNAME and writes through the account that owns the target zone, so production DNS credentials never need to be on the engine.
+
+The existing `dns_hook` script setting keeps working unchanged.
+
+## Certificate authorities
+
+An issuer in `<data>/issuers.json` can name a preset:
+
+```json title="issuers.json"
+{
+  "le":       { "preset": "letsencrypt", "email": "pki@example.com", "dns": "auto" },
+  "zerossl":  { "preset": "zerossl", "eab_kid": "env:FARRIER_SECRET_ZEROSSL_KID",
+                "eab_hmac_key": "env:FARRIER_SECRET_ZEROSSL_HMAC", "dns": "auto" },
+  "internal": { "type": "local_ca" }
+}
+```
+
+| Preset | CA | External Account Binding |
+|---|---|---|
+| `letsencrypt`, `letsencrypt-staging` | Let's Encrypt | no |
+| `zerossl` | ZeroSSL | yes |
+| `google`, `google-staging` | Google Trust Services | yes |
+| `buypass`, `buypass-staging` | Buypass Go | no |
+| `sslcom`, `sslcom-rsa` | SSL.com | yes |
+| `digicert`, `sectigo` | DigiCert, Sectigo (give `directory_url`) | yes |
+
+Use several issuers at once and pick one per endpoint, for example a public CA for internet-facing VIPs and the built-in `local_ca` for management interfaces.

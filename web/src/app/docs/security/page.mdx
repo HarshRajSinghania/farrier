@@ -1,0 +1,115 @@
+export const metadata = {
+  title: "Security",
+  description: "How Farrier handles private keys, secrets and access, its threat model, and how to report a vulnerability.",
+};
+
+# Security
+
+Farrier holds private keys and credentials for the management planes of your firewalls and load balancers, so treat its host as tier-0 infrastructure. This page describes what Farrier protects and what it leaves to you.
+
+## Private keys at rest
+
+- A new key is generated for every renewal. The plaintext key is sealed with **Fernet** (AES-128-CBC plus HMAC-SHA256) before it is written to SQLite.
+- The master key comes from `FARRIER_MASTER_KEY`, or is generated once into `<data>/master.key` (mode 600 where the OS supports it). Prefer `FARRIER_MASTER_KEY` from a secret manager, so the database and its key don't sit on the same disk.
+- Keys are only unsealed in memory, to hand to a connector at deploy time.
+- ACME account keys (`acme-account-*.key`) and the private CA key (`local-ca/ca.key`) are encrypted (PKCS#8) under the master key and written with owner-only permissions. Keys left by older versions are re-encrypted the first time they load.
+- Connector and DNS credentials are `env:` or `file:` references. Inline secrets are refused unless `FARRIER_ALLOW_INLINE_SECRETS=1`.
+
+## Change packs
+
+Manual renewals write a change pack to `<data>/packs/<renewal id>/` containing `key.pem` in plaintext, plus `bundle.pfx` with its passphrase in `passphrase.txt` next to it. The pack is deleted as soon as the new certificate is verified live. Until then:
+
+- anyone with read access to the data directory can read the key;
+- anyone who can call `GET /api/renewals/{id}/pack` can download it. Each download is recorded in the event log.
+
+Install manual renewals promptly. When a renewal is cancelled, fails, rolls back or is superseded, its pack (and the plaintext key in it) is deleted at once, and every cycle sweeps the `packs/` directory for anything left behind.
+
+## Connector secrets
+
+Credentials in connector configs and `issuers.json` should be **references**, not values:
+
+- `env:NAME` reads an environment variable when the connector is used, and fails loudly if it is unset.
+- `file:/path` reads a file, for example a mounted Kubernetes or Docker secret.
+
+Connector configs are never returned by the API. Inline values work but are stored in plaintext in SQLite.
+
+Use least-privilege accounts on devices: on F5, Certificate Manager plus edit rights on the specific profiles; on FortiGate, a REST API admin limited to the VPN/system scopes Farrier binds; on PAN-OS, an API key for a role that can import certificates, edit the service profile and commit.
+
+Set `verify_tls` to a CA bundle for management planes rather than `false`. Otherwise an attacker on the management network could capture the credentials.
+
+## Guardrails
+
+These are enforced in code and covered by tests (`tests/test_guardrails.py`). They assume an API token may one day leak, and limit what it is worth.
+
+| Guardrail | What it stops | Setting |
+| --- | --- | --- |
+| Scoped tokens | A dashboard viewer or monitoring system changing anything | `FARRIER_API_TOKEN` (admin: read and change), `FARRIER_API_READ_TOKEN` (read only: every `GET`, `403` on anything else) |
+| No shell commands over the API | Turning an API token into code execution: `test_command`, `reload_command`, `ssh` and `dns_hook` are refused by `POST /api/endpoints` | Set them in an inventory file imported with `farrier import` (trusted, on disk), or opt in with `FARRIER_ALLOW_API_COMMANDS=1` |
+| Farrier's own secrets are unreadable | A config that points a device URL at an attacker and sets `password: env:FARRIER_MASTER_KEY` | Always on: `FARRIER_MASTER_KEY` and both API tokens, and any `file:` inside the data directory, are refused |
+| Secret allowlists | Configs reading arbitrary environment variables or files | `FARRIER_SECRET_ENV_PREFIX` (e.g. `FARRIER_SECRET_`), `FARRIER_SECRET_DIRS` (e.g. `/run/secrets/farrier`) |
+| Audit trail | Changes nobody can attribute | Every change is logged with its actor; the dashboard forwards the signed-in user as `X-Farrier-Actor`, sanitised so it can't inject log lines |
+| Login lockout | Password guessing on the dashboard | 10 failed sign-ins from one address lock it out for 5 minutes (`429`) |
+| Constant-time token checks | Timing attacks on tokens and passwords | Always on |
+| Response hardening | Caching of API data, MIME sniffing | `Cache-Control: no-store` on `/api/*`, `nosniff`, `no-referrer`; HSTS on the web app when `NEXT_PUBLIC_SITE_URL` is `https://` |
+| Formula-safe exports | CSV injection when the inventory is opened in a spreadsheet | Cells that start with `=`, `+`, `-` or `@` are prefixed |
+| Notifier URLs as secrets | Webhook URLs leaking into logs | Webhook URLs and headers go through the same secret guardrails and are never written to the event log |
+
+## API access
+
+- `farrier serve` refuses to bind a non-loopback address without `FARRIER_API_TOKEN`.
+- Generate tokens with at least 32 random bytes (`openssl rand -hex 32`) and rotate them by restarting with new values.
+- `/healthz` is the only unauthenticated route, and it returns nothing but `{"ok": true}`. `/metrics` needs a token: give Prometheus the read-only one.
+
+## Dashboard access
+
+- The dashboard calls the API through a server-side proxy (`/api/farrier/*`) that adds the token, so the token never reaches the browser.
+- `FARRIER_DASHBOARD_PASSWORD` enables HTTP Basic auth on `/dashboard` and the proxy. In production, with a live API configured, the proxy returns `503` until a password is set.
+- For per-user identity and MFA, front the dashboard with an identity-aware proxy (oauth2-proxy, Cloudflare Access, Google IAP, an AWS ALB with Cognito, Azure Application Gateway with Entra ID) and keep the password as a second lock.
+- The app sends `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, a strict referrer policy and a restrictive permissions policy.
+
+## How a request flows when hosted
+
+```
+browser ──TLS──▶ load balancer / SSO proxy ──▶ web app (dashboard)
+                                                  │  Basic auth + lockout
+                                                  │  adds Bearer token and X-Farrier-Actor
+                                                  ▼
+                                   engine API (private network only, :8740)
+                                                  │  token scope check, guardrails, audit log
+                     ┌────────────────────────────┼─────────────────────────────┐
+                     ▼                            ▼                             ▼
+          CA (ACME, DNS-01 via your hook)   device management APIs        ticketing, notifiers
+          egress allowlisted                over verified TLS             (Jira, ServiceNow, Slack)
+```
+
+Nothing reaches the engine except the web app and your metrics scraper. The engine's outbound traffic is limited to your CA, your DNS API, your devices' management interfaces and the ticketing or notification endpoints you configure, so an egress allowlist is short.
+
+## Hosting checklist
+
+1. Set `FARRIER_API_TOKEN` and `FARRIER_DASHBOARD_PASSWORD` to fresh random values, and give monitoring `FARRIER_API_READ_TOKEN`.
+2. Keep the engine on a private network; publish only the web app, behind TLS and ideally SSO.
+3. Set `FARRIER_SECRET_ENV_PREFIX` and `FARRIER_SECRET_DIRS`, and load device credentials from your secret manager (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, Vault or Kubernetes Secrets).
+4. Supply `FARRIER_MASTER_KEY` from the secret manager rather than letting `master.key` sit beside the database, and back it up separately from the data.
+5. Use least-privilege device accounts (below) and set `verify_tls` to a CA bundle for every management plane.
+6. Leave `FARRIER_ALLOW_API_COMMANDS` unset unless you need it; put reload commands in an inventory file reviewed like code.
+7. Allowlist egress to your CA, your DNS API, device management addresses and your ticketing and notification hosts.
+8. Scrape `/metrics`, alert on `farrier_cert_expires_in_seconds < 7 * 86400` and on `farrier_renewals{state=~"failed|rolled_back"} > 0`, and add a Slack or Teams notifier.
+9. Back up the data directory daily and test a restore.
+10. Try every connector against a lab device and your CA's staging endpoint before production.
+
+## Threat model notes
+
+| Threat | Mitigation | Residual risk |
+| --- | --- | --- |
+| Database copied off the host | Keys sealed with Fernet | Master key on the same host: keep `FARRIER_MASTER_KEY` in a secret store, not the data dir |
+| Stolen API token | Token required; read-only token for viewers; commands and Farrier's own secrets refused | An admin token still controls renewals and change-pack downloads |
+| Malicious inventory or config | Command fields refused over the API; secret references guarded and allowlisted | Inventory files and `issuers.json` on disk can still run commands: treat them like code |
+| Device credential exposure | `env:`/`file:` references, never returned by the API | Secrets live in Farrier's process environment |
+| Bad deploy takes a service down | New object names, rollback tokens, verify-then-rollback | A device whose rollback API fails ends `failed` and needs a human |
+| Wrong certificate installed by hand | Fingerprint verification; renewal superseded if a different long-lived cert appears | None in Farrier; the device serves what was installed |
+
+Command fields are refused over the API unless `FARRIER_ALLOW_API_COMMANDS` is set. **If you set it, API access becomes shell access on the Farrier host**, so protect the admin token accordingly.
+
+## Reporting a vulnerability
+
+Please report vulnerabilities **privately** through [GitHub security advisories](https://github.com/gagankarthik/farrier/security/advisories/new) on the repository. Don't open a public issue. Include steps to reproduce, the affected version or commit, and the impact you expect. We'll acknowledge the report, agree a fix and disclosure timeline with you, and credit you in the advisory unless you'd rather we didn't.

@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "farrier": {
+      "command": "farrier",
+      "args": ["mcp"],
+      "env": {
+        "FARRIER_DATA": "$FARRIER_DATA"
+      },
+      "timeout": 60000,
+      "trust": false
+    },
+    "farrier-remote": {
+      "httpUrl": "http://127.0.0.1:8740/mcp",
+      "headers": {
+        "Authorization": "Bearer $FARRIER_API_READ_TOKEN"
+      },
+      "timeout": 60000,
+      "trust": false
+    }
+  }
+}

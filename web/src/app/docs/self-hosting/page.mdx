@@ -1,0 +1,107 @@
+export const metadata = {
+  title: "Self-hosting",
+  description: "Run the Farrier engine and web dashboard in production, with Docker or on a VM.",
+};
+
+# Self-hosting
+
+A Farrier deployment has two parts: the **engine** (`farrier serve`: Python, SQLite, the REST API and the renewal loop) and the **dashboard** (the Next.js app in `web/`). The dashboard is optional. The engine renews on its own.
+
+```
+browser ──▶ web (Next.js, :3000) ──server-side, Bearer token──▶ farrier serve (:8740) ──▶ devices, CA, DNS
+```
+
+## Run the engine
+
+```bash
+pip install .
+export FARRIER_DATA=/var/lib/farrier
+export FARRIER_API_TOKEN="$(openssl rand -hex 32)"
+farrier import inventory.json
+farrier serve --host 0.0.0.0 --port 8740 --tick 300
+```
+
+- `--tick` (default 300 seconds) sets how often the scan/plan/advance loop runs.
+- `farrier serve` refuses a non-loopback `--host` unless `FARRIER_API_TOKEN` is set.
+- The engine needs outbound access to your CA's ACME endpoint, to whatever your DNS hook calls, to device management planes, and to each endpoint's TLS port for verification.
+- Run it under systemd or a container supervisor. A tick interrupted mid-deploy is safe: a renewal left in `deploying` is re-verified on the next tick rather than redeployed.
+
+## Run the dashboard
+
+```bash
+cd web
+npm ci
+npm run build
+FARRIER_API_URL=http://127.0.0.1:8740 \
+FARRIER_API_TOKEN=... \
+FARRIER_DASHBOARD_PASSWORD=... \
+npm start
+```
+
+The build uses Next.js `standalone` output, so `node .next/standalone/server.js` also works after copying `.next/static` alongside it.
+
+### Dashboard environment
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `FARRIER_API_URL` | for live data | Base URL of `farrier serve`, e.g. `http://farrier:8740`. Unset means **demo mode** |
+| `FARRIER_API_TOKEN` | if the engine has one | Same value as the engine's. Added server-side; never sent to the browser |
+| `FARRIER_DASHBOARD_PASSWORD` | in production with `FARRIER_API_URL` | Enables HTTP Basic auth on `/dashboard` and `/api/farrier/*` |
+| `FARRIER_DASHBOARD_USER` | no | Basic auth user, default `admin` |
+| `NEXT_PUBLIC_SITE_URL` | no | Canonical URL for metadata, default `http://localhost:3000` |
+
+<Callout type="danger" title="Don't expose an unauthenticated dashboard">
+The dashboard proxy carries the API token, so anyone who can reach it can operate Farrier. In production (`NODE_ENV=production`) with `FARRIER_API_URL` set and no `FARRIER_DASHBOARD_PASSWORD`, every proxied API call returns `503` until you set one, or front the app with SSO.
+</Callout>
+
+### Demo mode
+
+With `FARRIER_API_URL` unset, the dashboard serves a simulated in-memory estate and shows a "Demo data" banner. Nothing is contacted. Use it for public previews of the site (for example on Vercel) and for UI development. State resets when the server restarts.
+
+## Docker Compose
+
+The repository root has a `docker-compose.yml` that runs both parts:
+
+```bash
+export FARRIER_API_TOKEN="$(openssl rand -hex 32)"
+export FARRIER_DASHBOARD_PASSWORD="choose-something-long"
+docker compose up -d --build
+```
+
+| Service | Image | Port | Notes |
+| --- | --- | --- | --- |
+| `farrier` | `./Dockerfile` | 8740 | `farrier serve --host 0.0.0.0`; `FARRIER_DATA=/data` on the `farrier-data` volume |
+| `web` | `web/Dockerfile` | 3000 | `FARRIER_API_URL=http://farrier:8740` |
+
+Mount your `issuers.json`, `settings.json` and DNS hook scripts into the `farrier` service. Pass connector secrets as environment variables and reference them as `env:NAME`.
+
+## Single sign-on
+
+Basic auth gives one shared login. For per-user identity, put an identity-aware proxy in front of the `web` service and leave `FARRIER_DASHBOARD_PASSWORD` set as a backstop:
+
+- **oauth2-proxy** with your IdP (Okta, Entra ID, Google) in front of `:3000`.
+- **Cloudflare Access** or **Tailscale** to keep the dashboard off the public internet entirely.
+
+Keep `farrier serve` itself on a private network. Only the dashboard needs to reach it.
+
+## Backups
+
+Back up the whole data directory, and back up `master.key` (or your `FARRIER_MASTER_KEY`) **separately** from it:
+
+- `farrier.db` holds endpoints, history and sealed private keys.
+- Without the master key, the sealed keys can't be opened. Lost keys only matter for renewals in flight, since new renewals generate new keys, but rollback tokens and change packs depend on them.
+- `acme-account-*.key` are your ACME account keys. Losing one means registering a new account.
+- `local-ca/` is your private CA. Losing it means re-issuing every certificate it signed.
+
+For a consistent SQLite copy while the engine runs, use `sqlite3 farrier.db ".backup farrier-backup.db"`.
+
+## Scaling
+
+- One engine instance per data directory. SQLite has a single writer, and the engine serialises ticks and API mutations with a process-local lock. Don't run two `farrier serve` processes on the same data.
+- Each tick scans enabled endpoints **one at a time**, waiting up to `scan_timeout` (default 5 s) on each. Unreachable endpoints dominate tick duration, so keep the inventory clean (disable dead endpoints) and size `--tick` above a full scan of your estate. Discovery is different: it scans up to 64 targets in parallel.
+- Run the dashboard with as many replicas as you like; it is stateless (except in demo mode).
+- For segmented networks, today you run one engine per segment. A Postgres backend and a lightweight agent for segmented networks are on the [roadmap](https://github.com/gagankarthik/farrier#roadmap).
+
+## Upgrading
+
+Stop the engine, back up the data directory, upgrade the package (`pip install -U .` or rebuild the image), and start it again. The schema is created with `CREATE TABLE IF NOT EXISTS`. There is no migration tool yet, so read the release notes before upgrading across schema changes.

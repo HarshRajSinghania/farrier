@@ -1,0 +1,15 @@
+# kubectl create namespace farrier
+# kubectl apply -f secrets.yaml          # your copy of secrets.example.yaml, or External Secrets
+# kubectl apply -k deploy/kubernetes
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: farrier
+resources:
+  - farrier.yaml
+  - web.yaml
+  - network-policy.yaml
+images:
+  - name: ghcr.io/gagankarthik/farrier
+    newTag: "0.1.0"
+  - name: ghcr.io/gagankarthik/farrier-web
+    newTag: "0.1.0"

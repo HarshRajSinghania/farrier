@@ -1,0 +1,59 @@
+export const metadata = {
+  title: "AI agents (MCP)",
+  description: "Connect Claude, Gemini CLI, OpenAI Codex and other MCP clients to Farrier.",
+};
+
+# AI agents (MCP)
+
+Farrier is a Model Context Protocol server, so Claude (Desktop and Code), Gemini CLI, OpenAI Codex and any other MCP client can ask what expires next, check a domain's health or find zombie certificates. Agents are read-only unless you deliberately allow writes.
+
+## Tools
+
+| Tool | Does | Access |
+|---|---|---|
+| `list_endpoints`, `get_endpoint` | Inventory, without connector configs or secrets | read |
+| `expiring_certificates` | Certificates expiring within N days | read |
+| `renewal_status` | Open and recent renewals | read |
+| `domain_health` | TLS report card for an endpoint, or any host with the admin token | read |
+| `find_zombies` | Zombie certificates from stored observations | read |
+| `forecast` | Renewal workload under the CA/B Forum schedule | read |
+| `renew_endpoint`, `cancel_renewal` | Start or cancel a renewal | write |
+
+Write tools appear only when the session uses the admin token **and** the server has `FARRIER_MCP_ALLOW_WRITES=1`. Every call is logged as `mcp:<client name>`.
+
+## Connect locally (stdio)
+
+The client starts `farrier mcp` on the machine with the data directory.
+
+```json title="claude_desktop_config.json"
+{
+  "mcpServers": {
+    "farrier": {
+      "command": "farrier",
+      "args": ["--data", "/var/lib/farrier", "mcp"]
+    }
+  }
+}
+```
+
+```toml title="~/.codex/config.toml"
+[mcp_servers.farrier]
+command = "farrier"
+args = ["mcp"]
+env = { FARRIER_DATA = "/var/lib/farrier" }
+```
+
+Over stdio the session counts as admin only when `FARRIER_MCP_TOKEN` equals `FARRIER_API_TOKEN`.
+
+## Connect remotely (Streamable HTTP)
+
+The engine serves MCP at `/mcp` and requires a bearer token: the read token for read tools, the admin token for writes.
+
+```bash
+claude mcp add --transport http farrier https://farrier.example.com/mcp \
+  --header "Authorization: Bearer $FARRIER_API_READ_TOKEN"
+```
+
+Browsers' `Origin` is checked to stop DNS-rebinding attacks. Only loopback pages and origins in `FARRIER_MCP_ALLOWED_ORIGINS` are accepted.
+
+Ready-made configs for Claude Desktop, Claude Code, Gemini CLI, Codex and generic HTTP clients are in [`examples/mcp`](https://github.com/gagankarthik/farrier/tree/main/examples/mcp).

@@ -1,0 +1,114 @@
+export const metadata = {
+  title: "Concepts",
+  description: "The Farrier lifecycle, renewal state machine, timing maths, change windows and rollback.",
+};
+
+# Concepts
+
+Farrier runs one loop, a **tick**, every few minutes: scan every enabled endpoint, plan renewals that are coming due, and push every open renewal as far as it can go. Everything below is what happens inside that loop.
+
+## The lifecycle
+
+```
+ discover ──▶ plan ──▶ issue ──────────▶ deploy ─────────────▶ verify
+ TLS scan     due date   ACME DNS-01       F5 / FortiGate /       handshake shows the
+ of ranges    + change   on the device's   PAN-OS / files+SSH /   new fingerprint, or
+              window +   behalf (or a      Java keystore          roll back
+              daily cap  private CA)       ─ or ─ change pack +
+                                           ticket for a human ──▶ closes itself when
+                                                                  the scanner sees it live
+```
+
+- **Discover**: a TLS handshake against each target reads the leaf certificate, without verifying it, so expired, self-signed and private-CA certificates are recorded too. Each tick also re-scans every enabled endpoint, so state always reflects what is actually served.
+- **Plan**: for each endpoint with a certificate and no open renewal, compute the due date and schedule a renewal into a change window.
+- **Issue**: generate a fresh key (`ec256` by default; also `ec384`, `rsa2048`, `rsa3072`, `rsa4096`) and a CSR, then obtain a certificate from the endpoint's issuer. The key is sealed before it is stored.
+- **Deploy**: hand the bundle to the endpoint's connector.
+- **Verify**: handshake with the endpoint and compare fingerprints.
+
+## Renewal states
+
+| State | Open? | Meaning |
+| --- | --- | --- |
+| `planned` | yes | Scheduled for `scheduled_for`; waits until that time |
+| `issued` | yes | Certificate obtained; not yet deployed |
+| `deploying` | yes | Automated connector is installing it |
+| `verifying` | yes | Deployed; waiting for a handshake to show the new fingerprint |
+| `awaiting_manual` | yes | Change pack (and optional ticket) created; waiting for a human |
+| `done` | no | New certificate verified live |
+| `failed` | no | Issuance or deploy gave up, or verification failed and rollback also failed |
+| `rolled_back` | no | New certificate never went live; the previous one was restored |
+| `superseded` | no | Someone installed a different certificate during a manual renewal |
+| `cancelled` | no | Cancelled by an operator |
+
+### Transitions
+
+```
+planned ──(scheduled time reached, issued)──▶ issued
+   └─(issuance fails issue_max_attempts times)──▶ failed
+
+issued ──(automated connector)──▶ deploying ──(deploy ok)──▶ verifying
+   │                                  └─(deploy raises)──▶ failed
+   └─(manual connector)──▶ awaiting_manual
+
+verifying ──(handshake shows new fingerprint)──▶ done
+   └─(still old after verify_max_attempts ticks)──▶ rollback ──▶ rolled_back
+                                                       └─(rollback raises)──▶ failed
+
+awaiting_manual ──(new fingerprint seen live)──▶ done   (change pack deleted)
+   └─(a third certificate valid > 30 more days is seen)──▶ superseded
+```
+
+Details worth knowing:
+
+- Each issuance failure increments `attempts` and logs a warning; the renewal stays `planned` and retries on the next tick until `issue_max_attempts` (default 5).
+- In `verifying`, each tick does up to three handshakes, `verify_retry_seconds` apart, before counting an attempt.
+- A renewal left in `deploying` (for example, Farrier crashed mid-deploy) moves to `verifying` on the next tick. The device state is unknown, so Farrier checks rather than redeploying blindly.
+- A manual renewal past its `deadline` is flagged `OVERDUE` in its error field and logged as an error. It stays open, so it can still close if the certificate is installed late.
+- `cancelled` is only reached through the API (`POST /api/renewals/{id}/cancel`).
+- **Renew now** (`POST /api/endpoints/{id}/renew`) creates a renewal scheduled for now, or pulls an existing `planned` one forward, and advances it immediately.
+
+## Renewal timing
+
+Farrier renews at the **one-third point** of a certificate's life, the ACME Renewal Information convention, adjusted for how long your change process takes:
+
+```
+renew_before = min( max( round(lifetime / 3), lead_days ), floor(lifetime × 0.75) )
+due          = not_after − renew_before
+```
+
+- `lifetime` is the certificate's actual validity, capped at today's public maximum, so a 398-day certificate observed today is planned as if it were 200 days.
+- `lead_days` (per endpoint) is the time a change needs: ticket SLA, waiting for a window, slack. A manual endpoint with a 10-day lead and a 47-day certificate renews 16 days before expiry (one third), but with a 20-day lead it renews 20 days before.
+- The 0.75 cap stops a long lead time from renewing a certificate in the first quarter of its life.
+
+A renewal is only created once `due` is within `horizon_days` (default 14) of now. Its `deadline` is `not_after − safety_days` (default 2).
+
+## Change windows
+
+Each endpoint can carry a maintenance window, in **UTC**:
+
+```json
+{ "days": ["sat", "sun"], "start": "02:00", "hours": 4 }
+```
+
+An empty window (`{}`) means "any time", which suits hitless reloads. If `days` is omitted, every day is allowed; `hours` defaults to 24.
+
+<Callout type="info">
+Windows are UTC-only for now. Timezone-aware windows are on the roadmap.
+</Callout>
+
+## Leveling and daily caps
+
+Renewals are spread so your team isn't flooded. When planning, Farrier picks the **first window start on or after the due date whose day has spare capacity**:
+
+- Automated and manual renewals are counted separately, against `auto_daily_cap` (default 1000) and `manual_daily_cap` (default 25, roughly the change tickets a team can absorb in a day).
+- Already-open renewals count toward each day's load.
+- If no window with capacity opens before the deadline, expiry wins over a tidy calendar: the renewal is scheduled at the due date anyway.
+- If the certificate has already expired, or no window at all opens before the deadline, the renewal is scheduled **now** with reason `expired` or `urgent: no window before expiry`.
+
+## Rollback
+
+Every automated connector installs the new certificate under a new name (for example `farrier_www-lb_20270115_42`) or keeps a backup, switches over, and returns a **rollback token** describing how to undo the change. Farrier stores the token with the renewal. If the endpoint still isn't serving the new fingerprint after `verify_max_attempts` ticks (default 6), Farrier calls the connector's rollback and marks the renewal `rolled_back`.
+
+Connectors also roll back on their own when a post-install step fails. For example, the `files` connector restores the backups if `test_command` or `reload_command` fails.
+
+The manual connector never changes a device, so it has nothing to roll back.

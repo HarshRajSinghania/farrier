@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "farrier": {
+      "type": "stdio",
+      "command": "farrier",
+      "args": ["mcp"],
+      "env": {
+        "FARRIER_DATA": "${FARRIER_DATA:-./farrier-data}"
+      }
+    },
+    "farrier-remote": {
+      "type": "http",
+      "url": "${FARRIER_URL:-http://127.0.0.1:8740}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${FARRIER_API_READ_TOKEN}"
+      }
+    }
+  }
+}

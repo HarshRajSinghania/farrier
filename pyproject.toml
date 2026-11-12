@@ -1,0 +1,30 @@
+[project]
+name = "farrier-tls"
+version = "0.1.0"
+description = "Certificate renewal for the machines ACME can't reach."
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=42",
+  "httpx>=0.27",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+postgres = ["psycopg[binary]>=3.1"]
+mysql = ["PyMySQL>=1.1"]
+
+[project.scripts]
+farrier = "farrier.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["farrier*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]

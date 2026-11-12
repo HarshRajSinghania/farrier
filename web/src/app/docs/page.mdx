@@ -1,0 +1,48 @@
+export const metadata = {
+  title: "Introduction",
+  description: "What Farrier is, the problem it solves, and how these docs are organised.",
+};
+
+# Introduction
+
+Farrier is an open-source certificate renewal engine for the machines ACME can't reach: load balancers, firewalls, VPN concentrators, Java keystores and vendor appliances. It discovers what your endpoints actually serve, plans renewals into change windows, issues certificates on the device's behalf, deploys them (or hands a human a change pack), and only calls a renewal done when a TLS handshake shows the new certificate live.
+
+## The problem
+
+The CA/Browser Forum's ballot SC-081 shortens the maximum lifetime of public TLS certificates in steps:
+
+| From | Max lifetime | Domain-validation reuse |
+| --- | --- | --- |
+| 1 Sep 2020 | 398 days | 398 days |
+| 15 Mar 2026 | 200 days | 200 days |
+| 15 Mar 2027 | 100 days | 100 days |
+| 15 Mar 2029 | 47 days | 10 days |
+
+Cloud workloads already auto-renew with certbot, cert-manager or their platform. The pain is the long tail: anything that needs an API call to a management plane, a keystore rewrite and restart, or a ticket and a human in a maintenance window. At 47 days, an estate of 1,000 certificates with 40% installed by hand needs about 47 renewals every working day and more than two full-time engineers. Run `farrier forecast` or try the calculator on the [Forecast](/dashboard/forecast) screen to see your own numbers.
+
+## How Farrier closes the gap
+
+The device never talks to a CA. Farrier completes ACME DNS-01 validation through your DNS (or uses its built-in private CA), then:
+
+- **Automated connectors** push the certificate to F5 BIG-IP, FortiGate, PAN-OS, Java keystores and any host with files over SSH. Each install goes in under a new name, switches over, and records how to undo it.
+- **The manual connector** builds a change pack (PEM, PFX, a device-specific runbook) and can open a ServiceNow or Jira ticket. The renewal closes itself when the scanner sees the new certificate live.
+- **Verification** is a real handshake. If an automated deploy never shows the new fingerprint, Farrier rolls back.
+
+## Who it's for
+
+Infrastructure, network and PKI teams who own a mixed estate of appliances and legacy services, and who need a renewal process that respects change control instead of bypassing it.
+
+<Callout type="warning" title="Project status">
+The engine is covered by tests, including an in-process RFC 8555 ACME server and mock appliance APIs. The F5, FortiGate and PAN-OS connectors follow the vendors' documented APIs but have **not yet been run against real hardware**. Try them on a lab device, and use Let's Encrypt staging, before production.
+</Callout>
+
+## How these docs are organised
+
+- [Quickstart](/docs/quickstart): run the demo estate and the dashboard in five minutes.
+- [Concepts](/docs/concepts): the lifecycle, the renewal state machine, timing maths and change windows.
+- [Configuration](/docs/configuration): data directory, issuers, DNS hooks, settings, inventory, environment variables and CLI.
+- [Connectors](/docs/connectors): configuration for each connector, and how to write your own.
+- [API reference](/docs/api): every REST endpoint.
+- [Self-hosting](/docs/self-hosting): running Farrier and the dashboard in production, including Docker.
+- [Security](/docs/security): how keys and secrets are handled, and how to report a vulnerability.
+- [Design system](/docs/design-system) and [Contributing](/docs/contributing): for people working on Farrier itself.

@@ -1,0 +1,17 @@
+# OpenAI Codex: merge into ~/.codex/config.toml
+
+# Local, over stdio. Read-only unless FARRIER_MCP_TOKEN equals FARRIER_API_TOKEN *and*
+# FARRIER_MCP_ALLOW_WRITES=1 (then renew_endpoint / cancel_renewal appear).
+[mcp_servers.farrier]
+command = "farrier"
+args = ["mcp"]
+env = { FARRIER_DATA = "/var/lib/farrier" }
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+# Remote, over Streamable HTTP. The bearer token is read from the named environment variable.
+# (Older Codex releases need `experimental_use_rmcp_client = true` at the top level for HTTP servers.)
+[mcp_servers.farrier_remote]
+url = "http://127.0.0.1:8740/mcp"
+bearer_token_env_var = "FARRIER_API_READ_TOKEN"
+tool_timeout_sec = 120

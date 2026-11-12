@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "farrier": {
+      "command": "farrier",
+      "args": ["--data", "/var/lib/farrier", "mcp"],
+      "env": {
+        "FARRIER_DATA": "/var/lib/farrier"
+      }
+    }
+  }
+}

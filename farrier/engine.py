@@ -1,0 +1,430 @@
+"""The renewal state machine.
+
+  planned ──issue──▶ issued ──deploy──▶ verifying ──handshake ok──▶ done
+                         │                    └─ never seen ──▶ rolled_back (failed if the rollback itself fails)
+                         └─manual──▶ awaiting_manual ──seen live──▶ done
+                                            └─ someone else replaced it ──▶ superseded
+
+Whenever a renewal leaves the open states, any change pack it produced (which holds a
+plaintext private key) is deleted.
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from . import policy
+from .connectors import Bundle, is_automated, make_connector
+from .db import OPEN_STATES, Store, now_iso, parse_dt
+from .discovery import fetch_cert
+from .issuers import load_issuers
+from .notify import Notifier
+from .scheduler import level, next_window_start
+from .vault import PROTECTED_DIRS
+from .x509util import build_csr, generate_key, key_to_pem, parse_pem
+
+DEFAULT_SETTINGS = {
+    "horizon_days": 14,          # create renewals this far ahead of their due date
+    "manual_daily_cap": 25,      # change tickets a team can absorb per day
+    "auto_daily_cap": 1000,
+    "verify_max_attempts": 6,    # ticks before an automated deploy is rolled back
+    "verify_retry_seconds": 2.0,
+    "issue_max_attempts": 5,
+    "safety_days": 2,            # never plan a change later than expiry minus this
+    "scan_timeout": 5.0,
+    # after the fingerprint matches: also require a complete, trusted chain and every name covered
+    "verify_chain_and_names": True,
+    # probe every A/AAAA record of the host too (catches one stale node behind round-robin DNS;
+    # leave off where the engine can't reach every address, e.g. IPv6 it has no route to)
+    "verify_all_addresses": False,
+}
+
+
+class Engine:
+    def __init__(self, data_dir: str | Path, issuers: dict | None = None, settings: dict | None = None):
+        self.data_dir = Path(data_dir)
+        self.store = Store(self.data_dir)
+        # no connector may read master.key or the database as a "secret"
+        PROTECTED_DIRS.add(self.data_dir.resolve())
+        sp = self.data_dir / "settings.json"
+        file_settings = json.loads(sp.read_text()) if sp.exists() else {}
+        self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
+        self._issuers = issuers
+        self.notifier = Notifier(self.settings.get("notifiers"),
+                                 self.settings.get("dashboard_url") or os.environ.get("FARRIER_DASHBOARD_URL"),
+                                 self.store.log)
+        self._lease = None                      # leader lease, opened on the first tick
+        self._tick_lock = threading.Lock()      # held for the duration of a tick
+        self._stopping = threading.Event()
+
+    # ---- leadership (several replicas may share one database) --------------
+    @property
+    def lease(self):
+        if self._lease is None:
+            self._lease = self.store.leader_lease()
+        return self._lease
+
+    def try_lead(self) -> bool:
+        """Acquire or confirm the leader lease. Only the leader runs scan/plan/advance cycles;
+        followers serve the API. A follower that finds the lease free takes over here."""
+        if self._stopping.is_set():
+            return False
+        was = self.lease.is_leader
+        now_leading = self.lease.try_acquire()
+        if now_leading and not was:
+            self.store.log(f"replica {self._replica()} is now the renewal leader ({self.lease.kind})")
+        return now_leading
+
+    def _replica(self) -> str:
+        from .leader import replica_id
+        return replica_id()
+
+    def status(self) -> dict:
+        """Leadership and database facts for a health endpoint."""
+        return {"replica": self._replica(), "leader": bool(self._lease and self._lease.is_leader),
+                "lease": self.lease.kind, "ticking": self._tick_lock.locked(),
+                "stopping": self._stopping.is_set(), **self.store.status()}
+
+    def shutdown(self, timeout: float = 30.0) -> bool:
+        """Graceful stop: start no new tick, let the running one finish, release the lease.
+        Returns False if the running tick did not finish within ``timeout``."""
+        self._stopping.set()
+        finished = self._tick_lock.acquire(timeout=max(0.0, timeout))
+        try:
+            if self._lease is not None:
+                self._lease.release()
+        finally:
+            if finished:
+                self._tick_lock.release()
+        return finished
+
+    @property
+    def issuers(self) -> dict:
+        if self._issuers is None:
+            self._issuers = load_issuers(self.data_dir)
+        return self._issuers
+
+    def connector(self, ep: dict):
+        return make_connector(ep["connector"], ep["connector_config"], self.data_dir)
+
+    # ---- observe -----------------------------------------------------------
+    def _fetch(self, ep: dict):
+        """Handshake only, no DB writes, so it is safe to run in worker threads."""
+        try:
+            return fetch_cert(ep["host"], ep["port"], ep["sni"], self.settings["scan_timeout"]), None
+        except Exception as e:  # noqa: BLE001
+            return None, f"{type(e).__name__}: {e}"
+
+    def observe(self, ep: dict):
+        cert, error = self._fetch(ep)
+        self.store.add_observation(ep["id"], cert, error)
+        return cert
+
+    def observe_all(self) -> int:
+        """Scan every enabled endpoint concurrently; a few dead hosts no longer stall the cycle."""
+        eps = [e for e in self.store.endpoints() if e["enabled"]]
+        if not eps:
+            return 0
+        with ThreadPoolExecutor(max_workers=min(32, len(eps))) as pool:
+            results = list(pool.map(self._fetch, eps))
+        for ep, (cert, error) in zip(eps, results):
+            self.store.add_observation(ep["id"], cert, error)
+        return len(eps)
+
+    def register_scan(self, results) -> dict:
+        """Persist discovery results; unknown host:port pairs become manual endpoints."""
+        new = seen = 0
+        for r in results:
+            ep = self.store.endpoint_by_addr(r.host, r.port, r.sni)
+            if ep is None:
+                if r.cert is None:
+                    continue
+                name = f"{r.sni or r.host}:{r.port}"
+                eid = self.store.upsert_endpoint({
+                    "name": name, "host": r.host, "port": r.port, "sni": r.sni,
+                    "common_name": r.cert.subject_cn, "sans": r.cert.sans, "connector": "manual",
+                    "connector_config": {}, "tags": ["discovered"]})
+                self.store.log(f"discovered {name} ({r.cert.subject_cn}, issuer {r.cert.issuer})", eid)
+                new += 1
+            else:
+                eid = ep["id"]
+            seen += 1
+            self.store.add_observation(eid, r.cert, r.error)
+        return {"new": new, "seen": seen}
+
+    # ---- plan --------------------------------------------------------------
+    def plan(self, now: datetime | None = None) -> list[int]:
+        now = now or policy.utcnow()
+        created = []
+        load = {"auto": Counter(), "manual": Counter()}
+        for r in self.store.renewals(OPEN_STATES, limit=100000):
+            load["auto" if is_automated(r["connector"]) else "manual"][r["scheduled_for"][:10]] += 1
+
+        for ep in self.store.endpoints():
+            if not ep["enabled"] or not ep["fingerprint"] or self.store.open_renewal(ep["id"]):
+                continue
+            nb, na = parse_dt(ep["not_before"]), parse_dt(ep["not_after"])
+            lifetime = min(max(1, (na - nb).days), policy.max_lifetime_days(now))
+            due = na - timedelta(days=policy.renew_before_days(lifetime, ep["lead_days"]))
+            if due > now + timedelta(days=self.settings["horizon_days"]):
+                continue
+            latest = na - timedelta(days=self.settings["safety_days"])
+            klass = "auto" if is_automated(ep["connector"]) else "manual"
+            cap = self.settings[f"{klass}_daily_cap"]
+            if na <= now:
+                start, reason = now, "expired"
+            elif latest <= now or next_window_start(ep["window"], max(now, due)) > latest:
+                start, reason = now, "urgent: no window before expiry"
+            else:
+                start = level(ep["window"], max(now, due), latest, load[klass], cap)
+                reason = "due"
+            load[klass][start.date().isoformat()] += 1
+            rid = self.store.create_renewal(ep["id"], start.isoformat(timespec="seconds"),
+                                            latest.isoformat(timespec="seconds"), ep["fingerprint"], reason)
+            self.store.log(f"renewal planned for {start:%Y-%m-%d %H:%M} UTC ({reason}); "
+                           f"current cert expires {na:%Y-%m-%d}", ep["id"], rid)
+            created.append(rid)
+        return created
+
+    def force_renewal(self, eid: int, reason: str = "requested") -> int:
+        if (r := self.store.open_renewal(eid)):
+            if r["state"] == "planned":   # pull a window-scheduled renewal forward to now
+                if self.store.update_renewal(r["id"], expect_state="planned", scheduled_for=now_iso(),
+                                             reason=reason):
+                    self.store.log(f"renewal pulled forward ({reason})", eid, r["id"])
+            return r["id"]
+        obs = self.store.latest_cert_observation(eid)
+        rid = self.store.create_renewal(eid, now_iso(), None, obs["fingerprint"] if obs else None, reason)
+        self.store.log(f"renewal requested ({reason})", eid, rid)
+        return rid
+
+    # ---- advance -----------------------------------------------------------
+    def advance(self, rid: int, now: datetime | None = None) -> str:
+        """Push one renewal as far as it can go right now. Returns the resulting state."""
+        before = (self.store.renewal(rid) or {}).get("state")
+        after = self._advance(rid, now)
+        if after != before:
+            self._notify(after, rid)
+        return after
+
+    def _notify(self, event: str, rid: int):
+        r = self.store.renewal(rid)
+        self.notifier.send(event, r, self.store.endpoint(r["endpoint_id"]) if r else None)
+
+    def _advance(self, rid: int, now: datetime | None = None) -> str:
+        now = now or policy.utcnow()
+        for _ in range(5):
+            r = self.store.renewal(rid)
+            before = r["state"]
+            if before not in OPEN_STATES:
+                return before
+            ep = self.store.endpoint(r["endpoint_id"])
+            step = getattr(self, f"_step_{before}")
+            step(r, ep, now)
+            after = self.store.renewal(rid)["state"]
+            if after == before:
+                return after
+        return self.store.renewal(rid)["state"]
+
+    def _fail(self, r, ep, msg: str, state: str = "failed"):
+        if not self.store.update_renewal(r["id"], expect_state=r["state"], state=state, error=msg):
+            return  # someone else moved this renewal meanwhile; their outcome stands
+        self.store.log(msg, ep["id"], r["id"], level="error")
+        self._discard_pack(r["id"], ep)
+
+    def _discard_pack(self, rid: int, ep: dict | None):
+        """Delete a renewal's change pack (it contains a plaintext key)."""
+        try:
+            conn = self.connector(ep) if ep else make_connector("manual", {}, self.data_dir)
+        except Exception:  # noqa: BLE001 - a broken config must not keep a key on disk
+            conn = make_connector("manual", {}, self.data_dir)
+        if hasattr(conn, "cleanup"):
+            conn.cleanup(rid)
+
+    def cancel(self, rid: int, reason: str = "cancelled") -> None:
+        r = self.store.renewal(rid)
+        if not r or r["state"] not in OPEN_STATES:
+            raise ValueError("renewal is not open")
+        if not self.store.update_renewal(rid, expect_state=r["state"], state="cancelled"):
+            raise ValueError("renewal changed state concurrently; retry")
+        self.store.log(reason, r["endpoint_id"], rid)
+        self._discard_pack(rid, self.store.endpoint(r["endpoint_id"]))
+        self._notify("cancelled", rid)
+
+    def sweep_packs(self) -> int:
+        """Remove change packs left behind by renewals that are no longer awaiting a human."""
+        root = self.data_dir / "packs"
+        if not root.is_dir():
+            return 0
+        removed = 0
+        for d in root.iterdir():
+            if not d.name.isdigit():
+                continue
+            r = self.store.renewal(int(d.name))
+            if r is None or r["state"] != "awaiting_manual":
+                self._discard_pack(int(d.name), None)
+                removed += 1
+        return removed
+
+    def _step_planned(self, r, ep, now):
+        if parse_dt(r["scheduled_for"]) > now:
+            return
+        try:
+            issuer = self.issuers.get(ep["issuer"]) or self.issuers["default"]
+            obs = self.store.latest_cert_observation(ep["id"])
+            cn = ep["common_name"] or (obs and obs["subject_cn"]) or ep["host"]
+            sans = ep["sans"] or (obs["sans"] if obs and obs["sans"] else [])
+            names = list(dict.fromkeys([cn, *sans]))
+            key = generate_key(ep["key_type"])
+            csr = build_csr(key, cn, names)
+            # per-endpoint DNS account (dns.json) overrides the issuer's zone matching
+            acct = (ep.get("connector_config") or {}).get("dns_account")
+            kw = {"dns_account": acct} if acct and getattr(issuer, "supports_dns_account", False) else {}
+            cert_pem, chain_pem = issuer.issue(csr, names, **kw)
+            info = parse_pem(cert_pem)
+        except Exception as e:  # noqa: BLE001
+            attempts = r["attempts"] + 1
+            if attempts >= self.settings["issue_max_attempts"]:
+                return self._fail(r, ep, f"issuance failed {attempts}x: {e}")
+            if self.store.update_renewal(r["id"], expect_state="planned", attempts=attempts,
+                                         error=f"issuance: {e}"):
+                self.store.log(f"issuance attempt {attempts} failed: {e}", ep["id"], r["id"], level="warning")
+            return
+        if not self.store.update_renewal(r["id"], expect_state="planned", state="issued",
+                                         key_sealed=self.store.vault.seal(key_to_pem(key)),
+                                         csr_pem=csr, cert_pem=cert_pem, chain_pem=chain_pem,
+                                         new_fingerprint=info.fingerprint, not_after=info.not_after.isoformat(),
+                                         attempts=0, error=None):
+            return  # another replica advanced it first; this certificate is simply not used
+        self.store.log(f"issued {info.subject_cn} by {info.issuer}, expires {info.not_after:%Y-%m-%d} "
+                       f"({info.lifetime_days}d)", ep["id"], r["id"])
+
+    def _bundle(self, r, ep) -> Bundle:
+        return Bundle(name=ep["name"], renewal_id=r["id"], key_pem=self.store.vault.open(r["key_sealed"]),
+                      cert_pem=r["cert_pem"], chain_pem=r["chain_pem"] or "", not_after=r["not_after"])
+
+    def _step_issued(self, r, ep, now):
+        try:
+            conn = self.connector(ep)
+            b = self._bundle(r, ep)
+            if conn.automated:
+                # claim the renewal before touching the device: only one replica ever deploys it
+                if not self.store.update_renewal(r["id"], expect_state="issued", state="deploying"):
+                    return
+                token = conn.deploy(b)
+                self.store.update_renewal(r["id"], expect_state="deploying", state="verifying", rollback=token,
+                                          attempts=0)
+                self.store.log(f"deployed via {conn.kind}", ep["id"], r["id"])
+            else:
+                due = r["deadline"] or (parse_dt(r["not_after"]) - timedelta(days=1)).isoformat()
+                out = conn.deploy(b, addr=f"{ep['host']}:{ep['port']}", fingerprint=r["new_fingerprint"],
+                                  due=due[:10])
+                if not self.store.update_renewal(r["id"], expect_state="issued", state="awaiting_manual",
+                                                 ticket_ref=out.get("ticket_ref")):
+                    return
+                self.store.log("change pack ready" + (f", ticket {out['ticket_ref']}" if out.get("ticket_ref")
+                                                      else ""), ep["id"], r["id"])
+        except Exception as e:  # noqa: BLE001
+            self._fail(r, ep, f"deploy failed: {e}")
+
+    def _step_deploying(self, r, ep, now):
+        # A crash mid-deploy leaves us here. The device state is unknown: check, don't redeploy blindly.
+        self.store.update_renewal(r["id"], expect_state="deploying", state="verifying")
+
+    def _step_verifying(self, r, ep, now):
+        cert = None
+        for i in range(3):
+            cert = self.observe(ep)
+            if cert and cert.fingerprint == r["new_fingerprint"]:
+                break
+            if i < 2:
+                time.sleep(self.settings["verify_retry_seconds"])
+        problem = None
+        if cert and cert.fingerprint == r["new_fingerprint"]:
+            problem = self._deep_verify(r, ep)
+            if problem is None:
+                if self.store.update_renewal(r["id"], expect_state="verifying", state="done", error=None):
+                    self.store.log(f"verified live on {ep['host']}:{ep['port']}", ep["id"], r["id"])
+                return
+        attempts = r["attempts"] + 1
+        seen = problem or (cert.fingerprint[:16] if cert else "no TLS")
+        if attempts < self.settings["verify_max_attempts"]:
+            self.store.update_renewal(r["id"], expect_state="verifying", attempts=attempts,
+                                      error=f"verify: {problem}" if problem else f"verify: endpoint serving {seen}")
+            return
+        try:
+            if r["rollback"]:
+                self.connector(ep).rollback(r["rollback"])
+            self._fail(r, ep, f"new cert never went live (serving {seen}); rolled back", state="rolled_back")
+        except Exception as e:  # noqa: BLE001
+            self._fail(r, ep, f"new cert never went live and rollback failed: {e}")
+
+    def _deep_verify(self, r, ep) -> str | None:
+        """Chain, hostname and every-VIP checks once the new fingerprint is seen. None means good."""
+        if not self.settings["verify_chain_and_names"]:
+            return None
+        from .health import verify_deployment
+        names = [n for n in dict.fromkeys([ep.get("common_name"), *(ep.get("sans") or [])]) if n]
+        v = verify_deployment(ep["host"], ep["port"], ep["sni"], r["new_fingerprint"], names,
+                              addresses=(ep.get("connector_config") or {}).get("vips"),
+                              resolve_all=self.settings["verify_all_addresses"],
+                              trust_pems=r.get("chain_pem"), timeout=self.settings["scan_timeout"])
+        return None if v["ok"] else "; ".join(v["problems"])[:500]
+
+    def _step_awaiting_manual(self, r, ep, now):
+        cert = self.observe(ep)
+        if cert and cert.fingerprint == r["new_fingerprint"]:
+            if not self.store.update_renewal(r["id"], expect_state="awaiting_manual", state="done", error=None):
+                return
+            self.store.log("installed by operator; verified live" +
+                           (f"; ticket {r['ticket_ref']} can be closed" if r["ticket_ref"] else ""), ep["id"], r["id"])
+            conn = self.connector(ep)
+            if hasattr(conn, "cleanup"):
+                conn.cleanup(r["id"])
+            return
+        if cert and cert.fingerprint not in (r["prev_fingerprint"], r["new_fingerprint"]) \
+                and cert.not_after > policy.utcnow() + timedelta(days=30):
+            if not self.store.update_renewal(r["id"], expect_state="awaiting_manual", state="superseded",
+                                             error=f"a different cert ({cert.fingerprint[:16]}) was installed"):
+                return
+            self.store.log("someone installed a different certificate; renewal superseded", ep["id"], r["id"],
+                           level="warning")
+            self._discard_pack(r["id"], ep)
+            return
+        if r["deadline"] and now > parse_dt(r["deadline"]) and not (r["error"] or "").startswith("OVERDUE"):
+            if self.store.update_renewal(r["id"], expect_state="awaiting_manual",
+                                         error="OVERDUE: change not installed before deadline"):
+                self.store.log("manual change is overdue; current cert expires imminently", ep["id"], r["id"],
+                           level="error")
+
+    # ---- tick --------------------------------------------------------------
+    def tick(self, now: datetime | None = None, scan: bool = True) -> dict:
+        """One scan/plan/advance cycle, run only by the leader replica. A follower (or a replica
+        shutting down) returns at once with ``skipped`` set; it re-tries for the lease every call,
+        so it takes over within one cycle of the leader going away."""
+        if not self.try_lead():
+            return {"planned": 0, "states": {}, "leader": False,
+                    "skipped": "shutting down" if self._stopping.is_set() else "follower"}
+        if not self._tick_lock.acquire(blocking=False):
+            return {"planned": 0, "states": {}, "leader": True, "skipped": "tick already running"}
+        try:
+            return {**self._tick(now, scan), "leader": True}
+        finally:
+            self._tick_lock.release()
+
+    def _tick(self, now: datetime | None = None, scan: bool = True) -> dict:
+        now = now or policy.utcnow()
+        if scan:
+            self.observe_all()
+        planned = self.plan(now)
+        states = Counter()
+        for r in self.store.renewals(OPEN_STATES, limit=100000):
+            states[self.advance(r["id"], now)] += 1
+        self.sweep_packs()
+        return {"planned": len(planned), "states": dict(states)}

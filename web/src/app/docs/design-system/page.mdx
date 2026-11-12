@@ -1,0 +1,106 @@
+export const metadata = {
+  title: "Design system",
+  description: "Colour roles, status semantics, chart rules and the UX principles behind the Farrier dashboard.",
+};
+
+# Design system
+
+The dashboard is an operations tool used under pressure, sometimes during an incident. Its design rules exist so that a colour, a position or a badge means the same thing on every screen. Read this before changing UI.
+
+## Where things live
+
+| What | Where |
+| --- | --- |
+| Colour and radius tokens, light and dark | `web/src/app/globals.css` (`:root` and `.dark`, exposed to Tailwind via `@theme`) |
+| UI primitives (Button, Badge, Card, Table, Dialog, Dropdown, Segmented…) | `web/src/components/ui/` |
+| Status vocabulary (renewal states, expiry levels, connectors) | `web/src/components/status.tsx` |
+| Charts | `web/src/components/charts/` |
+
+Components never use raw hex values. They reference roles (`bg-brand`, `text-muted-foreground`, `var(--series-auto)`), so light/dark mode and a fork's rebrand change in one file.
+
+## Colour roles
+
+The palette is called Signal and follows the 60-30-10 rule, in the spirit of Mobbin and Ramp: a quiet monochrome interface where colour comes from the product and one vivid accent. The landing page (`public/index.html`) and the app share it.
+
+| Share | Role | Light | Dark | Used for |
+| --- | --- | --- | --- | --- |
+| 60% | Ground and surfaces | `#ffffff`, `#f4f3f0` | `#0f0f0f`, `#171717` | Pages, cards, the warm-grey bands and trays behind product UI |
+| 30% | Ink | `#141414` | `#f5f5f3` | Text, primary buttons, dark bands, the hero frame, the footer |
+| 10% | Signal lime | `#c5f04a` | `#c5f04a` | Highlights only: the active row, glows, buttons on dark grounds. Always under black text, never as text or a link on white |
+
+| Role | Light | Dark | Used for |
+| --- | --- | --- | --- |
+| Series: automated | `#2a78d6` | `#3987e5` | Renewed by Farrier, in charts and connector tags |
+| Series: manual | `#16956a` | `#199e70` | Installed by a person |
+| Status: good | `#0ca30c` | `#0ca30c` | Verified, healthy, more than 30 days left |
+| Status: warning | `#fab219` | `#fab219` | Under 30 days, awaiting a human |
+| Status: serious | `#ec835a` | `#ec835a` | Under 7 days, rolled back |
+| Status: critical | `#d03b3b` | `#d03b3b` | Expired, failed, errors |
+| Neutral | `#8b8b94` | `#8b8b94` | Unknown, planned, superseded, cancelled |
+
+Rules:
+
+1. **Status colours are reserved.** They are never used for a data series, a decoration or a brand accent. Red always means something is wrong.
+2. **Status never relies on colour alone.** Every status colour is paired with an icon and a text label, so it reads for colour-blind users, in greyscale and in forced-colours mode.
+3. **Text uses text tokens.** Badge text uses the darker `*-fg` variant of its status (`--status-warning-fg` and so on) to meet contrast; the bright status colour is reserved for marks, dots and icons.
+4. **Blue means automated, teal means a person installs it**, everywhere: the renewal calendar, coverage bars and connector tags. The pair is validated for colour-vision deficiency and for 3:1 contrast on white in both themes.
+5. **Contrast first.** Body text is at least 7:1 on its ground, muted labels at least 4.5:1. Lime never carries text on a light ground.
+6. **One primary button per view.** Near-black on light grounds, lime with black text on dark grounds.
+
+## Renewal state mapping
+
+| State | Tone | Icon |
+| --- | --- | --- |
+| Planned | neutral | clock |
+| Issued | info | key |
+| Deploying | info | truck |
+| Verifying | info | spinner |
+| Awaiting human | warning | hand |
+| Done | good | check |
+| Failed | critical | x-circle |
+| Rolled back | serious | rotate-ccw |
+| Superseded | neutral | dashed circle |
+| Cancelled | neutral | ban |
+
+Always render states with `<StateBadge>` and expiry with `<ExpiryBadge>`. Don't restyle them locally.
+
+## Charts
+
+- **Pick the form first.** A single headline number is a stat tile, not a chart. Ordered magnitudes are bars. Proportions of a whole are a segmented bar.
+- **One axis.** Never a dual-axis chart. Two measures at different scales get two charts.
+- **Fixed categorical order.** Automated is blue, manual is teal. Colour follows the entity, never its rank, and filters must not repaint survivors.
+- **Projected values** use the same hue at reduced opacity, and the legend says so.
+- **Thin marks.** Bars at most 18px wide, 4px rounded data end with a square baseline, a 2px surface gap between stacked segments, recessive gridlines.
+- **Legends** whenever there are two or more series. A single series needs no legend; the title names it.
+- **Hover tooltips** on every bar, with a hit target wider than the mark.
+- **A table view** wherever a chart carries numbers someone might need exactly (see Forecast's Chart/Table toggle).
+
+## UX principles in practice
+
+| Principle | Where it shows up |
+| --- | --- |
+| **Jakob's law**: users expect your product to work like the ones they already use | A conventional app shell: left sidebar, top bar with status and the global action, content on the right. Tables sort by clicking headers |
+| **Hick's law**: more choices mean slower decisions | One primary action per renewal row (Change pack, Retry or Advance), with the rest in a `⋯` menu. Add endpoint shows the five essential fields; windows, issuer and lead time sit behind a disclosure |
+| **Miller's law**: chunk information | Sidebar grouped into Operate, Insights and Configure. Filters are a single segmented control with counts |
+| **Fitts's law**: big, close targets are faster | Controls are at least 32px; nav items grow to 36px on touch layouts. Chart hover targets span the full bar slot, not just the bar |
+| **Doherty threshold**: respond within 400 ms | Skeletons render immediately, actions give instant toast feedback, and data revalidates every 15 s and on focus |
+| **Von Restorff effect**: the different thing gets noticed | One brand-coloured CTA per view. Overview leads with a "Needs you" queue, and the pending count badge sits in the nav |
+| **Tesler's law**: complexity has to live somewhere, so put it in the system | Sensible defaults everywhere (port 443, `ec256`, any-time window), demo mode when no API is configured, connector config templates pre-filled from required keys |
+| **Postel's law**: be liberal in what you accept | Discovery accepts hosts, CIDRs, port lists and `sni@ip` in one box, separated by commas or spaces, and validates strictly with a clear error |
+| **Aesthetic-usability effect** | A restrained palette, consistent spacing and tabular numerals make dense tables easier to trust and scan |
+
+Destructive actions (remove endpoint, cancel renewal) are styled in critical red, kept in menus, and removal asks for confirmation that states exactly what is and isn't affected.
+
+## Accessibility
+
+- Text meets WCAG 2.1 AA contrast in both themes. Status meaning is never carried by colour alone.
+- Every interactive element has a visible focus ring (`--ring`) and is reachable by keyboard. Dialogs and menus use Radix primitives for focus management.
+- Icon-only buttons have `aria-label`s. Charts have `role="img"` with an `aria-label`. Segmented filters are `radiogroup`s.
+- Motion is minimal and disabled under `prefers-reduced-motion`.
+- The theme follows the system by default, with a light/system/dark toggle in the sidebar and footer.
+
+## Changing the design
+
+1. Add or change a token in `globals.css` for **both** `:root` and `.dark`.
+2. If you add a chart colour, validate it against both surfaces for colour-vision deficiency and contrast before using it.
+3. Check the page in light and dark mode, at 375px wide, and with keyboard only.

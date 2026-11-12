@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------- secrets: never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+*.jks
+*.keystore
+master.key
+secrets.yaml
+deploy/kubernetes/*secrets*.yaml
+!deploy/kubernetes/secrets.example.yaml
+
+# ---------------------------------------------------------------- Farrier runtime data
+# SQLite database, sealed keys, change packs (plaintext keys), issued certificates
+farrier-data/
+farrier-demo/
+farrier-demo-data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+packs/
+
+# ---------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------- web (Next.js)
+node_modules/
+.next/
+web/out/
+web/next-env.d.ts
+*.tsbuildinfo
+.vercel
+npm-debug.log*
+*.log
+
+# ---------------------------------------------------------------- tools
+# design checker output (screenshots, Chrome profiles, gate state)
+.taste-skill/
+# local design and agent tooling: not part of the product
+.agents/
+.claude/skills/
+.claude/settings.local.json
+skills-lock.json
+
+# ---------------------------------------------------------------- editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
