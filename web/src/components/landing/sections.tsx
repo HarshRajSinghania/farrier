@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
-import dashboard from "../../../public/product/dashboard.png";
 
 const icon = (f: string) => `/assets/icons/${f}`;
 const wrap = "mx-auto w-full max-w-7xl px-4 sm:px-6";
@@ -77,7 +76,7 @@ export function Hero() {
       <div className="enter-up [--d:360ms] mx-auto mt-16 max-w-6xl px-4 sm:mt-20 sm:px-6">
         <div className="overflow-hidden rounded-t-2xl border border-b-0 border-white/15 bg-white shadow-2xl">
           {/* a real capture of /dashboard on the demo engine: regenerate when the dashboard changes */}
-          <Image src={dashboard} alt="The Farrier dashboard: 41 endpoints, expiring certificates, a renewal calendar and change packs awaiting a person" priority sizes="(min-width: 1152px) 1104px, 100vw" className="h-auto w-full" />
+          <Image src="/product/dashboard.png" width={2880} height={1800} alt="The Farrier dashboard: 41 endpoints, expiring certificates, a renewal calendar and change packs awaiting a person" priority sizes="(min-width: 1152px) 1104px, 100vw" className="h-auto w-full" />
         </div>
       </div>
     </section>
