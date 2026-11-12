@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BellRing, CheckCircle2, ChevronRight, CircleDashed, FolderKanban, Globe, Landmark, Save, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronRight, CircleDashed, Globe, Landmark, Save, XCircle } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -159,7 +159,6 @@ function IntegrationsCard() {
   const dns = useDnsAccounts();
   const channels = useNotifiers();
   const rules = useAlertRules();
-  const { status } = useAccess();
   const count = (q: { data?: unknown[]; error?: unknown }, text: (n: number) => string) =>
     q.data ? text(q.data.length) : q.error ? "Unavailable" : null;
   const links = [
@@ -173,9 +172,6 @@ function IntegrationsCard() {
         ? `${plural(rules.data.length, "rule")} · ${plural(channels.data.length, "channel")}`
         : rules.error || channels.error ? "Unavailable" : null,
     },
-    ...(status?.allProjects
-      ? [{ href: "/dashboard/settings/projects", icon: FolderKanban, label: "Projects", detail: plural(status.projects?.length ?? 0, "project") }]
-      : []),
   ];
   return (
     <Card>
