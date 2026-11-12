@@ -12,7 +12,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
     <>
       {cta && (
         <section className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6">
-          <div className="grid items-center gap-10 overflow-hidden rounded-[32px] bg-[#2563eb] px-6 py-12 text-white sm:px-12 sm:py-16 lg:grid-cols-2">
+          <div data-reveal className="grid items-center gap-10 overflow-hidden rounded-[32px] bg-[#2563eb] px-6 py-12 text-white sm:px-12 sm:py-16 lg:grid-cols-2">
             <div className="min-w-0">
               <h2 className="max-w-[16ch] text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-balance sm:text-[48px]">
                 Renew your first certificate tonight

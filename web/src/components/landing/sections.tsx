@@ -32,13 +32,25 @@ const onDark = (f: string) => (DARK_INK.has(f) ? "dark:brightness-0 dark:invert"
 /* ------------------------------------------------------------------ hero */
 
 /** A small app-icon tile that sits inline in the headline, one em tall. */
-function Tile({ src }: { src: string }) {
+/** One headline word, animated on its own. */
+function W({ i, children }: { i: number; children: string }) {
+  return (
+    <span data-hw className="inline-block" style={{ "--i": i } as React.CSSProperties}>
+      {children}
+    </span>
+  );
+}
+
+function Tile({ i, src }: { i: number; src: string }) {
   return (
     <span
       aria-hidden
+      data-hw
+      data-hw-tile
+      style={{ "--i": i } as React.CSSProperties}
       className="mx-[0.06em] inline-flex size-[0.86em] -translate-y-[0.06em] items-center justify-center rounded-[0.22em] bg-white align-middle shadow-[0_2px_8px_rgb(0_0_0/0.12)] ring-1 ring-black/5"
     >
-      <img src={icon(src)} alt="" className="size-[58%] object-contain" />
+      <img src={icon(src)} alt="" width={48} height={48} decoding="async" className="size-[58%] object-contain" />
     </span>
   );
 }
@@ -68,16 +80,16 @@ export function Hero() {
   return (
     <section id="hero" className="pt-14 sm:pt-24">
       <div className={cn(wrap, "text-center")}>
-        <h1 className="enter mx-auto max-w-5xl text-[44px] font-semibold leading-[1.05] tracking-[-0.03em] text-balance sm:text-[64px] lg:text-[84px]">
-          Every <Tile src="letsencrypt.svg" /> machine identity,
-          <br className="hidden sm:inline" /> <Tile src="key.svg" /> managed <Tile src="f5.svg" />
-          <br className="hidden sm:inline" /> without agents.
+        <h1 className="mx-auto max-w-5xl text-[44px] font-semibold leading-[1.05] tracking-[-0.03em] text-balance sm:text-[64px] lg:text-[84px]">
+          <W i={0}>Every</W> <Tile i={1} src="letsencrypt.svg" /> <W i={2}>machine</W> <W i={3}>identity,</W>
+          <br className="hidden sm:inline" /> <Tile i={4} src="key.svg" /> <W i={5}>managed</W> <Tile i={6} src="f5.svg" />
+          <br className="hidden sm:inline" /> <W i={7}>without</W> <W i={8}>agents.</W>
         </h1>
-        <p className="enter [--d:100ms] mx-auto mt-6 max-w-[34rem] text-[17px] leading-[1.5] text-[var(--l-sub)]">
+        <p data-hero-item style={{ "--i": 0 } as React.CSSProperties} className="mx-auto mt-6 max-w-[34rem] text-[17px] leading-[1.5] text-[var(--l-sub)]">
           Farrier finds and renews TLS certificates, inventories SSH keys, maps your cryptography and tracks post-quantum readiness.
         </p>
-        <p className="enter [--d:140ms] mt-2 text-[15px] font-medium">No agents. No manual renewals. No missed expirations.</p>
-        <div className="enter [--d:200ms] mt-8 flex flex-wrap justify-center gap-2">
+        <p data-hero-item style={{ "--i": 1 } as React.CSSProperties} className="mt-2 text-[15px] font-medium">No agents. No manual renewals. No missed expirations.</p>
+        <div data-hero-item style={{ "--i": 2 } as React.CSSProperties} className="mt-8 flex flex-wrap justify-center gap-2">
           <Link href="/docs/quickstart" className={primary}>
             Install Farrier
           </Link>
@@ -88,7 +100,7 @@ export function Hero() {
       </div>
 
       <div id="integrations" className={cn(wrap, "scroll-mt-20 pt-20 sm:pt-28")}>
-        <div className="border-b border-[var(--l-line)] pb-16 sm:pb-20">
+        <div data-reveal className="border-b border-[var(--l-line)] pb-16 sm:pb-20">
           <p className="text-center text-[13px] text-[var(--l-sub)]">Works with your certificate authorities and DNS providers</p>
           <div className="l-row mt-8 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
             <ul className="l-track py-1 [animation-duration:45s]">
@@ -99,7 +111,7 @@ export function Hero() {
                     aria-hidden={dup || undefined}
                     className={cn("shrink-0 items-center gap-2 rounded-full border border-[var(--l-line)] bg-background px-4 py-2", dup ? "l-dup" : "flex")}
                   >
-                    <img src={icon(f)} alt="" className={cn("size-6 object-contain", onDark(f))} />
+                    <img src={icon(f)} alt="" width={24} height={24} decoding="async" className={cn("size-6 object-contain", onDark(f))} />
                     <span className="text-sm font-medium">{n}</span>
                   </li>
                 )),
@@ -130,14 +142,14 @@ export function How() {
   return (
     <section id="how" className="scroll-mt-20 py-24 sm:py-32">
       <div className={wrap}>
-        <div className="max-w-4xl text-[28px] font-semibold leading-[1.15] tracking-[-0.025em] sm:text-[40px]">
+        <div data-reveal className="max-w-4xl text-[28px] font-semibold leading-[1.15] tracking-[-0.025em] sm:text-[40px]">
           <h2 className="text-balance">Renewals that check their own work.</h2>
           <p className="mt-1 text-[var(--l-quiet)]">
             Farrier scans, orders over DNS-01, installs in your change window and calls it done only when the handshake proves it. Ready for 47-day certificates.
           </p>
         </div>
 
-        <figure className={cn(panel, "mt-14 p-2 sm:p-10")}>
+        <figure data-reveal className={cn(panel, "mt-14 p-2 sm:p-10")}>
           <div className={cn(frame, "p-5 sm:p-8")}>
             <ul className="space-y-4" aria-label="Maximum certificate lifetime in days, by date">
               {LIFETIMES.map((l, k) => (
@@ -145,6 +157,7 @@ export function How() {
                   <span className="text-[13px] text-[var(--l-sub)] sm:text-sm">{l.when}</span>
                   <div className="flex min-w-0 items-center gap-3">
                     <div
+                      data-bar
                       className={cn("h-7 shrink-0 rounded-md sm:h-8", k === 3 ? "bg-[#2563eb]" : "bg-foreground/85")}
                       style={{ width: `${(l.days / 398) * 72}%`, minWidth: "1.5rem" }}
                     />
@@ -216,7 +229,7 @@ export function Features() {
         <p className="mt-2 text-[15px] text-[var(--l-sub)]">Handled, so a renewal at 02:00 needs nobody awake.</p>
       </div>
       {/* full bleed, like a shelf: scrolls inside itself, never the page */}
-      <div className="l-row mt-8 px-4 sm:px-6" tabIndex={0} role="region" aria-label="Features">
+      <div data-reveal className="l-row mt-8 px-4 sm:px-6" tabIndex={0} role="region" aria-label="Features">
         <div className="l-track">
           {FEATURES.map((f) => (
             <FeatureCard key={f.t} f={f} />
@@ -305,8 +318,8 @@ export function Platform() {
   return (
     <section id="platform" className="scroll-mt-20 pb-24 sm:pb-32">
       <div className={wrap}>
-        <h2 className={cn(h2, "text-center")}>One platform for every machine identity</h2>
-        <div className="mt-12 grid gap-4 md:grid-cols-3">
+        <h2 data-reveal className={cn(h2, "text-center")}>One platform for every machine identity</h2>
+        <div data-stagger className="mt-12 grid gap-4 md:grid-cols-3">
           {PILLARS.map((p) => (
             <article key={p.t} className="flex flex-col rounded-3xl bg-[var(--l-panel)] p-3">
               <div className="px-4 pb-6 pt-6 text-center">
@@ -319,13 +332,13 @@ export function Platform() {
             </article>
           ))}
         </div>
-        <div className="mt-12 text-center">
+        <div data-reveal className="mt-12 text-center">
           <p className="text-[13px] text-[var(--l-sub)]">Tickets and events go to</p>
           <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-6">
             {TOOLS.map(([f, n]) => (
               <li key={n} title={n}>
                 {f ? (
-                  <img src={icon(f)} alt={n} className={cn("object-contain", n === "Splunk" ? "h-auto w-32 -my-6" : "h-10 w-auto", logo, onDark(f))} />
+                  <img src={icon(f)} alt={n} width={40} height={40} loading="lazy" decoding="async" className={cn("object-contain", n === "Splunk" ? "h-auto w-32 -my-6" : "h-10 w-auto", logo, onDark(f))} />
                 ) : (
                   // no official mark ships in the icon set; the name in ServiceNow green stands in
                   <span className={cn("block text-[26px] font-bold tracking-[-0.03em] text-[#62d84e]", logo)}>servicenow</span>
@@ -356,7 +369,7 @@ export function Devices() {
   return (
     <section className="pb-24 sm:pb-32">
       <div className={cn(wrap, "grid items-center gap-10 lg:grid-cols-12 lg:gap-12")}>
-        <div className="min-w-0 lg:col-span-5">
+        <div data-reveal className="min-w-0 lg:col-span-5">
           <h2 className={h2}>Renews the appliances other tools skip</h2>
           <p className="mt-4 max-w-md text-[17px] text-[var(--l-sub)]">
             F5, FortiGate and Palo Alto through their own APIs. Everything else gets a change pack and a ticket.
@@ -364,15 +377,15 @@ export function Devices() {
           <Link href="/docs/connectors" className={cn(secondary, "mt-8")}>
             See connectors <ArrowRight className="size-4" />
           </Link>
-          <ul className="mt-10 flex flex-wrap gap-5">
+          <ul data-stagger className="mt-10 flex flex-wrap gap-5">
             {DEVICES.map(([f, n]) => (
               <li key={n}>
-                <img src={icon(f)} alt={n} title={n} className={cn("size-7 object-contain", logo, onDark(f))} />
+                <img src={icon(f)} alt={n} title={n} width={28} height={28} loading="lazy" decoding="async" className={cn("size-7 object-contain", logo, onDark(f))} />
               </li>
             ))}
           </ul>
         </div>
-        <div className={cn(panel, "min-w-0 p-2 sm:p-10 lg:col-span-7")}>
+        <div data-reveal className={cn(panel, "min-w-0 p-2 sm:p-10 lg:col-span-7")}>
           <div className={cn(frame, "overflow-hidden")}>
             <div className="flex items-center gap-1.5 border-b border-[var(--l-line)] px-4 py-3">
               <span className="size-2.5 rounded-full bg-[var(--l-line)]" />
@@ -380,7 +393,7 @@ export function Devices() {
               <span className="size-2.5 rounded-full bg-[var(--l-line)]" />
               <span className="ml-2 font-mono text-xs text-[var(--l-sub)]">farrier</span>
             </div>
-            <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px] sm:leading-7">
+            <pre data-type className="overflow-x-auto p-4 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px] sm:leading-7">
               <span className="text-[var(--l-sub)]">$</span> farrier scan 10.20.0.0/24{"\n"}
               <span className="text-[var(--l-sub)]">  41 endpoints, 18 automated, 23 change packs</span>
               {"\n"}
@@ -411,13 +424,13 @@ export function Deploy() {
   return (
     <section id="deploy" className="scroll-mt-20 pb-24 sm:pb-32">
       <div className={wrap}>
-        <h2 className={cn(h2, "text-center")}>Runs where your devices are</h2>
+        <h2 data-reveal className={cn(h2, "text-center")}>Runs where your devices are</h2>
         <p className="mx-auto mt-4 max-w-xl text-center text-[17px] text-[var(--l-sub)]">Self-hosted on your own machines. No account, no hosted service.</p>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div data-stagger className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PLATFORMS.map((p) => (
             <article key={p.t} className="flex flex-col rounded-3xl bg-[var(--l-panel)] p-3">
               <div className="flex-1 px-3 pb-5 pt-4">
-                <img src={icon(p.logo)} alt="" className={cn("size-8 object-contain", onDark(p.logo))} />
+                <img src={icon(p.logo)} alt="" width={32} height={32} loading="lazy" decoding="async" className={cn("size-8 object-contain", onDark(p.logo))} />
                 <h3 className="mt-4 text-[17px] font-semibold">{p.t}</h3>
                 <p className="mt-1 text-sm text-[var(--l-sub)]">{p.d}</p>
               </div>
@@ -447,8 +460,8 @@ export function Faq() {
   return (
     <section className="pb-24 sm:pb-32">
       <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
-        <h2 className={cn(h2, "text-center")}>Questions</h2>
-        <div className="mt-10 divide-y divide-[var(--l-line)] border-y border-[var(--l-line)]">
+        <h2 data-reveal className={cn(h2, "text-center")}>Questions</h2>
+        <div data-reveal className="mt-10 divide-y divide-[var(--l-line)] border-y border-[var(--l-line)]">
           {FAQ.map(([q, a]) => (
             <details key={q} className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-[17px] font-medium">
