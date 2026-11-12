@@ -48,7 +48,8 @@ The build uses Next.js `standalone` output, so `node .next/standalone/server.js`
 | `FARRIER_API_TOKEN` | if the engine has one | Same value as the engine's. Added server-side; never sent to the browser |
 | `FARRIER_DASHBOARD_PASSWORD` | in production with `FARRIER_API_URL` | Enables HTTP Basic auth on `/dashboard` and `/api/farrier/*` |
 | `FARRIER_DASHBOARD_USER` | no | Basic auth user, default `admin` |
-| `NEXT_PUBLIC_SITE_URL` | no | Canonical URL for metadata, default `http://localhost:3000` |
+| `NEXT_PUBLIC_SITE_URL` | no | The dashboard's public URL (sign-in origin checks; `https://` turns on HSTS) |
+| `FARRIER_DOCS_URL` | no | Where the dashboard's documentation links go, e.g. your own copy of these docs (default: the public docs) |
 
 <Callout type="danger" title="Don't expose an unauthenticated dashboard">
 The dashboard proxy carries the API token, so anyone who can reach it can operate Farrier. In production (`NODE_ENV=production`) with `FARRIER_API_URL` set and no `FARRIER_DASHBOARD_PASSWORD`, every proxied API call returns `503` until you set one, or front the app with SSO.

@@ -1,5 +1,5 @@
+/* Shared with site/: the tokens, base styles and theme crossfade are kept in step by hand. */
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -183,91 +183,6 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* ---------------------------------------------------------------- docs code blocks (rehype-pretty-code) */
-.docs-prose figure[data-rehype-pretty-code-figure] { margin: 1.5rem 0; }
-.docs-prose [data-rehype-pretty-code-title] {
-  border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  background: var(--muted); padding: 0.5rem 1rem; font: 500 12.5px var(--font-mono); color: var(--muted-foreground);
-}
-.docs-prose [data-rehype-pretty-code-title] + div pre { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0; }
-.docs-prose pre {
-  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--plane) !important;
-  color: var(--foreground); /* plain-text blocks have no token colours; the prose default is meant for dark code */
-  padding: 1rem 0; font-size: 13px; line-height: 1.7; overflow-x: auto;
-}
-.docs-prose pre code { display: grid; background: transparent !important; padding: 0 !important; font-size: inherit; }
-.docs-prose pre [data-line] { padding: 0 1rem; }
-.docs-prose code[data-theme] span { color: var(--shiki-light); }
-.dark .docs-prose code[data-theme] span { color: var(--shiki-dark); }
-
-/* ---------------------------------------------------------------- landing
-   A white page, near-black ink, light-grey panels. Colour comes from the product and the logos;
-   the only coloured chrome is the blue Install button. The site chrome (header, footer) uses these
-   greys on every marketing and docs page. The landing sets Geist, like the product UI. */
-:root {
-  --l-panel: #f4f4f4;      /* big rounded panels and cards */
-  --l-pill: #f0f0f0;       /* secondary pill */
-  --l-pill-hover: #e6e6e6;
-  --l-sub: #6b6b6b;        /* body grey, 5.3:1 on white */
-  --l-quiet: #8a8a8a;      /* large statement grey only, 3.4:1 */
-  --l-line: #ebebeb;       /* hairlines */
-  --l-foot: #fafafa;
-  --l-frame: #ffffff;      /* white frames inside panels */
-}
-.dark {
-  --l-panel: #161616;
-  --l-pill: #222222;
-  --l-pill-hover: #2c2c2c;
-  --l-sub: #a3a3a3;
-  --l-quiet: #7c7c7c;
-  --l-line: #262626;
-  --l-foot: #0a0a0a;
-  --l-frame: #0f0f0f;
-}
-body:has([data-landing]) {
-  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
-  font-family: var(--font-sans);
-}
-
-/* hero entrance, once, on load */
-@media (prefers-reduced-motion: no-preference) {
-  .enter { animation: enter 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
-  @keyframes enter { from { opacity: 0; transform: translateY(12px); } }
-}
-
-/* hero motion: CSS only, so it starts on the first paint without waiting for JavaScript.
-   Words rise in sequence (--i), the icon tiles pop, then the sub-lines and buttons follow. */
-@media (prefers-reduced-motion: no-preference) {
-  [data-landing] [data-hw] {
-    animation: l-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-    animation-delay: calc(var(--i, 0) * 60ms);
-  }
-  [data-landing] [data-hw-tile] {
-    animation-name: l-pop;
-    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-  [data-landing] [data-hero-item] {
-    animation: l-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-    animation-delay: calc(480ms + var(--i, 0) * 80ms);
-  }
-  @keyframes l-rise { from { opacity: 0; transform: translateY(28px) rotate(1.5deg); } }
-  @keyframes l-pop { from { opacity: 0; transform: scale(0.4); } }
-}
-
-/* a row of cards: scrolls inside itself; with motion allowed it drifts slowly and pauses on hover or focus */
-.l-row { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.l-row::-webkit-scrollbar { display: none; }
-.l-track { display: flex; width: max-content; gap: 16px; }
-.l-dup { display: none; }
-@media (prefers-reduced-motion: no-preference) {
-  .l-row { overflow: hidden; }
-  .l-dup { display: flex; }
-  .l-track { animation: l-drift 80s linear infinite; }
-  .l-row:hover .l-track, .l-row:focus-within .l-track { animation-play-state: paused; }
-  @keyframes l-drift { to { transform: translateX(calc(-50% - 8px)); } }
 }
 
 /* ---------------------------------------------------------------- dashboard

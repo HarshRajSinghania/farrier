@@ -28,7 +28,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
                   Install Farrier
                 </Link>
                 <Link
-                  href="/dashboard"
+                  href={site.demo}
                   className="inline-flex h-11 items-center gap-1 rounded-full px-5 text-[15px] font-semibold ring-1 ring-white/40 ring-inset transition-colors hover:bg-white/10"
                 >
                   Live demo <ArrowRight className="size-4" />
@@ -82,7 +82,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
                 <ul className="space-y-1">
                   {c.links.map((l) => (
                     <li key={l.label}>
-                      <a
+                      <Link
                         href={l.href}
                         {...(l.href.startsWith("http")
                           ? { target: "_blank", rel: "noreferrer" }
@@ -90,7 +90,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
                         className={`inline-flex min-h-7 items-center ${muted}`}
                       >
                         {l.label}
-                      </a>
+                      </Link>
                     </li>
                   ))}
                 </ul>

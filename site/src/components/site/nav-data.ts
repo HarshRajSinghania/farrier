@@ -1,4 +1,5 @@
 /** One source for the top bar's menus and the footer's columns, on every page. */
+import { site } from "@/lib/site";
 export type NavLink = { href: string; label: string; desc?: string };
 export type NavMenu = { label: string; href: string; groups: { title: string; links: NavLink[] }[] };
 
@@ -20,7 +21,7 @@ export const MENUS: NavMenu[] = [
         links: [
           { href: "/#how", label: "How a renewal runs", desc: "And what 47-day certificates mean" },
           { href: "/#features", label: "AI agents", desc: "Claude, Gemini and Codex over MCP" },
-          { href: "/dashboard", label: "Live demo", desc: "The real dashboard on demo data" },
+          { href: site.demo, label: "Live demo", desc: "The real dashboard on demo data" },
         ],
       },
     ],
@@ -78,7 +79,7 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
       { href: "/#how", label: "How it works" },
       { href: "/#platform", label: "Platform" },
       { href: "/#deploy", label: "Deploy" },
-      { href: "/dashboard", label: "Live demo" },
+      { href: site.demo, label: "Live demo" },
     ],
   },
   {

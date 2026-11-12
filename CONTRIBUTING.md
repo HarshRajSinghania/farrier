@@ -49,17 +49,23 @@ at the top of [CHANGELOG.md](CHANGELOG.md).
 
 ## The public website
 
-The landing page, docs and live demo are the same `web/` app in site mode, with no engine behind it: the demo
-runs on simulated data. Host it on a platform with a global CDN (Vercel, Cloudflare or Netlify) with:
+The landing page and docs are `site/`, a separate Next.js app exported as plain files (`npm run build` in
+`site/` writes `site/out/`). It is hosted on Vercel: a project with Root Directory `site` and framework
+Next.js; no other settings are needed. Optional environment variables:
 
-| Setting | Value |
+| Variable | Value |
 |---|---|
-| Root directory | `web` |
-| Build command | `npm run build` |
-| `NEXT_PUBLIC_SITE_URL` | the public address, e.g. `https://farrier.dev` (on Vercel it is detected) |
-| `FARRIER_API_URL` | not set: the demo stays simulated |
+| `NEXT_PUBLIC_SITE_URL` | the public address for metadata, the sitemap and robots.txt (on Vercel the production domain is detected) |
+| `NEXT_PUBLIC_DEMO_URL` | the live demo's address; unset, "Live demo" links to the install guide's "Try it" |
+| `NEXT_PUBLIC_BASE_PATH` | only if the site is served under a sub-path, e.g. `/farrier` |
 
-Installs never serve this site: the Docker image runs in app mode, where `/` opens the dashboard.
+`out/` is plain HTML, CSS and JavaScript, so any static host (Cloudflare Pages, S3 and CloudFront, GitHub
+Pages) works too.
+
+The live demo is `web/` (the dashboard) deployed with no `FARRIER_API_URL`: with no engine behind it, it runs
+on simulated data. Installs never include the website: the Docker image is the dashboard only, where `/`
+opens `/dashboard`. Its documentation links follow `FARRIER_DOCS_URL` (per install, at runtime), else
+`NEXT_PUBLIC_DOCS_URL` set when the image is built, else the docs' source on GitHub.
 
 ## License
 

@@ -92,7 +92,7 @@ export function SiteHeader({ landing = false }: { landing?: boolean }) {
           <a href={site.github} target="_blank" rel="noreferrer" aria-label="Farrier on GitHub" className={cn(link, "w-9 justify-center px-0")}>
             <GithubIcon className="size-[18px]" />
           </a>
-          <Link href="/dashboard" className={link}>
+          <Link href={site.demo} className={link}>
             Live demo
           </Link>
           <Link
@@ -138,7 +138,7 @@ export function SiteHeader({ landing = false }: { landing?: boolean }) {
             <Link href="/docs/quickstart" className="flex h-11 items-center justify-center rounded-full bg-[#2563eb] text-[15px] font-medium text-white hover:bg-[#1d4ed8]">
               Install Farrier
             </Link>
-            <Link href="/dashboard" className="flex h-11 items-center justify-center rounded-full bg-[var(--l-pill)] text-[15px] font-medium hover:bg-[var(--l-pill-hover)]">
+            <Link href={site.demo} className="flex h-11 items-center justify-center rounded-full bg-[var(--l-pill)] text-[15px] font-medium hover:bg-[var(--l-pill-hover)]">
               Live demo
             </Link>
             <a href={site.github} className="flex h-11 items-center justify-center gap-2 text-[15px] font-medium">

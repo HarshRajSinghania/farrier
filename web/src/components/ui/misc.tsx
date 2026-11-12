@@ -1,3 +1,4 @@
+// Shared with site/: keep in step.
 import { Tooltip as T } from "radix-ui";
 import { cn } from "@/lib/utils";
 

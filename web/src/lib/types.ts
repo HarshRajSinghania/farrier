@@ -90,6 +90,32 @@ export interface Endpoint {
   scan_error: string | null;
   automated: boolean;
   days_left: number | null;
+  /** the project (team) the endpoint belongs to; "default" on a single-team install */
+  project?: string;
+  project_id?: number;
+}
+
+export interface ProjectMembers {
+  groups: string[];
+  admin: string[];
+  operator: string[];
+  viewer: string[];
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  title: string;
+  members: ProjectMembers;
+  created_at: string;
+  endpoints: number;
+}
+
+/** A project as the signed-in user sees it in /_status. */
+export interface MyProject {
+  name: string;
+  title: string;
+  role: "viewer" | "operator" | "admin";
 }
 
 export interface EndpointInput {
@@ -108,6 +134,7 @@ export interface EndpointInput {
   owner?: string | null;
   tags?: string[];
   enabled?: boolean;
+  project?: string;
 }
 
 export interface Renewal {
@@ -164,6 +191,10 @@ export interface BackendStatus {
   user?: string;
   /** whether the dashboard is behind FARRIER_DASHBOARD_PASSWORD */
   auth?: boolean;
+  /** the projects this user may open (every project for a global admin) */
+  projects?: MyProject[];
+  /** a global admin: may choose "All projects" */
+  allProjects?: boolean;
 }
 
 export type HealthStatus = "pass" | "warn" | "fail";
@@ -330,6 +361,7 @@ export interface AlertFilter {
   tags?: string[];
   connectors?: string[];
   name?: string;
+  project?: string;
 }
 export interface AlertRule {
   name: string;

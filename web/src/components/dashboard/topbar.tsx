@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { Bell, BookOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { GithubIcon } from "@/components/brand";
+import { ProjectSwitcher } from "@/components/dashboard/project-switcher";
 import { STATE_META } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/ui/dropdown";
@@ -31,6 +32,7 @@ const TITLES: Record<string, string> = {
   "/dashboard/integrations/alerts": "Alerts",
   "/dashboard/connectors": "Connectors",
   "/dashboard/settings": "Settings",
+  "/dashboard/settings/projects": "Projects",
 };
 
 // behind Suspense: dynamic routes only know their pathname at request time
@@ -122,8 +124,9 @@ function BackendPill() {
 
 export function RunCycle() {
   const [busy, setBusy] = useState(false);
-  const { can } = useAccess();
-  if (!can("POST", "tick")) return null;
+  const { can, status } = useAccess();
+  // one cycle covers every project: global admins (and single-team installs) only
+  if (!can("POST", "tick") || (status && status.allProjects === false)) return null;
   return (
     <Tip content="Scan every endpoint, plan due renewals and advance open ones. The server does this every 5 minutes.">
       <Button
@@ -280,9 +283,9 @@ function UserMenu() {
           </Link>
         </DropdownItem>
         <DropdownItem asChild>
-          <Link href="/docs">
+          <a href="/docs" target="_blank">
             <BookOpen /> Documentation
-          </Link>
+          </a>
         </DropdownItem>
         <DropdownItem asChild>
           <a href={site.github} target="_blank" rel="noreferrer">
@@ -291,9 +294,9 @@ function UserMenu() {
         </DropdownItem>
         {!protectedDash && data?.mode === "live" && (
           <DropdownItem asChild>
-            <Link href="/docs/security#hosting-checklist">
+            <a href="/docs/security#hosting-checklist" target="_blank">
               <ShieldAlert /> Protect this dashboard
-            </Link>
+            </a>
           </DropdownItem>
         )}
         {auth === "oidc" && (
@@ -338,6 +341,7 @@ export function Topbar({ onMenu, onToggle, collapsed }: { onMenu: () => void; on
       </Button>
       <span className="hidden h-4 w-px bg-border lg:block" aria-hidden />
       <PageTitle />
+      <ProjectSwitcher />
       <div className="ml-auto flex items-center gap-2">
         <SearchBox />
         <BackendPill />

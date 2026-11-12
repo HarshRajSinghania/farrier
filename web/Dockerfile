@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build producing Next.js standalone output (~150 MB image).
+# The dashboard teams install: Next.js standalone output in a multi-stage build.
+# The landing page and docs are a separate static site (site/).
 
 FROM node:24-alpine AS deps
 WORKDIR /app
@@ -11,8 +12,6 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# an install, not the public website: no site URL is needed at build time
-ENV FARRIER_MODE=app
 RUN npm run build
 
 FROM node:24-alpine AS run
@@ -20,12 +19,11 @@ WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    FARRIER_MODE=app \
     HOSTNAME=0.0.0.0
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
-# standalone output leaves out public/, which holds the landing page and its kit assets
+# standalone output leaves out public/ (the integration logos)
 COPY --from=build --chown=app:app /app/public ./public
 USER 10001
 EXPOSE 3000

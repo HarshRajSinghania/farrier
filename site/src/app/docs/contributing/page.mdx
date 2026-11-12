@@ -24,16 +24,19 @@ farrier/                      Python engine (package "farrier")
 └── demo.py                 simulated estate for `farrier demo`
 tests/                      pytest suite
 examples/                   inventory and DNS hook examples
-web/                        Next.js app (landing page, dashboard, docs)
+web/                        Next.js dashboard (what teams install)
 └── src/
-    ├── app/(marketing)/    landing page
     ├── app/dashboard/      dashboard screens
-    ├── app/docs/           these docs (MDX)
     ├── app/api/farrier/      server-side proxy to the Farrier API (+ demo mode)
     ├── components/ui/      primitives: Button, Card, Table, Dialog…
-    ├── components/         dashboard, charts, marketing, status vocabulary
+    ├── components/         dashboard, charts, status vocabulary
     ├── lib/                API client, types, policy port, demo data
-    └── proxy.ts            optional Basic auth for the dashboard
+    └── proxy.ts            sign-in gate for the dashboard
+site/                       Next.js public website, a static export (landing page, these docs)
+└── src/
+    ├── app/page.tsx        landing page
+    ├── app/docs/           these docs (MDX)
+    └── components/         landing, site header and footer, docs chrome
 ```
 
 ## Development setup
@@ -98,7 +101,7 @@ farrier/
 - Data fetching goes through the hooks in `web/src/lib/api.ts`. The browser only talks to `/api/farrier/*`.
 - `web/src/lib/types.ts` mirrors the API in `farrier/api/`. **If you change an API response, update the types in the same PR**, and update `web/src/lib/demo.ts` so demo mode stays faithful.
 - `web/src/lib/policy.ts` is a port of `farrier/core/policy.py`. Change both together.
-- Docs live in `web/src/app/docs/<slug>/page.mdx`. Document every config key, route and state you add.
+- Docs live in `site/src/app/docs/<slug>/page.mdx` (preview with `npm run dev` in `site/`, port 3100). Document every config key, route and state you add.
 
 ## Adding a connector
 

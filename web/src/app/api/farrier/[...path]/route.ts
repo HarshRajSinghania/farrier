@@ -10,11 +10,17 @@
  * (lib/auth/identity.ts), a same-origin check on changes (CSRF), and the role's
  * permission for the path (lib/auth/roles.ts). Viewers reach the engine with
  * FARRIER_API_READ_TOKEN when it is set, so the engine enforces read-only as well.
+ *
+ * Teams and projects (lib/auth/scope.ts): every call to the engine carries a signed X-Farrier-Scope
+ * header naming the projects the user may make *this* call in (their role there meets the call's
+ * required role), narrowed to the project picked in the dashboard (?project=, which is not forwarded).
+ * The engine filters and refuses by it, so the scope holds even if this file had a bug elsewhere.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { isSafeMethod, isSameOrigin } from "@/lib/auth/csrf";
 import { getIdentity, type Identity } from "@/lib/auth/identity";
-import { actorName, atLeast, denyMessage, requiredRole } from "@/lib/auth/roles";
+import { actorName, atLeast, denyMessage, requiredRole, type Role } from "@/lib/auth/roles";
+import { projectRoles, scopeIds, signScope, topRole, type ProjectInfo } from "@/lib/auth/scope";
 import { allowedOrigins } from "@/lib/auth/session";
 import * as demo from "@/lib/demo";
 
@@ -42,8 +48,41 @@ function guard(identity: Identity): NextResponse | null {
 }
 
 /** The engine token for this caller: the read-only one for viewers when it exists. */
-function tokenFor(identity: Identity) {
-  return identity.role === "viewer" && READ_TOKEN ? READ_TOKEN : TOKEN;
+function tokenFor(role: Role) {
+  return role === "viewer" && READ_TOKEN ? READ_TOKEN : TOKEN;
+}
+
+/* ------------------------------------------------------------------ projects */
+
+const PROJECTS_TTL = 10_000;
+let projectCache: { at: number; list: ProjectInfo[] } | null = null;
+
+/** Every project with its member groups, from the engine (admin token, no scope), cached briefly. */
+async function loadProjects(): Promise<ProjectInfo[]> {
+  if (!UPSTREAM) return demo.listProjects();
+  if (projectCache && Date.now() - projectCache.at < PROJECTS_TTL) return projectCache.list;
+  const res = await fetch(`${UPSTREAM}/api/projects`, {
+    headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+    signal: AbortSignal.timeout(5000),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`the project list answered HTTP ${res.status}`);
+  const list = (await res.json()) as ProjectInfo[];
+  projectCache = { at: Date.now(), list };
+  return list;
+}
+
+/** What this user may do where: "all" for global admins (and Basic / no sign-in), else a role per project id. */
+interface Access {
+  roles: Map<number, Role> | "all";
+  /** the role the dashboard shows and the bridge checks: global, or the best project role */
+  role: Role;
+}
+
+async function accessFor(identity: Identity): Promise<Access> {
+  if (identity.groups === null) return { roles: "all", role: identity.role };
+  const roles = projectRoles(identity.groups, await loadProjects(), identity.role);
+  return { roles, role: topRole(roles.values()) };
 }
 
 async function handle(req: NextRequest, ctx: Ctx) {
@@ -58,22 +97,60 @@ async function handle(req: NextRequest, ctx: Ctx) {
     return err(403, "Cross-site request refused. Changes can only be made from the Farrier dashboard itself.");
   }
 
-  if (path[0] === "_status") return status(identity);
+  let access: Access;
+  try {
+    access = await accessFor(identity);
+  } catch (e) {
+    return err(502, `Could not load projects from the Farrier API: ${(e as Error).message}`);
+  }
+
+  if (path[0] === "_status") return status(identity, access);
 
   const blocked = guard(identity);
   if (blocked) return blocked;
 
   const required = requiredRole(req.method, path);
-  if (!atLeast(identity.role, required)) return err(403, denyMessage(identity.role, required));
+  if (!atLeast(access.role, required)) return err(403, denyMessage(access.role, required));
 
-  return UPSTREAM ? forward(req, path, identity) : serveDemo(req, path);
+  // the project picked in the dashboard narrows the call; it must be one of the user's
+  const picked = req.nextUrl.searchParams.get("project");
+  let selected: number | null = null;
+  if (picked) {
+    let found: ProjectInfo | undefined;
+    try {
+      found = (await loadProjects()).find((p) => p.name === picked);
+    } catch (e) {
+      return err(502, `Could not load projects from the Farrier API: ${(e as Error).message}`);
+    }
+    if (!found || (access.roles !== "all" && !access.roles.has(found.id))) return err(404, `No project named ${picked} that you can open.`);
+    selected = found.id;
+  }
+
+  if (!UPSTREAM) return serveDemo(req, path, picked);
+  if (access.roles !== "all" && !TOKEN)
+    return err(503, "Project access needs FARRIER_API_TOKEN: the dashboard signs each user's project scope with it.");
+  return forward(req, path, identity, access, scopeIds(access.roles, required, selected));
 }
 
-async function status(identity: Identity) {
-  const { user, role, auth } = identity;
-  const base = { user, role, auth };
+async function status(identity: Identity, access: Access) {
+  const { user, auth } = identity;
+  const role = access.role;
+  let projects: { name: string; title: string; role: Role }[] = [];
+  try {
+    const all = await loadProjects();
+    projects =
+      access.roles === "all"
+        ? all.map((p) => ({ name: p.name, title: p.title, role }))
+        : all.flatMap((p) => {
+            const r = (access.roles as Map<number, Role>).get(p.id);
+            return r ? [{ name: p.name, title: p.title, role: r }] : [];
+          });
+  } catch {
+    /* an unreachable engine is reported below; the switcher just stays hidden */
+  }
+  const base = { user, role, auth, projects, allProjects: access.roles === "all" };
   if (!UPSTREAM) return json({ mode: "demo", upstream: null, reachable: true, ...base });
-  const token = tokenFor(identity);
+  const token = tokenFor(role);
   const host = new URL(UPSTREAM).host;
   try {
     const res = await fetch(`${UPSTREAM}/api/connectors`, {
@@ -93,11 +170,16 @@ async function status(identity: Identity) {
   }
 }
 
-async function forward(req: NextRequest, path: string[], identity: Identity) {
-  const url = `${UPSTREAM}/api/${path.join("/")}${req.nextUrl.search}`;
+async function forward(req: NextRequest, path: string[], identity: Identity, access: Access, ids: string) {
+  const enginePath = `/api/${path.join("/")}`;
+  const query = new URLSearchParams(req.nextUrl.searchParams);
+  query.delete("project"); // the dashboard's pick: already in the signed scope
+  const qs = query.toString();
+  const url = `${UPSTREAM}${enginePath}${qs ? `?${qs}` : ""}`;
   const headers = new Headers({ accept: req.headers.get("accept") ?? "application/json" });
-  const token = tokenFor(identity);
+  const token = tokenFor(access.role);
   if (token) headers.set("authorization", `Bearer ${token}`);
+  if (TOKEN) headers.set("x-farrier-scope", await signScope(TOKEN, req.method, enginePath, ids));
   headers.set("x-farrier-actor", actorName(identity.email ?? identity.user));
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   if (hasBody) headers.set("content-type", req.headers.get("content-type") ?? "application/json");
@@ -125,7 +207,7 @@ async function forward(req: NextRequest, path: string[], identity: Identity) {
   return new NextResponse(res.body, { status: res.status, headers: out });
 }
 
-async function serveDemo(req: NextRequest, path: string[]) {
+async function serveDemo(req: NextRequest, path: string[], project: string | null) {
   const [resource, rawId, action] = path;
   const id = rawId ? Number(rawId) : NaN;
   const q = req.nextUrl.searchParams;
@@ -138,13 +220,13 @@ async function serveDemo(req: NextRequest, path: string[]) {
         const [, sub, item, verb] = path;
         switch (`${req.method} ${resource}/${sub ?? ""}${item ? "/:id" : ""}${verb ? `/${verb}` : ""}`) {
           case "GET ssh/summary":
-            return demo.sshSummary();
+            return demo.sshSummary(project);
           case "GET ssh/keys":
-            return demo.sshKeys();
+            return demo.sshKeys(project);
           case "POST ssh/keys/:id/remove":
             return demo.sshRemoveKey(item, await body());
           case "GET ssh/hosts":
-            return demo.sshHosts();
+            return demo.sshHosts(project);
           case "POST ssh/scan":
             return demo.sshScan(await body());
           case "POST ssh/collect":
@@ -158,13 +240,13 @@ async function serveDemo(req: NextRequest, path: string[]) {
           case "POST ssh/access/:id/test":
             return demo.testSshAccess(item);
           case "GET crypto/summary":
-            return demo.cryptoSummary();
+            return demo.cryptoSummary(project);
           case "GET crypto/assets":
-            return demo.cryptoAssets();
+            return demo.cryptoAssets(project);
           case "POST crypto/scan":
             return demo.cryptoScan(await body());
           case "GET crypto/cbom":
-            return new NextResponse(JSON.stringify(demo.cbom(), null, 2), {
+            return new NextResponse(JSON.stringify(demo.cbom(project), null, 2), {
               headers: { "content-type": "application/vnd.cyclonedx+json", "content-disposition": 'attachment; filename="farrier-cbom.json"' },
             });
           default:
@@ -173,9 +255,22 @@ async function serveDemo(req: NextRequest, path: string[]) {
       }
       switch (`${req.method} ${resource}${rawId ? "/:id" : ""}${action ? `/${action}` : ""}`) {
         case "GET summary":
-          return demo.summary();
+          return demo.summary(project);
         case "GET endpoints":
-          return demo.endpoints();
+          return demo.endpoints(project);
+        case "POST endpoints/:id/move":
+          return demo.moveEndpoint(id, await body());
+        case "GET projects":
+          return demo.listProjects();
+        case "GET projects/:id": {
+          const p = demo.listProjects().find((x) => x.name === rawId);
+          if (!p) throw new demo.DemoError(404, `no project named ${rawId}`);
+          return p;
+        }
+        case "PUT projects/:id":
+          return demo.putProject(rawId, await body());
+        case "DELETE projects/:id":
+          return demo.deleteProject(rawId);
         case "POST endpoints":
           return demo.addEndpoint((await body()) as never);
         case "DELETE endpoints/:id":
@@ -183,7 +278,7 @@ async function serveDemo(req: NextRequest, path: string[]) {
         case "POST endpoints/:id/renew":
           return demo.forceRenewal(id);
         case "GET renewals":
-          return demo.renewals(q.get("state")?.split(","));
+          return demo.renewals(q.get("state")?.split(","), project);
         case "POST renewals/:id/advance":
           return { state: demo.advance(id) };
         case "POST renewals/:id/cancel":
@@ -193,7 +288,7 @@ async function serveDemo(req: NextRequest, path: string[]) {
         case "GET renewals/:id/pack":
           throw new demo.DemoError(404, "Change packs contain real keys and aren't generated in demo mode.");
         case "GET events":
-          return demo.events(Number(q.get("limit") ?? 100), Number(q.get("endpoint_id")) || undefined);
+          return demo.events(Number(q.get("limit") ?? 100), Number(q.get("endpoint_id")) || undefined, project);
         case "POST tick":
           return demo.tick();
         case "POST discover":
@@ -248,7 +343,7 @@ async function serveDemo(req: NextRequest, path: string[]) {
         case "PUT config/:id":
           return demo.saveSettings(await body());
         case "GET zombies":
-          return demo.zombies();
+          return demo.zombies(project);
         case "GET endpoints/:id/certificate":
           return demo.certificate(id);
         case "GET endpoints/:id/health":
@@ -256,8 +351,8 @@ async function serveDemo(req: NextRequest, path: string[]) {
         case "GET connectors":
           return demo.CONNECTORS;
         case "GET inventory": {
-          const rows = demo.endpoints().map((e) => ({
-            name: e.name, host: e.host, port: e.port, connector: e.connector, owner: e.owner,
+          const rows = demo.endpoints(project).map((e) => ({
+            name: e.name, host: e.host, port: e.port, project: e.project, connector: e.connector, owner: e.owner,
             subject_cn: e.subject_cn, cert_issuer: e.cert_issuer, not_before: e.not_before, not_after: e.not_after,
             days_left: e.days_left, fingerprint: e.fingerprint, observed_at: e.observed_at, scan_error: e.scan_error,
           }));

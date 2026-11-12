@@ -25,6 +25,8 @@ export interface OidcConfig {
   scopes: string;
   sessionSecret: string;
   roles: RoleMapping;
+  /** claim whose values are matched against each project's member groups (default: the role claim) */
+  projectClaim: string;
   /** fixed redirect URI; otherwise <public origin>/auth/callback */
   redirectUri: string | null;
   postLogoutRedirectUri: string | null;
@@ -73,6 +75,7 @@ export function oidcConfig(): ConfigResult {
         operator: parseList(env.FARRIER_OIDC_OPERATOR_GROUPS),
         allowed: parseList(env.FARRIER_OIDC_ALLOWED_GROUPS),
       },
+      projectClaim: env.FARRIER_OIDC_PROJECT_CLAIM?.trim() || env.FARRIER_OIDC_ROLE_CLAIM?.trim() || "groups",
       redirectUri: env.FARRIER_OIDC_REDIRECT_URI?.trim() || null,
       postLogoutRedirectUri: env.FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI?.trim() || null,
       idleSeconds: minutes(env.FARRIER_SESSION_IDLE_MINUTES, 60),

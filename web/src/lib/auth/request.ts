@@ -67,15 +67,3 @@ export function requiredHeaderStatus(headers: HeaderBag, pathname: string, env: 
   if (!name || !want) return 500; // malformed: fail closed
   return sameString(headers.get(name) ?? "", want) ? null : 403;
 }
-
-/**
- * One web app, two jobs. FARRIER_MODE=site (the default, for the public website) serves the landing page,
- * docs and demo. FARRIER_MODE=app (set in the Docker image, Helm chart and Compose) is a team's own install:
- * the landing and legal pages send people to the dashboard; docs stay so air-gapped installs keep them.
- * Returns where to redirect, or null.
- */
-const MARKETING = new Set(["/", "/privacy", "/terms"]);
-export function appModeRedirect(pathname: string, env: Env): string | null {
-  if ((env.FARRIER_MODE ?? "site").trim().toLowerCase() !== "app") return null;
-  return MARKETING.has(pathname) ? "/dashboard" : null;
-}

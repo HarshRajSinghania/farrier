@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDownUp, Download, MoreHorizontal, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
+import { ArrowDownUp, Download, FolderInput, MoreHorizontal, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { TableSkeleton } from "@/components/dashboard/widgets";
@@ -17,13 +17,13 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/misc";
 import { Segmented } from "@/components/ui/segmented";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { api, useEndpoints } from "@/lib/api";
+import { api, useEndpoints, useProject } from "@/lib/api";
 import { useAccess } from "@/lib/auth/client";
 import type { Endpoint } from "@/lib/types";
 import { fmtDate, relativeTime, shortFp } from "@/lib/utils";
 
 type Filter = "all" | "expiring" | "manual" | "automated" | "errors";
-type SortKey = "days_left" | "name" | "connector";
+type SortKey = "days_left" | "name" | "connector" | "project";
 
 const FILTERS: Record<Filter, (e: Endpoint) => boolean> = {
   all: () => true,
@@ -58,27 +58,37 @@ export function EndpointsView() {
   const params = useSearchParams();
   const router = useRouter();
   const { data, error, isLoading } = useEndpoints();
-  const { can } = useAccess();
+  const { can, status } = useAccess();
+  const picked = useProject();
   const [query, setQuery] = useState(() => params.get("q") ?? "");
+  const [projectFilter, setProjectFilter] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: "days_left", asc: true });
   const [confirm, setConfirm] = useState<Endpoint | null>(null);
   const filter: Filter = params.get("expiring") ? "expiring" : ((params.get("filter") as Filter) ?? "all");
 
   const setFilter = (f: Filter) => router.replace(f === "all" ? "?" : `?filter=${f}`, { scroll: false });
 
+  // the project column and filter appear only when the list spans several projects
+  const projectNames = useMemo(() => [...new Set((data ?? []).map((e) => e.project ?? "default"))].sort(), [data]);
+  const multiProject = projectNames.length > 1;
+  const titleOf = (name: string) => status?.projects?.find((p) => p.name === name)?.title ?? name;
+  // global admins may move an endpoint to another project
+  const moveTargets = status?.allProjects && can("POST", "endpoints/1/move") ? (status.projects ?? []) : [];
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = (data ?? []).filter(
       (e) =>
         FILTERS[filter](e) &&
-        (!q || [e.name, e.host, e.owner, e.connector, e.subject_cn].some((v) => v?.toLowerCase().includes(q))),
+        (!projectFilter || (e.project ?? "default") === projectFilter) &&
+        (!q || [e.name, e.host, e.owner, e.connector, e.subject_cn, e.project].some((v) => v?.toLowerCase().includes(q))),
     );
     const dir = sort.asc ? 1 : -1;
     return list.sort((a, b) => {
       if (sort.key === "days_left") return ((a.days_left ?? 1e9) - (b.days_left ?? 1e9)) * dir;
       return String(a[sort.key]).localeCompare(String(b[sort.key])) * dir;
     });
-  }, [data, filter, query, sort]);
+  }, [data, filter, query, sort, projectFilter]);
 
   const counts = useMemo(
     () => Object.fromEntries(Object.entries(FILTERS).map(([k, f]) => [k, (data ?? []).filter(f).length])) as Record<Filter, number>,
@@ -95,11 +105,11 @@ export function EndpointsView() {
         actions={
           <>
           <Button asChild variant="secondary">
-            <a href="/api/farrier/inventory?format=csv" download>
+            <a href={api.inventoryCsvUrl(picked)} download>
               <Download /> Export CSV
             </a>
           </Button>
-          {can("POST", "endpoints") && (
+          {can("POST", "endpoints") && status?.allProjects !== false && (
             <AddEndpointDialog>
               <Button>
                 <Plus /> Add endpoint
@@ -124,6 +134,21 @@ export function EndpointsView() {
             { value: "errors", label: "Scan errors", count: counts.errors },
           ]}
         />
+        {multiProject && (
+          <select
+            aria-label="Filter by project"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-2 text-sm"
+          >
+            <option value="">All projects</option>
+            {projectNames.map((n) => (
+              <option key={n} value={n}>
+                {titleOf(n)}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="relative ml-auto w-full sm:w-64">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -158,6 +183,7 @@ export function EndpointsView() {
             <THead>
               <TR>
                 <SortTH {...sortProps("name")}>Endpoint</SortTH>
+                {multiProject && <SortTH {...sortProps("project")}>Project</SortTH>}
                 <SortTH {...sortProps("connector")}>Connector</SortTH>
                 <SortTH {...sortProps("days_left")}>Expiry</SortTH>
                 <TH className="hidden md:table-cell">Issuer</TH>
@@ -180,6 +206,7 @@ export function EndpointsView() {
                       {e.host}:{e.port}
                     </p>
                   </TD>
+                  {multiProject && <TD className="text-sm text-muted-foreground">{titleOf(e.project ?? "default")}</TD>}
                   <TD>
                     <ConnectorTag kind={e.connector} automated={e.automated} />
                   </TD>
@@ -213,6 +240,23 @@ export function EndpointsView() {
                         >
                           <RefreshCw /> Renew now
                         </DropdownItem>
+                        {moveTargets
+                          .filter((p) => p.name !== (e.project ?? "default"))
+                          .map((p) => (
+                            <DropdownItem
+                              key={p.name}
+                              onSelect={async () => {
+                                try {
+                                  await api.moveEndpoint(e.id, p.name);
+                                  toast.success(`Moved ${e.name} to ${p.title}`);
+                                } catch (err) {
+                                  toast.error("Could not move endpoint", { description: (err as Error).message });
+                                }
+                              }}
+                            >
+                              <FolderInput /> Move to {p.title}
+                            </DropdownItem>
+                          ))}
                         <DropdownSeparator />
                         <DropdownItem danger onSelect={() => setConfirm(e)}>
                           <Trash2 /> Remove endpoint

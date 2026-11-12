@@ -23,6 +23,8 @@ export interface Session {
   email?: string;
   name?: string;
   role: Role;
+  /** values of FARRIER_OIDC_PROJECT_CLAIM (project membership is worked out per request from these) */
+  grp?: string[];
   /** the ID token, kept only when small enough, as the logout hint */
   idt?: string;
   /** signed in at (unix seconds) */
@@ -94,8 +96,8 @@ export async function writeSession(res: NextResponse, req: NextRequest, cfg: Oid
 /** Slide the idle window forward when it is worth a cookie rewrite. */
 export async function touchSession(res: NextResponse, req: NextRequest, cfg: OidcConfig, s: Session) {
   if (now() - s.lsa < TOUCH_AFTER) return;
-  const { sub, email, name, role, idt, sat } = s;
-  await writeSession(res, req, cfg, { sub, email, name, role, idt, sat, lsa: now() });
+  const { sub, email, name, role, grp, idt, sat } = s;
+  await writeSession(res, req, cfg, { sub, email, name, role, grp, idt, sat, lsa: now() });
 }
 
 export function clearSession(res: NextResponse) {

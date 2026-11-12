@@ -134,9 +134,9 @@ function SidebarFooter({ collapsed = false }: { collapsed?: boolean }) {
   if (collapsed)
     return (
       <div className="mt-auto flex flex-col items-center gap-1 border-t pt-4">
-        <Link href="/docs" title="Documentation" aria-label="Documentation" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+        <a href="/docs" target="_blank" title="Documentation" aria-label="Documentation" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
           <BookOpen className="size-4" />
-        </Link>
+        </a>
         <a href={site.github} target="_blank" rel="noreferrer" title="GitHub" aria-label="GitHub" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
           <GithubIcon className="size-4" />
         </a>
@@ -144,12 +144,14 @@ function SidebarFooter({ collapsed = false }: { collapsed?: boolean }) {
     );
   return (
     <div className="mt-auto space-y-1 border-t pt-4">
-      <Link
+      {/* /docs redirects to FARRIER_DOCS_URL (app/docs/[[...path]]/route.ts) */}
+      <a
         href="/docs"
+        target="_blank"
         className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
       >
         <BookOpen className="size-4" /> Documentation
-      </Link>
+      </a>
       <a
         href={site.github}
         target="_blank"
@@ -224,9 +226,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         {status?.mode === "demo" && (
           <div className="border-b bg-warning/10 px-4 py-2 text-center text-xs text-warning-fg">
             Demo mode: a simulated estate of appliances, reset on server restart.{" "}
-            <Link href="/docs/self-hosting" className="font-medium underline underline-offset-2">
+            <a href="/docs/self-hosting" target="_blank" className="font-medium underline underline-offset-2">
               Connect your Farrier
-            </Link>
+            </a>
           </div>
         )}
         <Topbar onMenu={() => setOpen(true)} onToggle={toggle} collapsed={collapsed} />

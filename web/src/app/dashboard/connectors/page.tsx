@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Bot, Hand } from "lucide-react";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { CONNECTOR_LABEL } from "@/components/status";
@@ -19,9 +18,9 @@ export default function ConnectorsPage() {
         description={
           <>
             How a certificate reaches each kind of device. Configure per endpoint;{" "}
-            <Link href="/docs/connectors" className="text-brand-ink underline-offset-4 hover:underline">
+            <a href="/docs/connectors" target="_blank" className="text-brand-ink underline-offset-4 hover:underline">
               see the reference
-            </Link>
+            </a>
             .
           </>
         }

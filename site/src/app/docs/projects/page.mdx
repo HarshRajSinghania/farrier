@@ -1,0 +1,51 @@
+export const metadata = {
+  title: "Teams and projects",
+  description: "Give each team its own projects, so people see and change only their own certificates, keys and alerts.",
+};
+
+# Teams and projects
+
+One install can serve several teams. Each **project** holds endpoints, SSH hosts and keys, and crypto results.
+People see and change only the projects their single sign-on groups give them. Installs with only the built-in
+`default` project look exactly as before: the project switcher stays hidden.
+
+## Set it up
+
+1. Turn on [single sign-on](/docs/sso). Projects follow your identity provider's groups; there are no separate
+   user accounts.
+2. As a global admin (a member of `FARRIER_OIDC_ADMIN_GROUPS`), open **Settings → Projects** and create one
+   project per team, for example `payments`, `retail` and `platform`.
+3. For each project, list the SSO groups that may see it. Optionally list groups that are that project's
+   admins, operators or viewers; anyone else in the project keeps their global role.
+4. Move endpoints into their project from **Certificates → Move to**, or choose the project when you run
+   Discovery, a crypto scan or an SSH scan.
+5. Point each team's alert rules and channels at its project, so the payments Slack channel only hears about
+   payments certificates.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `FARRIER_OIDC_PROJECT_CLAIM` | the role claim | The token claim that holds the groups used for project membership |
+| `FARRIER_MCP_PROJECT` | all projects | Comma-separated project names AI agents are limited to |
+
+## Who can do what
+
+| | Global admin | Project admin | Project operator | Project viewer |
+|---|---|---|---|---|
+| See the project's certificates, keys, renewals and events | ✓ | ✓ | ✓ | ✓ |
+| Renew, download change packs, run scans | ✓ | ✓ | ✓ | |
+| Approve discovered endpoints, remove SSH keys | ✓ | ✓ | | |
+| Create endpoints, edit CAs, DNS, secrets, channels and SSH access profiles, run a cycle | ✓ | | | |
+| Create projects and move endpoints between them | ✓ | | | |
+
+CAs, DNS accounts, secrets and SSH access profiles are shared by the whole install, which is why only global
+admins change them: a project admin could otherwise reach another team's systems through them.
+
+## How it is enforced
+
+The dashboard signs every request to the engine with the projects the signed-in person may use, and the engine
+checks the signature before it answers. A request for another team's endpoint gets "not found", and a change
+gets "forbidden", whether it comes from the dashboard, the API or an AI agent. The signature lasts a minute and
+is tied to one request, so it can't be reused for anything else. This needs `FARRIER_API_TOKEN`, which every
+install already sets.
+
+Endpoint names are unique across the whole install.

@@ -13,6 +13,13 @@ updates:
       # typescript-eslint does not support TypeScript 7 yet; lift once it does
       - dependency-name: typescript
         versions: [">=7"]
+  - package-ecosystem: npm
+    directory: /site
+    schedule: { interval: weekly }
+    groups: { site: { patterns: ["*"], update-types: [minor, patch] } }
+    ignore:
+      - dependency-name: typescript
+        versions: [">=7"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

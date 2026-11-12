@@ -1,10 +1,10 @@
 name: Release images
 
-# Semantic versioning: bump farrier/__init__.py and web/package.json together, add a CHANGELOG.md
-# entry, then push a tag like v0.2.0. The check job refuses a tag that doesn't match both.
+# Semantic versioning: bump farrier/__init__.py, web/package.json and site/package.json together, add a CHANGELOG.md
+# entry, then push a tag like v0.2.0. The check job refuses a tag that doesn't match all three.
 # Push a tag like v0.2.0 to publish multi-arch images (amd64 + arm64) to GHCR:
 #   ghcr.io/<owner>/farrier       the engine and API
-#   ghcr.io/<owner>/farrier-web   the dashboard, docs and landing page
+#   ghcr.io/<owner>/farrier-web   the dashboard (the website, site/, is hosted separately)
 on:
   push:
     tags: ["v*"]
@@ -20,14 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Tag matches the engine and web versions
+      - name: Tag matches the engine, web and site versions
         run: |
           tag="${GITHUB_REF_NAME#v}"
           py=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('farrier/__init__.py').read()).group(1))")
           web=$(python3 -c "import json;print(json.load(open('web/package.json'))['version'])")
-          echo "tag=$tag engine=$py web=$web"
+          site=$(python3 -c "import json;print(json.load(open('site/package.json'))['version'])")
+          echo "tag=$tag engine=$py web=$web site=$site"
           echo "$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::not a SemVer tag"; exit 1; }
-          [ "$tag" = "$py" ] && [ "$tag" = "$web" ] || { echo "::error::tag v$tag does not match engine $py / web $web"; exit 1; }
+          [ "$tag" = "$py" ] && [ "$tag" = "$web" ] && [ "$tag" = "$site" ] || { echo "::error::tag v$tag does not match engine $py / web $web / site $site"; exit 1; }
           grep -q "## \[$tag\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [$tag] entry"; exit 1; }
 
   image:

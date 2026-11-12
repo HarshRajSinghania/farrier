@@ -33,6 +33,7 @@ import type {
   Endpoint,
   EndpointInput,
   FarrierEvent,
+  Project,
   Renewal,
   RenewalState,
   Summary,
@@ -96,6 +97,66 @@ const SEED: [string, string, number, string, string, number, number][] = [
   ["badge-system", "access.acme.internal", 8443, "manual", "facilities", 398, null as unknown as number],
 ];
 
+/* -------------------------------------------------------------- projects */
+
+/** The demo estate is split between three teams; the owner decides which. */
+const PROJECT_OF: Record<string, string> = {
+  payments: "payments", erp: "payments", identity: "payments", security: "payments",
+  apps: "retail", euc: "retail", it: "retail", facilities: "retail", data: "retail",
+};
+const projectOf = (e: Pick<Endpoint, "owner"> & { project?: string }) => e.project ?? PROJECT_OF[e.owner ?? ""] ?? "platform";
+
+const gp = globalThis as unknown as { __farrierProjects?: Project[] };
+function projectStore(): Project[] {
+  gp.__farrierProjects ??= [
+    { id: 2, name: "payments", title: "Payments", members: { groups: ["team-payments"], admin: ["payments-leads"], operator: [], viewer: [] }, created_at: "2026-01-12T09:00:00+00:00", endpoints: 0 },
+    { id: 3, name: "retail", title: "Retail", members: { groups: ["team-retail"], admin: [], operator: ["retail-oncall"], viewer: [] }, created_at: "2026-01-12T09:00:00+00:00", endpoints: 0 },
+    { id: 4, name: "platform", title: "Platform", members: { groups: ["team-platform", "sre"], admin: [], operator: [], viewer: [] }, created_at: "2026-01-12T09:00:00+00:00", endpoints: 0 },
+  ];
+  return gp.__farrierProjects;
+}
+
+export function listProjects(): Project[] {
+  const eps = db().endpoints;
+  return projectStore().map((p) => ({ ...p, endpoints: eps.filter((e) => projectOf(e) === p.name).length }));
+}
+
+export function putProject(name: string, b: Record<string, unknown>) {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new DemoError(400, "name must be 1-63 of a-z 0-9 - (starting with a letter or digit)");
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()) : []);
+  const m = (b.members ?? {}) as Record<string, unknown>;
+  const ps = projectStore();
+  const old = ps.find((p) => p.name === name);
+  const members = b.members
+    ? { groups: list(m.groups), admin: list(m.admin), operator: list(m.operator), viewer: list(m.viewer) }
+    : old?.members ?? { groups: [], admin: [], operator: [], viewer: [] };
+  const title = typeof b.title === "string" && b.title.trim() ? b.title.trim().slice(0, 80) : old?.title ?? name;
+  if (old) Object.assign(old, { title, members });
+  else ps.push({ id: Math.max(...ps.map((p) => p.id)) + 1, name, title, members, created_at: isoAt(Date.now()), endpoints: 0 });
+  return listProjects().find((p) => p.name === name)!;
+}
+
+export function deleteProject(name: string) {
+  const ps = projectStore();
+  if (!ps.some((p) => p.name === name)) throw new DemoError(404, `no project named ${name}`);
+  if (db().endpoints.some((e) => projectOf(e) === name)) throw new DemoError(409, `project ${name} still has endpoints; move them first`);
+  gp.__farrierProjects = ps.filter((p) => p.name !== name);
+  return { ok: true };
+}
+
+export function moveEndpoint(id: number, b: Record<string, unknown>) {
+  const e = db().endpoints.find((x) => x.id === id);
+  if (!e) throw new DemoError(404, "Not found");
+  if (!projectStore().some((p) => p.name === b.project)) throw new DemoError(404, `no project named ${String(b.project)}`);
+  e.project = String(b.project);
+  return { ok: true, project: e.project };
+}
+
+/** Endpoint ids in `project` (every id when no project is chosen). */
+function idsIn(project?: string | null): Set<number> | null {
+  return project ? new Set(db().endpoints.filter((e) => projectOf(e) === project).map((e) => e.id)) : null;
+}
+
 interface DemoStore {
   endpoints: Endpoint[];
   renewals: Renewal[];
@@ -145,6 +206,7 @@ function build(): DemoStore {
       window,
       lead_days: connector === "manual" ? 10 : 0,
       owner,
+      project: PROJECT_OF[owner] ?? "platform",
       tags: [],
       enabled: 1,
       created_at: isoAt(now - 120 * DAY),
@@ -260,11 +322,12 @@ function log(message: string, ep?: Endpoint, renewalId: number | null = null, le
 
 /* ---------------------------------------------------------------- queries */
 
-export function summary(): Summary {
-  const s = db();
+export function summary(project?: string | null): Summary {
+  const ids = idsIn(project);
+  const s = { renewals: db().renewals.filter((r) => !ids || ids.has(r.endpoint_id)) };
   const now = Date.now();
   const today = new Date(now).toISOString().slice(0, 10);
-  const eps = s.endpoints;
+  const eps = db().endpoints.filter((e) => !ids || ids.has(e.id));
   const expiry: Record<string, number> = {};
   for (const e of eps) {
     if (!e.not_after) {
@@ -323,22 +386,25 @@ export function summary(): Summary {
   };
 }
 
-export function endpoints(): Endpoint[] {
+export function endpoints(project?: string | null): Endpoint[] {
   const now = Date.now();
-  return [...db().endpoints]
+  return db()
+    .endpoints.filter((e) => !project || projectOf(e) === project)
     .sort((a, b) => (a.not_after ?? "9999").localeCompare(b.not_after ?? "9999"))
-    .map((e) => withDaysLeft(e, now));
+    .map((e) => withDaysLeft({ ...e, project: projectOf(e) }, now));
 }
 
-export function renewals(states?: string[]): Renewal[] {
+export function renewals(states?: string[], project?: string | null): Renewal[] {
+  const ids = idsIn(project);
   return db()
-    .renewals.filter((r) => !states || states.includes(r.state))
+    .renewals.filter((r) => (!states || states.includes(r.state)) && (!ids || ids.has(r.endpoint_id)))
     .sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for));
 }
 
-export function events(limit = 100, endpointId?: number): FarrierEvent[] {
+export function events(limit = 100, endpointId?: number, project?: string | null): FarrierEvent[] {
+  const ids = idsIn(project);
   return db()
-    .events.filter((e) => !endpointId || e.endpoint_id === endpointId)
+    .events.filter((e) => (!endpointId || e.endpoint_id === endpointId) && (!ids || (e.endpoint_id !== null && ids.has(e.endpoint_id))))
     .sort((a, b) => b.id - a.id)
     .slice(0, limit);
 }
@@ -385,15 +451,16 @@ export function saveSettings(changes: Record<string, unknown>) {
 }
 
 /** Zombie findings from the demo estate (farrier/zombie.py, stored-observation kinds only). */
-export function zombies(): ZombieReport {
+export function zombies(project?: string | null): ZombieReport {
   const now = Date.now();
   const findings: ZombieReport["findings"] = [];
-  for (const e of endpoints())
+  const ids = idsIn(project);
+  for (const e of endpoints(project))
     if (e.days_left !== null && e.days_left < 0)
       findings.push({ kind: "expired_served", severity: "critical", endpoint_id: e.id, endpoint: e.name, target: `${e.host}:${e.port}`,
         action: "Renew now, or disable the endpoint if it is retired." });
   for (const r of db().renewals)
-    if (r.state === "awaiting_manual" && r.deadline && Date.parse(r.deadline) < now + 3 * DAY) {
+    if (r.state === "awaiting_manual" && r.deadline && Date.parse(r.deadline) < now + 3 * DAY && (!ids || ids.has(r.endpoint_id))) {
       const e = db().endpoints.find((x) => x.id === r.endpoint_id);
       findings.push({ kind: "pack_never_installed", severity: "warning", endpoint_id: r.endpoint_id, endpoint: e?.name ?? null,
         target: e ? `${e.host}:${e.port}` : "", action: "Install the change pack, or chase its ticket." });
@@ -543,6 +610,7 @@ export function addEndpoint(input: EndpointInput) {
     window: input.window ?? {},
     lead_days: input.lead_days ?? 0,
     owner: input.owner ?? null,
+    project: input.project && projectStore().some((p) => p.name === input.project) ? input.project : "platform",
     tags: input.tags ?? [],
     enabled: 1,
     created_at: isoAt(Date.now()),
@@ -752,7 +820,7 @@ const GRADES = ["A", "B", "C", "D"];
 interface StoredSecret extends Omit<SecretInfo, "used_by"> {
   value: string;
 }
-type StoredNotifier = { name: string; source: "file" | "ui"; type: string; events: string[]; fields: Record<string, string | boolean> };
+type StoredNotifier = { name: string; source: "file" | "ui"; type: string; events: string[]; fields: Record<string, string | boolean>; project?: string };
 interface IntegrationStore {
   secrets: StoredSecret[];
   issuers: Issuer[];
@@ -999,6 +1067,7 @@ function shownTarget(n: StoredNotifier) {
 export function listNotifiers(): NotifierChannel[] {
   return ix().notifiers.map((n) => ({
     ...n.fields, name: n.name, source: n.source, type: n.type, events: [...n.events], target: shownTarget(n),
+    ...(n.project ? { project: n.project } : {}),
   }));
 }
 
@@ -1058,7 +1127,9 @@ export function putNotifier(name: string, b: Record<string, unknown>) {
   const events = Array.isArray(b.events) ? strList(b.events) : existing?.events ?? [];
   const bad = events.find((e) => !ALERT_EVENTS.includes(e));
   if (bad) throw new DemoError(400, `unknown event ${bad}`);
-  const out: StoredNotifier = { name, source: "ui", type: type.id, events, fields };
+  const project = str(b.project);
+  if (project && !projectStore().some((p) => p.name === project)) throw new DemoError(400, `no project named ${project}`);
+  const out: StoredNotifier = { name, source: "ui", type: type.id, events, fields, project: project || undefined };
   if (existing) Object.assign(existing, out);
   else s.notifiers.push(out);
   return listNotifiers().find((n) => n.name === name);
@@ -1129,9 +1200,11 @@ export function putRule(name: string, b: Record<string, unknown>) {
   const tags = strList(fl.tags);
   const connectors = strList(fl.connectors);
   const pattern = str(fl.name);
+  const project = str(fl.project);
+  if (project && !projectStore().some((p) => p.name === project)) throw new DemoError(400, `no project named ${project}`);
   const filter: AlertRule["filter"] =
-    tags.length || connectors.length || pattern
-      ? { ...(tags.length ? { tags } : {}), ...(connectors.length ? { connectors } : {}), ...(pattern ? { name: pattern } : {}) }
+    tags.length || connectors.length || pattern || project
+      ? { ...(tags.length ? { tags } : {}), ...(connectors.length ? { connectors } : {}), ...(pattern ? { name: pattern } : {}), ...(project ? { project } : {}) }
       : null;
   const existing = s.rules.find((r) => r.name === name);
   const out: AlertRule = {
@@ -1416,8 +1489,11 @@ function sshStore(): SshStore {
 const worst = (fs: SshFinding[]) =>
   fs.some((f) => f.severity === "critical") ? "critical" : fs.some((f) => f.severity === "warning") ? "warning" : fs.length ? "info" : null;
 
-export function sshSummary(): SshSummary {
-  const s = sshStore();
+/** The demo SSH estate belongs to the Platform team. */
+const sshVisible = (project?: string | null) => !project || project === "platform";
+
+export function sshSummary(project?: string | null): SshSummary {
+  const s = sshVisible(project) ? sshStore() : { keys: [] as SshKey[], hosts: [] as SshHost[] };
   const by: SshSummary["by_severity"] = { critical: 0, warning: 0, info: 0 };
   for (const k of s.keys) {
     const w = worst(k.findings);
@@ -1432,8 +1508,8 @@ export function sshSummary(): SshSummary {
   };
 }
 
-export const sshKeys = (): SshKey[] => sshStore().keys.map((k) => ({ ...k }));
-export const sshHosts = (): SshHost[] => sshStore().hosts.map((h) => ({ ...h }));
+export const sshKeys = (project?: string | null): SshKey[] => (sshVisible(project) ? sshStore().keys.map((k) => ({ ...k })) : []);
+export const sshHosts = (project?: string | null): SshHost[] => (sshVisible(project) ? sshStore().hosts.map((h) => ({ ...h })) : []);
 
 function globMatch(pattern: string, host: string) {
   const re = new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
@@ -1623,12 +1699,12 @@ function sshAsset(h: SshHost): CryptoAsset {
   };
 }
 
-export function cryptoAssets(): CryptoAsset[] {
-  return [...endpoints().map(tlsAsset), ...sshStore().hosts.map(sshAsset)];
+export function cryptoAssets(project?: string | null): CryptoAsset[] {
+  return [...endpoints(project).map(tlsAsset), ...sshHosts(project).map(sshAsset)];
 }
 
-export function cryptoSummary(): CryptoSummary {
-  const assets = cryptoAssets();
+export function cryptoSummary(project?: string | null): CryptoSummary {
+  const assets = cryptoAssets(project);
   const by_status: CryptoSummary["by_status"] = { ready: 0, hybrid: 0, vulnerable: 0, unknown: 0 };
   const by_key_algorithm: Record<string, number> = {};
   const weak = { tls10: 0, tls11: 0, rsa_lt_2048: 0, sha1: 0 };
@@ -1649,14 +1725,14 @@ export function cryptoScan(b: Record<string, unknown>) {
 }
 
 /** A CycloneDX 1.6 cryptography bill of materials for every asset. */
-export function cbom() {
+export function cbom(project?: string | null) {
   const algos = new Map<string, string>();
   const ref = (name: string) => `crypto/algorithm/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const algo = (name: string, primitive: string) => {
     algos.set(name, primitive);
     return ref(name);
   };
-  const protocols = cryptoAssets().map((a) => {
+  const protocols = cryptoAssets(project).map((a) => {
     const kex = typeof a.key_exchange === "string" ? [a.key_exchange] : Array.isArray(a.key_exchange) ? a.key_exchange : [];
     const refs = [
       ...kex.map((k) => algo(k, "key-agree")),

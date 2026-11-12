@@ -27,6 +27,23 @@ const MAX_HINT = 1500;
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
+/**
+ * The groups kept in the session cookie for project membership, capped so the cookie stays under 4 KB.
+ * A user with more groups than fit loses the rest: they see fewer projects, never more.
+ */
+const MAX_GROUPS_CHARS = 1500;
+function projectGroups(values: string[]): string[] {
+  const out: string[] = [];
+  let used = 0;
+  for (const v of values) {
+    if (v.length > 256 || used + v.length + 3 > MAX_GROUPS_CHARS) continue;
+    out.push(v);
+    used += v.length + 3;
+  }
+  if (out.length < values.length) console.warn(`[farrier] kept ${out.length} of ${values.length} groups for project membership`);
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const done = (res: NextResponse) => {
     res.cookies.set(TX_COOKIE, "", { path: "/auth", maxAge: 0 });
@@ -61,7 +78,9 @@ export async function GET(req: NextRequest) {
 
     // Okta and others may leave groups out of the ID token; UserInfo usually has them.
     let claims: Record<string, unknown> = idClaims;
-    if (claimValues(claims, c.roles.claim).length === 0 && tokens.access_token) {
+    const missing = (cl: Record<string, unknown>) =>
+      claimValues(cl, c.roles.claim).length === 0 || claimValues(cl, c.projectClaim).length === 0;
+    if (missing(claims) && tokens.access_token) {
       claims = { ...(await userInfo(meta, tokens.access_token, sub)), ...idClaims };
       if (claimValues(claims, c.roles.claim).length === 0 && "_claim_names" in idClaims) {
         console.warn("[farrier] the ID token has a group overage (_claim_names); use app roles (FARRIER_OIDC_ROLE_CLAIM=roles)");
@@ -83,6 +102,7 @@ export async function GET(req: NextRequest) {
       email,
       name: str(claims.name),
       role,
+      grp: projectGroups(claimValues(claims, c.projectClaim)),
       idt: tokens.id_token.length <= MAX_HINT ? tokens.id_token : undefined,
       sat: t,
       lsa: t,

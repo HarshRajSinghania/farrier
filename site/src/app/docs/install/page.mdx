@@ -194,7 +194,7 @@ docker load < farrier-0.1.0.tar.gz     # then retag and push to your registry
 
 Start small; every step keeps your inventory, history and keys.
 
-1. **More people:** turn on single sign-on ([SSO](/docs/sso)) with viewer, operator and admin roles.
+1. **More people:** turn on single sign-on ([SSO](/docs/sso)) and give each team its own project ([Teams and projects](/docs/projects)).
 2. **A real database:** `farrier db migrate --to postgresql://farrier@db/farrier`, then point the engine at it with `FARRIER_DATABASE_URL`.
 3. **High availability:** run two or more engine replicas on that database; one is leader at a time ([Databases and HA](/docs/databases)).
 4. **Cloud secrets and KMS:** move secrets to your secret manager and wrap the master key with your KMS ([Enterprise](/docs/enterprise)).

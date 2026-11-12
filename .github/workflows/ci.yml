@@ -35,7 +35,27 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+      - run: npm test
       - run: npm run build
+
+  # The public website (landing page and docs): a static export to site/out.
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: test -f out/index.html && test -f out/docs/install/index.html && test -f out/sitemap.xml && test -f out/robots.txt
 
   # The ACME client against Pebble, Let's Encrypt's official ACME test server, with DNS-01 through
   # pebble-challtestsrv. Catches protocol drift a mock can't (nonce rejection, ARI, profiles, ordering).

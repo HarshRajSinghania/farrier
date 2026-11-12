@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isSameOrigin, safeReturnTo } from "./csrf.ts";
-import { appModeRedirect, clientAddress, configuredOrigin, redirectUriProblem, requiredHeaderStatus } from "./request.ts";
+import { clientAddress, configuredOrigin, redirectUriProblem, requiredHeaderStatus } from "./request.ts";
 import { actorName, claimValues, mapRole, parseList, permits, requiredRole } from "./roles.ts";
 import { seal, secretProblem, unseal } from "./seal.ts";
 
@@ -134,12 +134,60 @@ test("requiredHeaderStatus: FARRIER_REQUIRE_HEADER gates every path but /api/hea
   assert.equal(requiredHeaderStatus(ok, "/", { FARRIER_REQUIRE_HEADER: "no-colon" }), 500);
 });
 
-test("app mode sends the landing and legal pages to the dashboard; site mode and docs are untouched", () => {
-  const app = { FARRIER_MODE: "app" };
-  assert.equal(appModeRedirect("/", app), "/dashboard");
-  assert.equal(appModeRedirect("/privacy", app), "/dashboard");
-  assert.equal(appModeRedirect("/docs", app), null);
-  assert.equal(appModeRedirect("/dashboard", app), null);
-  assert.equal(appModeRedirect("/", {}), null);
-  assert.equal(appModeRedirect("/", { FARRIER_MODE: "site" }), null);
+// ---- teams and projects ----------------------------------------------------------------------------
+import { projectRoles, scopeIds, signScope, topRole } from "./scope.ts";
+import { switcherOptions, validPick, withProject } from "../projects.ts";
+
+const none = { groups: [], admin: [], operator: [], viewer: [] };
+const PROJECTS = [
+  { id: 1, name: "default", title: "Default", members: none },
+  { id: 2, name: "payments", title: "Payments", members: { ...none, groups: ["team-pay"], admin: ["pay-leads"] } },
+  { id: 3, name: "retail", title: "Retail", members: { ...none, operator: ["/Retail-Oncall"] } },
+];
+
+test("projectRoles: project role groups win, members keep their global role, unconfigured default is open", () => {
+  const r = projectRoles(["team-pay", "retail-oncall"], PROJECTS, "viewer");
+  assert.deepEqual([...r], [[1, "viewer"], [2, "viewer"], [3, "operator"]]);
+  assert.equal(projectRoles(["pay-leads"], PROJECTS, "viewer").get(2), "admin");
+  assert.equal(projectRoles(["team-pay"], PROJECTS, "operator").get(2), "operator");
+  assert.deepEqual([...projectRoles([], PROJECTS, "viewer")], [[1, "viewer"]]);
+  // once default has groups, it is no longer open to everyone
+  const closed = [{ ...PROJECTS[0], members: { ...none, groups: ["staff"] } }];
+  assert.equal(projectRoles(["other"], closed, "operator").size, 0);
+  assert.equal(topRole(projectRoles(["team-pay", "retail-oncall"], PROJECTS, "viewer").values()), "operator");
+  assert.equal(topRole([]), "viewer");
+});
+
+test("scopeIds: only the projects where the role allows the call, narrowed to the pick", () => {
+  const roles = projectRoles(["team-pay", "retail-oncall"], PROJECTS, "viewer");
+  assert.equal(scopeIds(roles, "viewer"), "1,2,3");
+  assert.equal(scopeIds(roles, requiredRole("POST", "endpoints/4/renew")), "3"); // operator only in retail
+  assert.equal(scopeIds(roles, requiredRole("DELETE", "endpoints/4")), ""); // admin nowhere: nothing
+  assert.equal(scopeIds(roles, "viewer", 2), "2");
+  assert.equal(scopeIds(roles, "operator", 2), "");
+  assert.equal(scopeIds("all", "admin"), "*");
+  assert.equal(scopeIds("all", "viewer", 3), "3");
+});
+
+test("signScope matches the engine's test vector (tests/test_projects.py)", async () => {
+  assert.equal(
+    await signScope("tok", "GET", "/api/endpoints", "1,2", 1700000000),
+    "v1;1,2;1700000000;1df0998b35e23e80b2a464350261f2f7ab5ce1f2ddfe9ddbe44774ae358520b2",
+  );
+  const other = await signScope("tok", "POST", "/api/endpoints", "1,2", 1700000000);
+  assert.notEqual(other.split(";")[3], "1df0998b35e23e80b2a464350261f2f7ab5ce1f2ddfe9ddbe44774ae358520b2");
+});
+
+test("project switcher: hidden with one project, shown for several", () => {
+  assert.equal(switcherOptions([{ name: "default", title: "Default" }], true), null);
+  assert.equal(switcherOptions([{ name: "payments", title: "Payments" }], false), null);
+  assert.equal(switcherOptions([], true), null);
+  assert.equal(switcherOptions(undefined, undefined), null);
+  assert.deepEqual(switcherOptions([{ name: "payments", title: "Payments" }], true)?.all, true);
+  const two = [{ name: "default", title: "Default" }, { name: "payments", title: "Payments" }];
+  assert.equal(switcherOptions(two, false)?.projects.length, 2);
+  assert.equal(validPick("payments", two), "payments");
+  assert.equal(validPick("retail", two), null);
+  assert.equal(withProject("/events?limit=5", "payments"), "/events?limit=5&project=payments");
+  assert.equal(withProject("/summary", null), "/summary");
 });

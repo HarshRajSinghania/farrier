@@ -9,14 +9,14 @@
  * This is the first lock. The bridge (app/api/farrier/[...path]/route.ts) checks the session
  * again and enforces roles and the same-origin rule on every call.
  *
- * FARRIER_REQUIRE_HEADER=Name:value runs before all of that on every path (landing, docs, assets,
+ * FARRIER_REQUIRE_HEADER=Name:value runs before all of that on every path (sign-in, dashboard, assets,
  * sign-in, dashboard, API) except /api/health: a request without that exact header value gets 403.
  * FARRIER_TRUSTED_PROXY_HOPS (default 1) says how many proxies append X-Forwarded-For (see clientAddress).
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { checkBasic } from "@/lib/auth/basic";
 import { authMode, oidcConfig } from "@/lib/auth/config";
-import { clientAddress, requiredHeaderStatus, appModeRedirect } from "@/lib/auth/request";
+import { clientAddress, requiredHeaderStatus } from "@/lib/auth/request";
 import { clearSession, hasSessionCookie, readSession, touchSession } from "@/lib/auth/session";
 
 const MAX_FAILURES = 10;
@@ -98,8 +98,6 @@ export async function proxy(req: NextRequest) {
   const blocked = requiredHeaderStatus(req.headers, req.nextUrl.pathname, process.env);
   if (blocked === 500) return new NextResponse("FARRIER_REQUIRE_HEADER must look like Name:value", { status: 500 });
   if (blocked) return new NextResponse("Forbidden", { status: 403 });
-  const home = appModeRedirect(req.nextUrl.pathname, process.env);
-  if (home) return NextResponse.redirect(new URL(home, req.url));
   if (!gated(req.nextUrl.pathname)) return NextResponse.next();
   switch (authMode()) {
     case "oidc":
@@ -112,6 +110,6 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // every path, so FARRIER_REQUIRE_HEADER also guards the landing page, docs, sign-in and build assets
+  // every path, so FARRIER_REQUIRE_HEADER also guards sign-in, the docs redirect and build assets
   matcher: ["/:path*"],
 };

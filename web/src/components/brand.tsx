@@ -1,4 +1,5 @@
 "use client";
+// Shared with site/: keep in step.
 
 import Link from "next/link";
 import { flushSync } from "react-dom";

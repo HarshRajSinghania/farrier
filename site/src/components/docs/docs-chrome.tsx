@@ -13,6 +13,12 @@ import { DOCS_FLAT, DOCS_NAV } from "@/lib/docs-nav";
 import { site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
+/** The current docs path without the trailing slash the static export adds (/docs/install/ -> /docs/install). */
+function useDocsPath() {
+  const p = usePathname();
+  return p.length > 1 ? p.replace(/\/+$/, "") : p;
+}
+
 /* ------------------------------------------------------------------ search (⌘K) */
 
 function score(e: SearchEntry, q: string) {
@@ -137,7 +143,7 @@ function SearchTrigger({ onOpen }: { onOpen: () => void }) {
 /* ------------------------------------------------------------------ sidebar */
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
-  const path = usePathname();
+  const path = useDocsPath();
   const current = DOCS_NAV.find((g) => g.items.some((i) => i.href === path))?.title ?? DOCS_NAV[0].title;
   // one group open at a time: the current page's group until the reader picks another (reset on navigation)
   const [picked, setPicked] = useState<{ path: string; open: string | null }>({ path, open: current });
@@ -238,7 +244,7 @@ export function DocsSidebar({ index }: { index: SearchEntry[] }) {
 /* ------------------------------------------------------------------ breadcrumbs, toc, pager */
 
 export function DocsBreadcrumbs() {
-  const path = usePathname();
+  const path = useDocsPath();
   const page = DOCS_FLAT.find((d) => d.href === path);
   if (!page) return null;
   return (
@@ -259,7 +265,7 @@ export function DocsBreadcrumbs() {
 }
 
 export function DocsToc() {
-  const path = usePathname();
+  const path = useDocsPath();
   const [items, setItems] = useState<{ id: string; text: string; depth: number }[]>([]);
   const [active, setActive] = useState<string | null>(null);
 
@@ -307,7 +313,7 @@ export function DocsToc() {
       </ul>
       <div className="mt-6 space-y-2 border-t pt-4 text-xs">
         <a
-          href={`${site.github}/edit/main/web/src/app${path}/page.mdx`}
+          href={`${site.github}/edit/main/site/src/app${path}/page.mdx`}
           className="block text-muted-foreground hover:text-foreground"
           target="_blank"
           rel="noreferrer"
@@ -323,7 +329,7 @@ export function DocsToc() {
 }
 
 export function DocsPager() {
-  const path = usePathname();
+  const path = useDocsPath();
   const i = DOCS_FLAT.findIndex((d) => d.href === path);
   const prev = i > 0 ? DOCS_FLAT[i - 1] : null;
   const next = i >= 0 && i < DOCS_FLAT.length - 1 ? DOCS_FLAT[i + 1] : null;

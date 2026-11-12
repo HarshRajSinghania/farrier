@@ -11,20 +11,8 @@ const geist = Geist({ variable: "--font-geist", subsets: ["latin"], preload: fal
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], preload: false });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(site.url),
-  title: {
-    default: `${site.name} — ${site.tagline}`,
-    template: `%s · ${site.name}`,
-  },
-  description: site.description,
-  keywords: ["TLS", "certificate renewal", "ACME", "PKI", "F5", "FortiGate", "Palo Alto", "47-day certificates"],
-  openGraph: {
-    type: "website",
-    title: `${site.name} — ${site.tagline}`,
-    description: site.description,
-    siteName: site.name,
-  },
-  twitter: { card: "summary_large_image", title: site.name, description: site.description },
+  title: { default: site.name, template: `%s · ${site.name}` },
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

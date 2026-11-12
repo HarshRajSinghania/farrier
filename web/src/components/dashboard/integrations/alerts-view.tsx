@@ -19,6 +19,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { api, useAlertRules, useCatalog, useConnectors, useNotifiers } from "@/lib/api";
 import { useAccess } from "@/lib/auth/client";
 import type { AlertRule, AlertRuleInput, AlertWhen, HealthGrade, NotifierChannel, NotifierInput } from "@/lib/types";
+import { switcherOptions } from "@/lib/projects";
 import { cn, relativeTime } from "@/lib/utils";
 import {
   ChipsInput,
@@ -106,9 +107,32 @@ export function describeWhen(w: AlertWhen): string {
   }
 }
 
+const ANY_PROJECT = "*";
+
+/** A project picker for rules and channels; hidden on a single-team install unless a value is already set. */
+function ProjectField({ id, value, onChange, hint }: { id: string; value: string; onChange: (v: string) => void; hint: string }) {
+  const { status } = useAccess();
+  if (!switcherOptions(status?.projects, status?.allProjects) && !value) return null;
+  return (
+    <Field id={id} label="Project" optional hint={hint}>
+      <Select
+        id={id}
+        value={value || ANY_PROJECT}
+        onValueChange={(v) => onChange(v === ANY_PROJECT ? "" : v)}
+        options={[
+          { value: ANY_PROJECT, label: "Any project" },
+          ...(status?.projects ?? []).map((p) => ({ value: p.name, label: p.title })),
+          ...(value && !status?.projects?.some((p) => p.name === value) ? [{ value, label: value }] : []),
+        ]}
+      />
+    </Field>
+  );
+}
+
 function describeFilter(f: AlertRule["filter"]): string | null {
   if (!f) return null;
   const parts = [
+    f.project && `in project ${f.project}`,
     f.tags?.length && `tagged ${f.tags.join(", ")}`,
     f.connectors?.length && `on ${f.connectors.map((c) => CONNECTOR_LABEL[c] ?? c).join(", ")}`,
     f.name && `named ${f.name}`,
@@ -188,6 +212,7 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
   const [values, setValues] = useState<Record<string, string>>(() => initial(typeId).vals);
   const [secrets, setSecrets] = useState<Record<string, SecretState>>(() => initial(typeId).secs);
   const [events, setEvents] = useState<string[]>(entry?.events ?? DEFAULT_EVENTS);
+  const [chProject, setChProject] = useState(typeof entry?.project === "string" ? entry.project : "");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<Error | null>(null);
@@ -219,7 +244,7 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
-    const body: NotifierInput = { type: type.id, events };
+    const body: NotifierInput = { type: type.id, events, ...(chProject ? { project: chProject } : {}) };
     for (const f of type.fields) {
       if (f.secret) {
         const ref = plan.refs[f.key];
@@ -254,6 +279,13 @@ function ChannelForm({ entry, taken, onDone }: { entry: NotifierChannel | null; 
           autoFocus={!entry}
         />
       </Field>
+
+      <ProjectField
+        id="ch-project"
+        value={chProject}
+        onChange={setChProject}
+        hint="A team's channel: it hears only about that project's endpoints."
+      />
 
       <fieldset>
         <legend className="mb-2 text-sm font-medium">Type</legend>
@@ -495,6 +527,7 @@ function RuleForm({ entry, taken, onDone }: { entry: AlertRule | null; taken: st
   const [tags, setTags] = useState<string[]>(entry?.filter?.tags ?? []);
   const [conns, setConns] = useState<string[]>(entry?.filter?.connectors ?? []);
   const [pattern, setPattern] = useState(entry?.filter?.name ?? "");
+  const [ruleProject, setRuleProject] = useState(entry?.filter?.project ?? "");
   const [picked, setPicked] = useState<string[]>(entry?.channels ?? (channels?.length === 1 ? [channels[0].name] : []));
   const [cooldown, setCooldown] = useState(String(entry?.cooldown_hours ?? 24));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -533,6 +566,7 @@ function RuleForm({ entry, taken, onDone }: { entry: AlertRule | null; taken: st
       ...(tags.length ? { tags } : {}),
       ...(conns.length ? { connectors: conns } : {}),
       ...(pattern.trim() ? { name: pattern.trim() } : {}),
+      ...(ruleProject ? { project: ruleProject } : {}),
     };
     setBusy(true);
     try {
@@ -632,9 +666,10 @@ function RuleForm({ entry, taken, onDone }: { entry: AlertRule | null; taken: st
         <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm font-medium">
           <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
           Only some endpoints
-          {(tags.length > 0 || conns.length > 0 || pattern) && <Badge tone="neutral">Filtered</Badge>}
+          {(tags.length > 0 || conns.length > 0 || pattern || ruleProject) && <Badge tone="neutral">Filtered</Badge>}
         </summary>
         <div className="space-y-4 border-t p-4">
+          <ProjectField id="rule-project" value={ruleProject} onChange={setRuleProject} hint="Only this project's endpoints." />
           <Field id="rule-tags" label="Tags" optional hint="Endpoints with any of these tags.">
             <ChipsInput id="rule-tags" value={tags} onChange={setTags} placeholder="prod" />
           </Field>

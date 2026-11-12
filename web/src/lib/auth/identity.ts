@@ -13,8 +13,11 @@ export interface Identity {
   /** display name: the email when the IdP gives one */
   user: string;
   email: string | null;
+  /** install-wide role: from the SSO role mapping (admin = global admin, sees every project) */
   role: Role;
   auth: AuthMode;
+  /** SSO groups for project membership; null = not project-scoped (global admin, Basic, demo) */
+  groups: string[] | null;
 }
 
 export type IdentityResult = { ok: true; identity: Identity } | { ok: false; status: number; detail: string };
@@ -27,13 +30,14 @@ export async function getIdentity(req: NextRequest, live: boolean): Promise<Iden
     const s = await readSession(req, cfg.config);
     if (!s) return { ok: false, status: 401, detail: "Your session has ended. Sign in again." };
     const email = s.email ?? null;
-    return { ok: true, identity: { user: email ?? s.name ?? s.sub, email, role: s.role, auth: "oidc" } };
+    const groups = s.role === "admin" ? null : Array.isArray(s.grp) ? s.grp.filter((g) => typeof g === "string") : [];
+    return { ok: true, identity: { user: email ?? s.name ?? s.sub, email, role: s.role, auth: "oidc", groups } };
   }
   if (mode === "basic") {
     const user = checkBasic(req.headers.get("authorization"));
     if (!user) return { ok: false, status: 401, detail: "Authentication required" };
     // one shared password: whoever has it administers the dashboard
-    return { ok: true, identity: { user, email: null, role: "admin", auth: "basic" } };
+    return { ok: true, identity: { user, email: null, role: "admin", auth: "basic", groups: null } };
   }
-  return { ok: true, identity: { user: live ? "operator" : "demo", email: null, role: "admin", auth: "none" } };
+  return { ok: true, identity: { user: live ? "operator" : "demo", email: null, role: "admin", auth: "none", groups: null } };
 }

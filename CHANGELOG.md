@@ -10,7 +10,7 @@ All notable changes to Farrier are recorded here. The format follows
 
 Until 1.0.0, minor releases may still change the API; each one says how to upgrade.
 
-To release: bump `farrier/__init__.py` and `web/package.json` to the same version, move the
+To release: bump `farrier/__init__.py`, `web/package.json` and `site/package.json` to the same version, move the
 Unreleased notes under a new heading, then push the tag `vX.Y.Z`. The release workflow refuses
 a tag that doesn't match both versions and this file.
 
@@ -59,6 +59,16 @@ First public release.
   object storage for change packs and backups, and CloudEvents to EventBridge, Pub/Sub and Event Grid.
 - Terraform for AWS, Google Cloud and Azure, a Helm chart, production Docker Compose, and event-driven
   functions (ACM, Certificate Manager and Key Vault import).
+- Managed Kubernetes: Helm values and Terraform for EKS, GKE and AKS with workload identity.
+- Teams and projects: each team sees and changes only its own endpoints, keys, scans and alerts, with
+  membership from SSO groups and scope enforced by the engine.
+- Command line for the whole product: `ssh scan`, `ssh keys`, `crypto scan`, `crypto summary`,
+  `crypto cbom`, `certs show`, `endpoints approve` and `version`.
+- Discovered endpoints are monitored but renewed only after an admin approves them.
+- Signed backups; scan targets counted before they are built; private keys, system files and
+  ambient cloud credentials never reachable through secret references.
+- The landing page and docs are a separate static app (`site/`); installs ship only the dashboard
+  (`web/`), whose `/` opens the dashboard.
 
 [Unreleased]: https://github.com/gagankarthik/farrier/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/gagankarthik/farrier/releases/tag/v0.1.0

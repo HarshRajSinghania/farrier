@@ -11,7 +11,7 @@ The dashboard is an operations tool used under pressure, sometimes during an inc
 
 | What | Where |
 | --- | --- |
-| Colour and radius tokens, light and dark | `web/src/app/globals.css` (`:root` and `.dark`, exposed to Tailwind via `@theme`) |
+| Colour and radius tokens, light and dark | `web/src/app/globals.css` and `site/src/app/globals.css`, kept in step (`:root` and `.dark`, exposed to Tailwind via `@theme`) |
 | UI primitives (Button, Badge, Card, Table, Dialog, Dropdown, Segmented…) | `web/src/components/ui/` |
 | Status vocabulary (renewal states, expiry levels, connectors) | `web/src/components/status.tsx` |
 | Charts | `web/src/components/charts/` |
@@ -20,7 +20,7 @@ Components never use raw hex values. They reference roles (`bg-brand`, `text-mut
 
 ## Colour roles
 
-The palette is called Signal and follows the 60-30-10 rule, in the spirit of Mobbin and Ramp: a quiet monochrome interface where colour comes from the product and one vivid accent. The landing page (`public/index.html`) and the app share it.
+The palette is called Signal and follows the 60-30-10 rule, in the spirit of Mobbin and Ramp: a quiet monochrome interface where colour comes from the product and one vivid accent. The website (`site/`) and the dashboard (`web/`) share it.
 
 | Share | Role | Light | Dark | Used for |
 | --- | --- | --- | --- | --- |

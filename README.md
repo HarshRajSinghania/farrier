@@ -14,9 +14,9 @@ No agents. No manual renewals. No missed expirations. Open source, self-hosted, 
 [![License: MIT](https://img.shields.io/badge/license-MIT-2563eb?labelColor=141414)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-141414)
 
-[Quickstart](web/src/app/docs/quickstart/page.mdx) · [Docs](web/src/app/docs) · [Deploy](web/src/app/docs/deploy/page.mdx) · [Security](web/src/app/docs/security/page.mdx)
+[Quickstart](site/src/app/docs/quickstart/page.mdx) · [Docs](site/src/app/docs) · [Deploy](site/src/app/docs/deploy/page.mdx) · [Security](site/src/app/docs/security/page.mdx)
 
-<img src="web/public/product/dashboard.png" alt="The Farrier dashboard: endpoints, expiring certificates, a renewal calendar and change packs waiting on a person" width="900">
+<img src="site/public/product/dashboard.png" alt="The Farrier dashboard: endpoints, expiring certificates, a renewal calendar and change packs waiting on a person" width="900">
 
 </div>
 
@@ -92,7 +92,7 @@ renewal loop, never exposed), which talks to your devices, CAs and DNS. Nothing 
 | Run it with no internet access | mirror the two images and use the built-in private CA |
 
 Copy-paste steps for each, and how to grow from one server to many teams without reinstalling:
-**[Install guide](web/src/app/docs/install/page.mdx)**.
+**[Install guide](site/src/app/docs/install/page.mdx)**.
 
 ```bash
 cat > .env <<EOF
@@ -111,7 +111,7 @@ Images are multi-arch and signed with cosign: `ghcr.io/gagankarthik/farrier` and
 - Read-only tokens, role-based sign-in, and every change logged with the person or agent who made it.
 - Shell-command fields are refused over the API unless you opt in.
 
-Report vulnerabilities privately through GitHub's security advisories. See the [security model](web/src/app/docs/security/page.mdx).
+Report vulnerabilities privately through GitHub's security advisories. See the [security model](site/src/app/docs/security/page.mdx).
 
 ## Status
 
@@ -129,7 +129,8 @@ certificate. PostgreSQL and MySQL are tested against a mocked driver. Change win
 ```
 farrier/   Python engine: api, core, db, security, config, monitoring, events, connectors, dns, issuers, storage
 tests/     engine tests (python -m pytest)
-web/       Next.js app: site, docs (/docs) and dashboard (/dashboard)
+web/       Next.js dashboard: what teams install (Docker image farrier-web; the public demo is web/ with no engine)
+site/      Next.js public website: landing page and docs, a static export (hosted on Vercel)
 deploy/    Terraform (AWS, GCP, Azure), Helm, Compose, Kubernetes   examples/   configs for issuers, DNS, MCP
 events/    the CloudEvents contract       functions/  Lambda, Cloud Functions and Azure Functions that react to it
 ```
@@ -137,7 +138,7 @@ events/    the CloudEvents contract       functions/  Lambda, Cloud Functions an
 ## Contributing
 
 Issues and pull requests are welcome. Run `python -m pytest` for the engine, and `npm run lint && npm run build`
-in `web/`. See the [contributing guide](web/src/app/docs/contributing/page.mdx).
+in `web/` (and in `site/` for docs changes). See the [contributing guide](site/src/app/docs/contributing/page.mdx).
 
 ## License
 

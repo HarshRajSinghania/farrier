@@ -45,4 +45,4 @@ already-compromised host or admin token.
 
 ## Hardening
 
-See the [security model and hosting checklist](web/src/app/docs/security/page.mdx).
+See the [security model and hosting checklist](site/src/app/docs/security/page.mdx#hosting-checklist).

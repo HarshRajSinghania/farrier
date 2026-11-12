@@ -14,9 +14,10 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { asset, site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-const icon = (f: string) => `/assets/icons/${f}`;
+const icon = (f: string) => asset(`/assets/icons/${f}`);
 const wrap = "mx-auto w-full max-w-7xl px-4 sm:px-6";
 const panel = "rounded-[24px] bg-[var(--l-panel)] sm:rounded-[32px]";
 const frame = "rounded-2xl bg-[var(--l-frame)] ring-1 ring-black/[0.04] shadow-[0_1px_3px_rgb(0_0_0/0.06)] dark:ring-white/[0.06]";
@@ -93,7 +94,7 @@ export function Hero() {
           <Link href="/docs/quickstart" className={primary}>
             Install Farrier
           </Link>
-          <Link href="/dashboard" className={secondary}>
+          <Link href={site.demo} className={secondary}>
             Live demo <ArrowRight className="size-4" />
           </Link>
         </div>

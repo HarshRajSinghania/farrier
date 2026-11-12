@@ -240,7 +240,7 @@ Declare endpoints and their connectors in a JSON array and import them. Importin
 | `FARRIER_STORAGE_URL` and `FARRIER_STORAGE_*` | engine | Object store for change packs, chains, backups and audit exports (default: `objects/` in the data directory); see [Enterprise deployment](/docs/enterprise#engine) |
 | `FARRIER_INSTANCE_ID` | events | CloudEvent `source` becomes `farrier://<id>` (`A-Z a-z 0-9 . _ ~ -`). Default: `farrier-` plus a hash of the master key, the same on every replica |
 | `FARRIER_TRUSTED_PROXY_HOPS` | web | Proxies in front of the dashboard that append to `X-Forwarded-For`; the client address is that many entries from the right (default `1`, `0` = ignore the header). See [Security](/docs/security#behind-proxies) |
-| `FARRIER_MODE` | web | `app` (the default in the Docker image, so in Compose and Helm): `/` opens the dashboard and there is no marketing page; docs stay available. `site`: the public website with the landing page (the default outside the image) |
+| `FARRIER_DOCS_URL` | web | Where the dashboard's documentation links go, read at runtime, e.g. your own copy of these docs. Default: the public docs site the image was built for, else the docs' source on GitHub |
 | any `NAME` referenced as `env:NAME` | connectors, issuers, notifiers | Secrets. `FARRIER_MASTER_KEY` and the API tokens can never be referenced |
 
 The web dashboard has its own variables; see [Self-hosting](/docs/self-hosting#dashboard-environment).
