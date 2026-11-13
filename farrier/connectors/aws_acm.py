@@ -147,24 +147,21 @@ class AwsAcmConnector(Connector):
             return {"reimported": self.cfg["certificate_arn"]}
         name = TAG_VALUE.sub("_", b.name)[:256]
         tags = {"farrier:endpoint": name, **{str(k): str(v) for k, v in (self.cfg.get("tags") or {}).items()}}
+        listener = self.cfg.get("listener_arn")
+        additional = self.cfg.get("listener_mode") == "additional"
+        if listener:   # read the listener first: a refusal here leaves nothing behind
+            certs = self._listener_certs(listener)
+            defaults = {a for a, d in certs if d}
+            old = sorted({a for a, d in certs if not d and a not in defaults and ":acm:" in a
+                          and self._endpoint_tag(a) == name}) if additional else []
         new = self._acm("ImportCertificate", {**blobs, "Tags": [{"Key": k, "Value": v} for k, v in tags.items()]}
                         )["CertificateArn"]
         token = {"certificate_arn": new}
-        listener = self.cfg.get("listener_arn")
         if not listener:
             return token
-        certs = self._listener_certs(listener)
-        defaults = {a for a, d in certs if d}
-        additional = self.cfg.get("listener_mode") == "additional"
-        old = sorted({a for a, d in certs if not d and a not in defaults and ":acm:" in a and a != new
-                      and self._endpoint_tag(a) == name}) if additional else []
+        action = "AddListenerCertificates" if additional else "ModifyListener"
         try:
-            if additional:
-                self._retry(lambda: self._elb("AddListenerCertificates", {"ListenerArn": listener, **_members([new])}),
-                            "CertificateNotFound")
-            else:
-                self._retry(lambda: self._elb("ModifyListener", {"ListenerArn": listener, **_members([new])}),
-                            "CertificateNotFound")
+            self._retry(lambda: self._elb(action, {"ListenerArn": listener, **_members([new])}), "CertificateNotFound")
         except Exception:
             self._delete(new)   # nothing points at it yet
             raise
