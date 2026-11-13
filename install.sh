@@ -39,6 +39,7 @@ if [ -n "${FARRIER_VERSION:-}" ]; then
   mv .env.tmp .env
 fi
 version=$(sed -n 's/^FARRIER_VERSION=//p' .env)
+# shellcheck disable=SC2016  # the pattern matches the literal ${FARRIER_VERSION:-x} text in the compose file
 [ -n "$version" ] || version=$(sed -n 's/.*farrier:${FARRIER_VERSION:-\([^}]*\)}.*/\1/p' docker-compose.yml | head -n 1)
 if [ "$(sed -n 's/^FARRIER_MODE=//p' .env)" = demo ] && [ "$version" = 0.1.0 ]; then
   echo "The demo in Docker needs Farrier 0.2.0 or later; set FARRIER_VERSION, or try it from source:" >&2
