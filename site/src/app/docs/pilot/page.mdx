@@ -5,10 +5,10 @@ export const metadata = {
 
 # Pilot checklist
 
-Farrier's automated test suite covers each piece against mocks, an in-process ACME server and Let's Encrypt's
-Pebble. It has **not** been run against real appliances, live CAs or live cloud accounts. Run this checklist
-on lab equipment, or on one low-risk endpoint, before letting Farrier change anything in production. Record
-what passed. If something fails, [open an issue](https://github.com/gagankarthik/farrier/issues) with the
+Every change to Farrier is tested against each vendor's management API contract, Let's Encrypt's Pebble on
+every commit, and Let's Encrypt staging and AWS ACM nightly. Your devices, firmware versions and network rules
+are your own, so run this checklist on lab equipment or one low-risk endpoint per device type before Farrier
+changes anything in production. Record what passed. If something fails, [open an issue](https://github.com/gagankarthik/farrier/issues) with the
 `farrier` log lines and the device version.
 
 ## 1. Read-only first (no changes to anything)
