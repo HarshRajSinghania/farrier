@@ -84,7 +84,6 @@ def _k8s(secrets, patches):
                 return httpx.Response(200, json=secrets[name]) if name in secrets else httpx.Response(404)
             if req.method in ("PUT", "POST"):
                 body = json.loads(req.content)
-                assert body["type"] == "kubernetes.io/tls"
                 if req.method == "POST" and body["metadata"]["name"] in secrets:
                     return httpx.Response(409)
                 secrets[body["metadata"]["name"]] = body
@@ -99,8 +98,10 @@ def _k8s(secrets, patches):
 
 
 def test_kubernetes_secret_with_backup_restart_and_rollback(tmp_path, bundle):
-    old = {"tls.crt": "T0xEQ0VSVA==", "tls.key": "T0xES0VZ"}
-    secrets = {"app-tls": {"metadata": {"name": "app-tls"}, "type": "kubernetes.io/tls", "data": old}}
+    old = {"tls.crt": "T0xEQ0VSVA==", "tls.key": "T0xES0VZ", "extra": "eA=="}
+    helm = {"name": "app-tls", "labels": {"app.kubernetes.io/managed-by": "Helm"},
+            "annotations": {"meta.helm.sh/release-name": "web"}}
+    secrets = {"app-tls": {"metadata": helm, "type": "Opaque", "data": old}}
     patches = []
     KubernetesConnector.transport = httpx.MockTransport(_k8s(secrets, patches))
     c = make_connector("kubernetes", {"url": "https://k8s", "token": "k8s-token", "namespace": "web",
@@ -110,10 +111,12 @@ def test_kubernetes_secret_with_backup_restart_and_rollback(tmp_path, bundle):
     assert base64.b64decode(data["tls.key"]).decode() == bundle.key_pem
     assert base64.b64decode(data["tls.crt"]).decode() == bundle.fullchain_pem
     assert secrets["app-tls-farrier-previous"]["data"] == old and tok == {"backup": "app-tls-farrier-previous"}
+    assert secrets["app-tls"]["metadata"] == helm and secrets["app-tls"]["type"] == "Opaque"   # owner kept
+    assert data["extra"] == "eA=="                                   # other keys untouched
     assert "restartedAt" in json.dumps(patches[0])
     assert "PRIVATE KEY" not in json.dumps(tok)          # the old key stays in the cluster, not in Farrier's DB
     c.rollback(tok)
-    assert secrets["app-tls"]["data"] == old and len(patches) == 2
+    assert secrets["app-tls"]["data"] == old and secrets["app-tls"]["metadata"] == helm and len(patches) == 2
 
 
 def test_kubernetes_creates_missing_secret_and_rollback_deletes_it(tmp_path, bundle):
@@ -192,3 +195,14 @@ def test_citrix_reuses_an_intermediate_the_adc_already_has(tmp_path, bundle):
     make_connector("citrix", {"url": "https://adc", "username": "u", "password": "p", "certkey": "app_cert"},
                    tmp_path).deploy(bundle)
     assert links == ["le_r11"]
+
+
+def test_iis_binds_the_leaf_by_thumbprint(tmp_path, bundle, monkeypatch):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    fake = FakeSsh()
+    monkeypatch.setattr("farrier.connectors.iis.subprocess.run", fake)
+    make_connector("iis", {"ssh": "a@b", "site": "s"}, tmp_path).deploy(bundle)
+    thumb = x509.load_pem_x509_certificate(bundle.cert_pem.encode()).fingerprint(hashes.SHA1()).hex().upper()
+    assert f"Cert:\LocalMachine\My\{thumb}" in fake.scripts[0] and f"AddSslCertificate('{thumb}', 'My')" in fake.scripts[0]
+    assert "HasPrivateKey" in fake.scripts[0]

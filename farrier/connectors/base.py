@@ -28,6 +28,15 @@ class Bundle:
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in self.name)
         return f"farrier_{safe}_{self.not_after[:10].replace('-', '')}_{self.renewal_id}"
 
+    def short_name(self, limit: int) -> str:
+        """object_name within a device's length limit: the endpoint part is cut, never the date and renewal
+        id that keep each renewal's objects apart."""
+        full = self.object_name
+        if len(full) <= limit:
+            return full
+        suffix = f"_{self.not_after[:10].replace('-', '')}_{self.renewal_id}"
+        return full[:-len(suffix)][:max(0, limit - len(suffix))].rstrip("_") + suffix
+
 
 class DeployError(Exception):
     pass
@@ -44,8 +53,13 @@ class Connector:
         if missing:
             raise ValueError(f"{self.kind} connector missing config: {', '.join(missing)}")
         self.raw = config
-        self.cfg = {k: resolve_secret(v) for k, v in config.items()}
         self.data_dir = Path(data_dir)
+        if config.get("runner"):
+            # behind a remote runner: this host only checks the shape; the references and paths are the
+            # runner's (it builds the connector without the "runner" key and resolves them there)
+            self.cfg = dict(config)
+            return
+        self.cfg = {k: resolve_secret(v) for k, v in config.items()}
         if not self.cfg.get("ssh"):
             roots = {*PROTECTED_DIRS, self.data_dir.resolve()}
             for k in self.local_paths:

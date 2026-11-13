@@ -50,10 +50,10 @@ def scan_targets(store, targets: list[tuple[str, int, str | None]], timeout: flo
 
 
 def rescan_due(engine, now: datetime | None = None) -> int:
-    from farrier.core.runners import runner_of
     """Re-probe inventory endpoints whose crypto result is older than ``crypto_scan_hours`` (leader only:
     called from the engine tick). Only endpoints whose last TLS handshake succeeded are probed, so dead
     hosts cost nothing here. Returns how many were probed."""
+    from farrier.core.runners import runner_of
     hours = float(engine.settings.get("crypto_scan_hours", 24) or 0)
     if hours <= 0:
         return 0

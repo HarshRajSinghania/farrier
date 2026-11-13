@@ -57,15 +57,16 @@ def _verify(p: dict) -> dict:
 def execute(job: dict, work_dir: Path) -> tuple[bool, dict]:
     """(ok, result) for one job; never raises."""
     p = job["payload"]
+    local = {k: v for k, v in (p.get("config") or {}).items() if k != "runner"}   # resolve references here
     try:
         if job["kind"] == "observe":
             return True, _observe(p)
         if job["kind"] == "verify":
             return True, _verify(p)
         if job["kind"] == "deploy":
-            return True, {"token": make_connector(p["connector"], p["config"], work_dir).deploy(Bundle(**p["bundle"]))}
+            return True, {"token": make_connector(p["connector"], local, work_dir).deploy(Bundle(**p["bundle"]))}
         if job["kind"] == "rollback":
-            make_connector(p["connector"], p["config"], work_dir).rollback(p["token"])
+            make_connector(p["connector"], local, work_dir).rollback(p["token"])
             return True, {}
         return False, {"error": f"this runner ({__version__}) does not know job kind {job['kind']!r}; upgrade it"}
     except Exception as e:  # noqa: BLE001 - reported to the engine, which decides

@@ -19,13 +19,23 @@ def ct_names(domain: str, http: httpx.Client | None = None, timeout: float = 60)
     domain = domain.strip().lower().rstrip(".").removeprefix("*.")
     if not DOMAIN.match(domain):
         raise ValueError(f"not a domain name: {domain!r}")
-    c = http or httpx.Client(timeout=timeout, headers={"User-Agent": "farrier-ct"})
-    # %.domain matches every name below it; exclude=expired keeps the answer to certificates still valid
-    r = c.get(URL, params={"q": f"%.{domain}", "output": "json", "exclude": "expired"})
+    params = {"q": f"%.{domain}", "output": "json", "exclude": "expired"}   # %.domain: every name below it
+    try:
+        if http is not None:
+            r = http.get(URL, params=params)
+        else:
+            with httpx.Client(timeout=timeout, headers={"User-Agent": "farrier-ct"}) as c:
+                r = c.get(URL, params=params)
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"crt.sh did not answer ({type(e).__name__}); try again in a minute") from None
     if r.status_code != 200:
         raise RuntimeError(f"crt.sh answered HTTP {r.status_code}; try again in a minute")
+    try:
+        entries = r.json()
+    except ValueError:   # crt.sh answers an HTML error page with 200 when it is overloaded
+        raise RuntimeError("crt.sh sent an error page instead of results; try again in a minute") from None
     rows: dict[str, dict] = {}
-    for e in r.json():
+    for e in entries if isinstance(entries, list) else []:
         for name in str(e.get("name_value", "")).lower().split("\n"):
             name = name.strip().rstrip(".")
             if not name or not (name == domain or name.endswith("." + domain)):

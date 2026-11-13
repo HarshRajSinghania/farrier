@@ -251,17 +251,20 @@ class Engine:
         n = 0
         for row in self.store.q("SELECT id FROM runner_jobs WHERE kind='observe' AND status IN ('done', 'failed')"):
             job = self.runners.job(row["id"])
+            asked = self.runners.targets(job)
+            self.runners.consume(job["id"])     # first: a malformed result is dropped, never retried every tick
             for o in (job["result"] or {}).get("observations") or []:
-                if not self.store.endpoint(int(o["endpoint_id"])):
-                    continue   # deleted since
                 try:
+                    eid = int(o["endpoint_id"])
+                    if eid not in asked or not self.store.endpoint(eid):
+                        continue   # not this job's endpoint (or deleted since): a runner speaks only for its own
                     cert = (parse_der(base64.b64decode(o["der"]), [base64.b64decode(c) for c in o.get("chain") or []])
                             if o.get("der") else None)
-                except ValueError:
-                    cert, o["error"] = None, "runner sent an unreadable certificate"
-                self.store.add_observation(int(o["endpoint_id"]), cert, None if cert else o.get("error") or "no TLS")
+                    error = None if cert else str(o.get("error") or "no TLS")[:300]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                self.store.add_observation(eid, cert, error)
                 n += 1
-            self.runners.consume(job["id"])
         return n
 
     def register_scan(self, results, project_id: int | None = None, visible=None) -> dict:
@@ -483,6 +486,7 @@ class Engine:
             raise ValueError("renewal is not open")
         if not self.store.update_renewal(rid, expect_state=r["state"], state="cancelled"):
             raise ValueError("renewal changed state concurrently; retry")
+        self.runners.withdraw(rid)
         self.store.log(reason, r["endpoint_id"], rid)
         self._discard_pack(rid, self.store.endpoint(r["endpoint_id"]))
         self._notify("cancelled", rid)
@@ -571,15 +575,16 @@ class Engine:
     def _step_issued(self, r, ep, now):
         if (group := runner_of(ep)) and is_automated(ep["connector"]):
             # the device sits behind a runner: hand it the bundle; the connector config travels unresolved
-            if not self.store.update_renewal(r["id"], expect_state="issued", state="deploying"):
-                return
             try:
-                jid = self.runners.enqueue(group, "deploy", {"connector": ep["connector"],
-                                                             "config": ep["connector_config"],
-                                                             "bundle": asdict(self._bundle(r, ep))}, r["id"])
+                with self.store.transaction():   # a crash can't leave a queued deploy nobody references
+                    if not self.store.update_renewal(r["id"], expect_state="issued", state="deploying"):
+                        return
+                    jid = self.runners.enqueue(group, "deploy", {"connector": ep["connector"],
+                                                                 "config": ep["connector_config"],
+                                                                 "bundle": asdict(self._bundle(r, ep))}, r["id"])
+                    self.store.update_renewal(r["id"], expect_state="deploying", rollback={"runner_job": jid})
             except Exception as e:  # noqa: BLE001
-                return self._fail({**r, "state": "deploying"}, ep, f"deploy failed: {e}")
-            self.store.update_renewal(r["id"], expect_state="deploying", rollback={"runner_job": jid})
+                return self._fail(self.store.renewal(r["id"]), ep, f"deploy failed: {e}")
             self.store.log(f"deploy handed to runner group {group}", ep["id"], r["id"])
             return
         try:
@@ -624,6 +629,8 @@ class Engine:
             self._fail(r, ep, f"deploy failed on runner group {group}: {(job['result'] or {}).get('error')}")
         elif not job or job["status"] == "consumed" or self.runners.abandoned(job):
             # the runner went away mid-deploy: what the device serves now decides, as after an engine crash
+            if job:
+                self.runners.consume(job["id"])   # wipes the key it carried
             if self.store.update_renewal(r["id"], expect_state="deploying", state="verifying", rollback=None):
                 self.store.log(f"runner group {group} stopped answering during the deploy; verifying the device",
                                ep["id"], r["id"], level="warning")
@@ -677,12 +684,12 @@ class Engine:
                 "trust_pems": r.get("chain_pem"), "timeout": self.settings["scan_timeout"],
                 "retry_seconds": self.settings["verify_retry_seconds"]}, r["id"])
             return None
-        if job["status"] in ("queued", "leased") and not self.runners.abandoned(job):
+        if job["status"] in ("queued", "leased") and not self.runners.stale(job):
             return None
         self.runners.consume(job["id"])
         res = job["result"] or {}
-        if job["status"] != "done":
-            return False, None, f"runner could not check ({res.get('error') or 'no answer'})"
+        if job["status"] != "done":   # failed, or no runner of the group took it: one failed attempt
+            return False, None, f"runner group {runner_of(ep)} could not check ({res.get('error') or 'no answer'})"
         live = res.get("fingerprint") == r["new_fingerprint"]
         problem = ("; ".join(res.get("problems") or [])[:500] or None) if live else None
         return live, problem, (res.get("fingerprint") or "no TLS")[:16]
@@ -734,16 +741,20 @@ class Engine:
         for row in self.store.q("SELECT id FROM renewals WHERE state='failed' AND error LIKE ?", (f"%{ROLLING_BACK}",)):
             r = self.store.renewal(row["id"])
             ep = self.store.endpoint(r["endpoint_id"])
-            job = self.runners.latest(r["id"], "rollback") if runner_of(ep) else None
-            if not job or job["status"] == "consumed" or (job["status"] in ("queued", "leased")
-                                                           and not self.runners.abandoned(job)):
+            if not ep or not runner_of(ep):
                 continue
             seen = r["error"][:-len(ROLLING_BACK)].removeprefix("new cert never went live (serving ").rstrip(")")
+            job = self.runners.latest(r["id"], "rollback")
+            if job is None:   # the engine stopped between claiming the rollback and handing it over
+                self._roll_back(r, ep, seen)
+                continue
+            if job["status"] == "consumed" or (job["status"] in ("queued", "leased") and not self.runners.stale(job)):
+                continue
             if job["status"] == "done":
                 msg = f"new cert never went live (serving {seen}); rolled back by runner group {runner_of(ep)}"
                 ok = self.store.update_renewal(r["id"], expect_state="failed", state="rolled_back", error=msg)
             else:
-                why = (job["result"] or {}).get("error") if job["status"] == "failed" else "the runner stopped answering"
+                why = (job["result"] or {}).get("error") if job["status"] == "failed" else "no runner of the group answered"
                 msg = f"new cert never went live and the rollback did not finish: {why}; check the device"
                 ok = self.store.update_renewal(r["id"], expect_state="failed", error=msg)
             self.runners.consume(job["id"])
@@ -810,7 +821,10 @@ class Engine:
 
     def _tick(self, now: datetime | None = None, scan: bool = True) -> dict:
         now = now or policy.utcnow()
-        self.collect_runner_observations()
+        try:
+            self.collect_runner_observations()
+        except Exception as e:  # noqa: BLE001 - what runners report must never stop the cycle
+            self.store.log(f"runner observations failed: {type(e).__name__}: {e}"[:500], level="error")
         if scan:
             self.observe_all()
         planned = self.plan(now)

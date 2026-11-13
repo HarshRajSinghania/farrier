@@ -35,3 +35,14 @@ def test_rejects_non_domains_and_reports_outages():
     down = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(503)))
     with pytest.raises(RuntimeError, match="503"):
         ct_names("example.com", http=down)
+
+
+def test_html_error_page_and_timeouts_are_upstream_errors():
+    html = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>busy</html>")))
+    with pytest.raises(RuntimeError, match="error page"):
+        ct_names("example.com", http=html)
+
+    def boom(r):
+        raise httpx.ReadTimeout("slow", request=r)
+    with pytest.raises(RuntimeError, match="did not answer"):
+        ct_names("example.com", http=httpx.Client(transport=httpx.MockTransport(boom)))

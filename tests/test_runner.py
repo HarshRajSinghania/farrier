@@ -109,3 +109,56 @@ def test_a_runner_lost_mid_deploy_leads_to_verification_not_a_second_deploy(engi
     engine.tick(now=now, scan=False)
     r = engine.store.renewal(r["id"])
     assert r["state"] == "verifying" and r["rollback"] is None
+
+
+def test_a_bad_or_foreign_runner_report_cannot_stop_ticks_or_speak_for_other_endpoints(api, engine, served):
+    s, srv = served
+    tok = engine.runners.issue_token("dmz")
+    eid = _endpoint(engine, s.port, srv)
+    local = engine.store.upsert_endpoint({"name": "local", "host": "127.0.0.1", "port": s.port,
+                                          "sni": "other.test", "connector": "manual", "connector_config": {}})
+    jid = engine.runners.enqueue("dmz", "observe", {"targets": [{"endpoint_id": eid, "host": "x", "port": 1}]})
+    h = {"Authorization": f"Bearer {tok}"}
+    assert api.post("/api/runner/poll", json={}, headers=h).json()["jobs"][0]["id"] == jid
+    assert api.post(f"/api/runner/jobs/{jid}", headers=h, json={"ok": True, "result": {"observations": [
+        {"endpoint_id": "not-a-number"}, {"no": "id"},
+        {"endpoint_id": local, "error": "pretend"}]}}).status_code == 200
+    engine.tick(scan=False)                                   # survives, and ignores the foreign endpoint
+    assert engine.store.q("SELECT * FROM observations WHERE endpoint_id=?", (local,)) == []
+    assert engine.runners.job(jid)["status"] == "consumed"
+
+
+def test_cancel_withdraws_a_queued_runner_deploy(engine, served):
+    s, srv = served
+    engine.runners.issue_token("dmz")
+    eid = _endpoint(engine, s.port, srv)
+    engine.store.add_observation(eid, fetch_cert("127.0.0.1", s.port, "app.internal.test"))
+    now = parse_dt(engine.store.latest_cert_observation(eid)["not_after"]) - timedelta(days=3)
+    engine.tick(now=now, scan=False)
+    r = engine.store.renewal(engine.store.renewals()[0]["id"])
+    engine.cancel(r["id"])
+    assert engine.runners.claim("dmz") == []                  # the runner never gets the cancelled bundle
+    assert "PRIVATE KEY" not in (engine.store.vault.open(engine.runners.job(r["rollback"]["runner_job"])["payload"]))
+
+
+def test_runner_endpoint_saves_without_the_engine_holding_its_secret(api, monkeypatch):
+    monkeypatch.delenv("ADC_PASSWORD", raising=False)
+    r = api.post("/api/endpoints", headers={"Authorization": "Bearer admin-tok"}, json={
+        "name": "dmz-adc", "host": "10.40.0.20", "port": 443, "connector": "citrix",
+        "connector_config": {"runner": "dmz", "url": "https://10.40.0.5", "username": "farrier",
+                             "password": "env:ADC_PASSWORD", "certkey": "app_cert"}})
+    assert r.status_code == 200, r.text
+
+
+def test_a_verify_no_runner_takes_counts_as_a_failed_attempt(engine, served):
+    s, srv = served
+    engine.runners.issue_token("dmz")
+    eid = _endpoint(engine, s.port, srv)
+    rid = engine.store.create_renewal(eid, "2000-01-01T00:00:00+00:00", None, None, "test")
+    engine.store.x("UPDATE renewals SET state='verifying', new_fingerprint='ab' WHERE id=?", (rid,))
+    engine.advance(rid)                                       # queues a verify job
+    job = engine.runners.latest(rid, "verify")
+    engine.store.x("UPDATE runner_jobs SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?", (job["id"],))
+    engine.advance(rid)
+    r = engine.store.renewal(rid)
+    assert r["attempts"] == 1 and "could not check" in r["error"]

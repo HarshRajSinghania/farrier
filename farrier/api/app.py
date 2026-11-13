@@ -12,7 +12,6 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
-import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -304,6 +303,8 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     def delete_endpoint(eid: int, request: Request):
         ep = guard.endpoint(request, eid, write=True)
         with lock:  # don't pull an endpoint out from under a running tick
+            for row in S.q("SELECT id FROM renewals WHERE endpoint_id=?", (eid,)):
+                engine.runners.withdraw(row["id"])   # a queued runner deploy must not outlive its endpoint
             S.x("DELETE FROM endpoints WHERE id=?", (eid,))
             S.log(f"endpoint {ep['name']} removed by {actor(request)}")
         return {"ok": True}
@@ -364,7 +365,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             return ct_names(domain)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        except (RuntimeError, httpx.HTTPError) as e:
+        except RuntimeError as e:
             raise HTTPException(502, f"Certificate Transparency search failed: {e}")
 
     @app.get("/api/renewals", dependencies=[Depends(auth)])

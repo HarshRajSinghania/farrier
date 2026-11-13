@@ -62,7 +62,7 @@ class CitrixConnector(Connector):
         check(c.post("/nitro/v1/config/nsconfig?action=save", json={"nsconfig": {}}), "save config")
 
     def deploy(self, b: Bundle) -> dict:
-        name = b.object_name[:40]
+        name = b.short_name(37)   # 40-char file names minus the ".crt" / "_ca" we add
         with self._client() as c:
             cur = check(c.get(f"/nitro/v1/config/sslcertkey/{self.cfg['certkey']}"), "read certkey").json()
             prev = (cur.get("sslcertkey") or [{}])[0]

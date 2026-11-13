@@ -57,13 +57,18 @@ class KubernetesConnector(Connector):
     def _path(self, name: str | None = None) -> str:
         return f"/api/v1/namespaces/{self.cfg['namespace']}/secrets" + (f"/{name}" if name else "")
 
-    def _put(self, c, name: str, data: dict, exists: bool):
-        body = {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/tls",
-                "metadata": {"name": name, "namespace": self.cfg["namespace"],
-                             "labels": {"app.kubernetes.io/managed-by": "farrier"}}, "data": data}
-        if exists:
+    def _put(self, c, name: str, data: dict, current: dict | None, kind: str = "kubernetes.io/tls"):
+        """Write ``data`` into Secret ``name``. An existing Secret keeps its type, labels, annotations and
+        owner (Helm, Argo CD...); only its data changes. A new one gets ``kind`` and Farrier's label."""
+        if current:
+            body = {**current, "data": data, "metadata": {k: v for k, v in (current.get("metadata") or {}).items()
+                                                          if k != "managedFields"}}
+            body.pop("stringData", None)
             check(c.put(self._path(name), json=body), f"update secret {name}")
         else:
+            body = {"apiVersion": "v1", "kind": "Secret", "type": kind,
+                    "metadata": {"name": name, "namespace": self.cfg["namespace"],
+                                 "labels": {"app.kubernetes.io/managed-by": "farrier"}}, "data": data}
             check(c.post(self._path(), json=body), f"create secret {name}")
 
     def _get(self, c, name: str) -> dict | None:
@@ -83,12 +88,12 @@ class KubernetesConnector(Connector):
         name, backup = self.cfg["secret"], f"{self.cfg['secret']}-farrier-previous"
         with self._client() as c:
             cur = self._get(c, name)
-            if cur:
-                self._put(c, backup, cur.get("data") or {}, self._get(c, backup) is not None)
-            data = {"tls.crt": _b64(b.fullchain_pem), "tls.key": _b64(b.key_pem)}
+            if cur:   # Opaque: holds whatever keys the original had
+                self._put(c, backup, cur.get("data") or {}, self._get(c, backup), kind="Opaque")
+            data = {**((cur or {}).get("data") or {}), "tls.crt": _b64(b.fullchain_pem), "tls.key": _b64(b.key_pem)}
             if b.chain_pem.strip():
                 data["ca.crt"] = _b64(b.chain_pem)
-            self._put(c, name, data, cur is not None)
+            self._put(c, name, data, cur)
             self._restart(c)
         return {"backup": backup if cur else None}
 
@@ -98,7 +103,7 @@ class KubernetesConnector(Connector):
                 prev = self._get(c, token["backup"])
                 if not prev:
                     raise DeployError(f"backup secret {token['backup']} is gone; cannot roll back")
-                self._put(c, self.cfg["secret"], prev.get("data") or {}, True)
+                self._put(c, self.cfg["secret"], prev.get("data") or {}, self._get(c, self.cfg["secret"]))
             else:   # the Secret did not exist before Farrier created it
                 r = c.delete(self._path(self.cfg["secret"]))
                 if r.status_code != 404:

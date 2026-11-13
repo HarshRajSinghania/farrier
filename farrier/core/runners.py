@@ -72,12 +72,16 @@ class Runners:
     def groups(self) -> list[dict]:
         """Every group: from tokens, and from endpoints that name one (a group with no runner yet shows)."""
         out = {}
+        per_group: dict[str, int] = {}
+        for ep in self.store.endpoints():   # one pass: the endpoints query is the expensive one
+            if g := runner_of(ep):
+                per_group[g] = per_group.get(g, 0) + 1
         for row in self.store.q("SELECT name, body FROM config_items WHERE kind=?", (KIND,)):
             b = json.loads(row["body"])
             out[row["name"]] = {"group": row["name"], "token": True, "created_at": b["created_at"],
                                 "last_seen": b.get("last_seen"), "version": b.get("version")}
-        for ep in self.store.endpoints():
-            if (g := runner_of(ep)) and g not in out:
+        for g in per_group:
+            if g not in out:
                 out[g] = {"group": g, "token": False, "created_at": None, "last_seen": None, "version": None}
         for row in self.store.q("SELECT runner_group, COUNT(*) AS n FROM runner_jobs WHERE status IN "
                                 "('queued', 'leased') GROUP BY runner_group"):
@@ -87,7 +91,7 @@ class Runners:
         for g in out.values():
             g.setdefault("pending_jobs", 0)
             g["online"] = bool(g["last_seen"] and g["last_seen"] >= recent)
-            g["endpoints"] = sum(1 for ep in self.store.endpoints() if runner_of(ep) == g["group"])
+            g["endpoints"] = per_group.get(g["group"], 0)
         return sorted(out.values(), key=lambda g: g["group"])
 
     def seen(self, group: str, version: str | None) -> None:
@@ -148,8 +152,25 @@ class Runners:
     def abandoned(self, job: dict) -> bool:
         return job["status"] == "leased" and (job["lease_until"] or "") < policy.utcnow().isoformat(timespec="seconds")
 
+    def stale(self, job: dict) -> bool:
+        """Abandoned, or still queued after a lease's length: no runner of the group is taking work."""
+        unclaimed = job["status"] == "queued" and job["created_at"] < (policy.utcnow() - LEASE).isoformat(
+            timespec="seconds")
+        return unclaimed or self.abandoned(job)
+
+    def targets(self, job: dict) -> set[int]:
+        """Endpoint ids an observe job asked about: the only ones its result may speak for."""
+        p = json.loads(self.store.vault.open(job["payload"]) or "{}")
+        return {int(t["endpoint_id"]) for t in p.get("targets") or []}
+
+    def withdraw(self, renewal_id: int) -> int:
+        """A cancelled renewal or deleted endpoint: queued jobs are never handed out (a leased one is
+        already running and finishes; its result is ignored)."""
+        return self.store._run("UPDATE runner_jobs SET status='consumed', payload=?, updated_at=? WHERE renewal_id=? "
+                               "AND status='queued'", (self.store.vault.seal("{}"), now_iso(), renewal_id))[1]
+
     def sweep(self, keep_days: int = 7) -> None:
         """Finished jobs go after a week (payloads are sealed, and wiped once consumed)."""
         cutoff = (policy.utcnow() - timedelta(days=keep_days)).isoformat(timespec="seconds")
-        self.store.x("DELETE FROM runner_jobs WHERE status IN ('done', 'failed', 'consumed') AND updated_at < ?",
-                     (cutoff,))
+        # anything a week old goes, whatever its status: no job may keep a sealed private key indefinitely
+        self.store.x("DELETE FROM runner_jobs WHERE updated_at < ?", (cutoff,))

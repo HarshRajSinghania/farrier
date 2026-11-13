@@ -43,7 +43,7 @@ class PanOSConnector(Connector):
         self._call(c, {"type": "commit", "cmd": "<commit></commit>"}, what="commit")
 
     def deploy(self, b: Bundle) -> dict:
-        name = b.object_name[:63]
+        name = b.short_name(63)
         passphrase = secrets.token_urlsafe(24)
         enc_key = load_key(b.key_pem).private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,

@@ -18,6 +18,7 @@ import secrets
 import subprocess
 
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import BestAvailableEncryption, load_pem_private_key, pkcs12
 
 from farrier.connectors.base import Bundle, Connector, DeployError
@@ -54,9 +55,11 @@ class IISConnector(Connector):
     def deploy(self, b: Bundle) -> dict:
         password = secrets.token_urlsafe(24)
         chain = x509.load_pem_x509_certificates(b.chain_pem.encode()) if b.chain_pem.strip() else None
+        leaf = x509.load_pem_x509_certificate(b.cert_pem.encode())
+        thumb = leaf.fingerprint(hashes.SHA1()).hex().upper()   # what Windows calls the thumbprint
         pfx = pkcs12.serialize_key_and_certificates(
-            b.object_name.encode(), load_pem_private_key(b.key_pem.encode(), None),
-            x509.load_pem_x509_certificate(b.cert_pem.encode()), chain, BestAvailableEncryption(password.encode()))
+            b.object_name.encode(), load_pem_private_key(b.key_pem.encode(), None), leaf, chain,
+            BestAvailableEncryption(password.encode()))
         out = self._ps(
             f"$bytes = [Convert]::FromBase64String('{base64.b64encode(pfx).decode()}')\n"
             "$tmp = [IO.Path]::GetTempFileName()\n"
@@ -64,9 +67,12 @@ class IISConnector(Connector):
             f"try {{ $c = Import-PfxCertificate -FilePath $tmp -CertStoreLocation Cert:\\LocalMachine\\My "
             f"-Password (ConvertTo-SecureString {_q(password)} -AsPlainText -Force) }} "
             "finally { Remove-Item $tmp -Force }\n"
+            # the PFX also holds the intermediates: bind the leaf by its thumbprint, never "the first one"
+            f"$leaf = Get-Item 'Cert:\\LocalMachine\\My\\{thumb}'\n"
+            "if (-not $leaf.HasPrivateKey) { throw 'the imported certificate has no private key' }\n"
             + self._binding() +
             "$prev = $b.certificateHash\n"
-            "$b.AddSslCertificate(($c | Select-Object -First 1).Thumbprint, 'My')\n"
+            f"$b.AddSslCertificate('{thumb}', 'My')\n"
             "Write-Output \"FARRIER_PREVIOUS=$prev\"\n")
         prev = next((ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("FARRIER_PREVIOUS=")), "")
         return {"previous": prev if THUMB.match(prev) else None}
