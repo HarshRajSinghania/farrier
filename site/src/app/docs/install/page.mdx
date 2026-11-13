@@ -47,7 +47,16 @@ without losing your inventory.
 
 ## Try it
 
-A simulated estate of 41 real TLS endpoints on your machine. Needs Python 3.11+ and Node 22+.
+A simulated estate of 41 real TLS endpoints on your machine. Needs only Docker:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gagankarthik/farrier/main/install.sh | FARRIER_MODE=demo sh
+```
+
+It prints the dashboard address and a generated password. The demo lives in `./farrier-demo`, apart from
+any real install; `cd farrier-demo && docker compose down -v` removes it.
+
+From source instead (Python 3.11+ and Node 22+):
 
 ```bash
 git clone https://github.com/gagankarthik/farrier.git && cd farrier
@@ -66,15 +75,15 @@ Open http://localhost:3000/dashboard.
 For a team: one VM or machine with Docker. SQLite, a dashboard password, no cloud account.
 
 ```bash
-git clone https://github.com/gagankarthik/farrier.git && cd farrier
-cat > .env <<EOF
-FARRIER_API_TOKEN=$(openssl rand -hex 32)
-FARRIER_DASHBOARD_PASSWORD=choose-a-long-password
-EOF
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/gagankarthik/farrier/main/install.sh | sh
 ```
 
-Open http://localhost:3000 and sign in with the password. Put your usual TLS reverse proxy in front for other
+The script downloads `docker-compose.yml` into `./farrier`, writes a `.env` with a random API token and
+dashboard password, pulls the signed release images and starts them. Read it first if you prefer:
+it is 60 lines. Run it again to upgrade (set `FARRIER_VERSION`); it keeps `.env` and your data.
+Other settings: `FARRIER_DIR`, `FARRIER_PORT`.
+
+Open http://localhost:3000 and sign in with the printed password. Put your usual TLS reverse proxy in front for other
 people to reach it.
 
 **Check it:** `docker compose ps` shows both services running.

@@ -10,7 +10,7 @@ Farrier is two containers: the **engine** (`ghcr.io/gagankarthik/farrier`, the A
 Two facts shape every deployment:
 
 1. **The engine must reach your devices.** It talks to F5, FortiGate and PAN-OS management interfaces, SSH hosts and TLS endpoints. Run it in the network segment, VPC or cluster that can route to them. The dashboard only needs to reach the engine.
-2. **The engine keeps state in SQLite.** Run exactly one engine replica, on block storage (EBS, Persistent Disk, Azure Managed Disk, a local or SAN volume). Do not put the data directory on NFS, SMB, EFS or Azure Files: SQLite locking on network filesystems is unreliable. The web app is stateless and scales freely.
+2. **The engine keeps state in SQLite by default.** With SQLite, run exactly one engine replica, on block storage (EBS, Persistent Disk, Azure Managed Disk, a local or SAN volume). Do not put the data directory on NFS, SMB, EFS or Azure Files: SQLite locking on network filesystems is unreliable. For several replicas, use PostgreSQL or MySQL ([databases](/docs/databases)). The web app is stateless and scales freely.
 
 | Where | Engine | Data | Secrets | DNS-01 hook |
 | --- | --- | --- | --- | --- |

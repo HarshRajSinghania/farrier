@@ -1,11 +1,17 @@
-# Farrier + dashboard. Create a .env next to this file first:
-#   FARRIER_API_TOKEN=<long random string>
-#   FARRIER_DASHBOARD_PASSWORD=<password for the dashboard login>
-# then: docker compose up -d   →   http://localhost:3000/dashboard
+# Farrier + dashboard on one machine.
+#   One command:  curl -fsSL https://raw.githubusercontent.com/gagankarthik/farrier/main/install.sh | sh
+#   By hand:      a .env next to this file with
+#                   FARRIER_API_TOKEN=<long random string>
+#                   FARRIER_DASHBOARD_PASSWORD=<password for the dashboard login>
+#                   FARRIER_MODE=demo        # optional: a simulated estate of 41 endpoints instead of yours
+#                 then `docker compose up -d` → http://localhost:3000/dashboard
+# Uses the signed release images; `docker compose up -d --build` builds from this checkout instead.
 services:
   farrier:
+    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
     build: .
     restart: unless-stopped
+    command: ["farrier", "${FARRIER_MODE:-serve}", "--host", "0.0.0.0", "--port", "8740"]
     environment:
       FARRIER_API_TOKEN: ${FARRIER_API_TOKEN:?set FARRIER_API_TOKEN in .env}
       # Optional: supply the vault key from a secret instead of /data/master.key
@@ -16,6 +22,7 @@ services:
     expose: ["8740"]
 
   web:
+    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.1.0}
     build: ./web
     restart: unless-stopped
     depends_on: [farrier]
@@ -25,7 +32,7 @@ services:
       FARRIER_DASHBOARD_PASSWORD: ${FARRIER_DASHBOARD_PASSWORD:?set FARRIER_DASHBOARD_PASSWORD in .env}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     ports:
-      - "3000:3000"
+      - "${FARRIER_PORT:-3000}:3000"
 
 volumes:
   farrier-data:

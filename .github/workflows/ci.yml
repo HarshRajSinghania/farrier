@@ -112,6 +112,8 @@ jobs:
             echo placeholder > "deploy/compose/secrets/$s"
           done
           docker compose -f deploy/compose/production.yml config -q
+          FARRIER_API_TOKEN=t FARRIER_DASHBOARD_PASSWORD=p FARRIER_MODE=demo docker compose config -q
+          sh -n install.sh && shellcheck install.sh
 
   helm:
     runs-on: ubuntu-latest
