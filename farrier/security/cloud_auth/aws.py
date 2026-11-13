@@ -232,9 +232,10 @@ def signed_request(method: str, url: str, *, service: str, region: str, what: st
 
 def json_call(service: str, target: str, payload: dict, *, region: str, what: str, endpoint: str | None = None,
               creds: AwsCredentialProvider | None = None, http=None, allow=()) -> dict:
-    """An AWS JSON-1.1 protocol call (Secrets Manager, KMS, EventBridge). Raises CloudError with ``code``."""
+    """An AWS JSON-1.1 protocol call (Secrets Manager, KMS, EventBridge, ACM, Private CA). Raises CloudError with ``code``."""
     url = endpoint or f"https://{service}.{region}.amazonaws.com/"
-    prefix = {"secretsmanager": "secretsmanager", "kms": "TrentService", "events": "AWSEvents"}[service]
+    prefix = {"secretsmanager": "secretsmanager", "kms": "TrentService", "events": "AWSEvents",
+              "acm": "CertificateManager", "acm-pca": "ACMPrivateCA"}[service]
     body = json.dumps(payload).encode()
     r = signed_request("POST", url, service=service, region=region, what=what, body=body, creds=creds, http=http,
                        headers={"Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": f"{prefix}.{target}"},

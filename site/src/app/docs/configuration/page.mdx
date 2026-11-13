@@ -67,6 +67,110 @@ DigiCert, Sectigo, Entrust and others expose ACME with EAB credentials:
 }
 ```
 
+### AWS Certificate Manager (managed ACME)
+
+ACM can run an ACME server for you: each **endpoint** has its own directory URL, a list of **domains** it may
+issue for, and **External Account Bindings** (EAB) that authorize clients. Domains are validated once, up front,
+through a CNAME, so Farrier needs no DNS access at issuance time. ACM certificates last 45 days; Farrier renews
+them like any other.
+
+The `farrier acm` commands use the standard AWS credential chain (environment keys, IRSA, ECS/EKS task role,
+EC2 instance profile). Run them as a PKI administrator.
+
+**1. Create an endpoint** (one per authorization boundary, e.g. per environment):
+
+```bash
+farrier acm --region eu-west-1 endpoint create --key-types ec256,rsa2048 --wait
+# endpoint:  arn:aws:acm:eu-west-1:123456789012:acme-endpoint/abcd...
+# directory: https://acm-acme-enroll.eu-west-1.api.aws/abcd.../directory
+```
+
+**2. Allow your domains.** With `--hosted-zone-id`, ACM writes the CNAME in Route 53 itself. Without it,
+the command prints the CNAME to create at your DNS provider. Keep that record: it authorizes every renewal.
+
+```bash
+farrier acm domain add <endpoint-arn> example.com --hosted-zone-id Z0123456789ABC --wildcards --wait
+farrier acm domain list <endpoint-arn>
+```
+
+**3. Create an External Account Binding.** It names the IAM role ACM assumes when it issues. That role
+trusts `acm-acme.amazonaws.com` (with `sts:AssumeRole`, `sts:TagSession`, `sts:SetSourceIdentity`) and
+may `acm:RequestCertificate` and `acm:RevokeCertificate` (plus `acm:AddTagsToCertificate` if the endpoint
+tags certificates). Creating the binding needs `iam:PassRole` on it.
+
+```bash
+farrier acm eab create <endpoint-arn> --role-arn arn:aws:iam::123456789012:role/acme-issuer --expires-days 365
+```
+
+**4. Add the issuer.** On AWS (ECS, EKS, EC2), give the engine's role `acm:DescribeAcmeEndpoint` and
+`acm:GetAcmeExternalAccountBindingCredentials` (the Terraform modules do this when you set
+`acm_acme_endpoint_arns`) and point the issuer at the binding. Farrier reads the directory URL and the
+EAB key from ACM, so no secret is stored:
+
+```json
+{
+  "acm": { "preset": "aws-acm", "acm_eab_arn": "arn:aws:acm:eu-west-1:123456789012:acme-endpoint/abcd/acme-external-account-binding/ef01" }
+}
+```
+
+Running outside AWS (GKE, AKS, on premises)? Print the credentials once with
+`farrier acm eab credentials <binding-arn>`, store them in your secret store, and use the portable form,
+which the dashboard's **AWS Certificate Manager (ACME)** preset also writes:
+
+```json
+{
+  "acm": {
+    "preset": "aws-acm",
+    "directory_url": "https://acm-acme-enroll.eu-west-1.api.aws/abcd/directory",
+    "eab_kid": "env:ACM_EAB_KID",
+    "eab_hmac_key": "env:ACM_EAB_HMAC"
+  }
+}
+```
+
+Endpoints then use `"issuer": "acm"`. A name outside the endpoint's domains fails with
+"not prevalidated on this ACME endpoint"; add the domain with step 2. Other ACME clients (cert-manager,
+Certbot) can use the same endpoint with the credentials from `farrier acm eab credentials`.
+
+Housekeeping: `farrier acm eab revoke` stops new registrations with a binding (existing accounts keep
+working), `farrier acm domain delete` stops issuance for a domain, and `farrier acm endpoint delete` removes
+the endpoint with its domains and bindings. Certificates already issued stay valid. Every command takes
+`--json`.
+
+### Cloud private CAs: AWS Private CA and Google CAS
+
+For internal names, Farrier can use your cloud's private CA. There is no DNS validation: the cloud IAM policy
+on the CA decides who may issue. Credentials come from the platform (IRSA, ECS/EKS task role, instance profile,
+GKE workload identity, the metadata server) or the usual `AWS_*` / `GOOGLE_APPLICATION_CREDENTIALS` variables.
+
+```json
+{
+  "internal-aws": {
+    "type": "aws_pca",
+    "ca_arn": "arn:aws:acm-pca:eu-west-1:123456789012:certificate-authority/1a2b3c4d-...",
+    "template_arn": "arn:aws:acm-pca:::template/EndEntityCertificate/V1",
+    "lifetime_days": 30
+  },
+  "internal-gcp": {
+    "type": "gcp_cas",
+    "ca_pool": "projects/my-project/locations/europe-west1/caPools/internal",
+    "certificate_template": "projects/my-project/locations/europe-west1/certificateTemplates/tls-server",
+    "lifetime_days": 30
+  }
+}
+```
+
+| Key | Notes |
+| --- | --- |
+| `ca_arn` | `aws_pca`: the CA, in this account or shared from another through AWS RAM |
+| `template_arn`, `signing_algorithm` | `aws_pca`, optional: the algorithm defaults to the one matching the CA's key |
+| `ca_pool`, `certificate_template`, `issuing_ca` | `gcp_cas`: the pool, an optional template, and an optional CA within the pool |
+| `lifetime_days` | Defaults to the public maximum for today, to rehearse the 47-day schedule; set your PKI's value |
+
+Permissions: `acm-pca:IssueCertificate`, `acm-pca:GetCertificate` and `acm-pca:DescribeCertificateAuthority`
+on the CA; on Google, `roles/privateca.certificateRequester` on the pool (plus `privateca.caPools.get` for the
+dashboard's **Test** button). Clients must trust the CA's root.
+
 ### `acme` options
 
 | Key | Default | Notes |
@@ -76,6 +180,7 @@ DigiCert, Sectigo, Entrust and others expose ACME with EAB credentials:
 | `dns_hook` | required | Shell command, see below |
 | `propagation_seconds` | `60` | Wait after publishing TXT records |
 | `eab_kid`, `eab_hmac_key` | none | External Account Binding |
+| `acm_eab_arn` | none | `aws-acm` only: read the directory URL and EAB key from ACM |
 | `poll_interval` | `2.0` | Seconds between order polls |
 | `timeout` | `600` | Seconds before giving up on an order |
 

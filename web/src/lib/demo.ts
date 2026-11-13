@@ -728,6 +728,7 @@ export const CATALOG: IntegrationCatalog = {
     { id: "sslcom", label: "SSL.com", eab: true, needs_directory_url: false, staging: false },
     { id: "digicert", label: "DigiCert", eab: true, needs_directory_url: false, staging: false },
     { id: "sectigo", label: "Sectigo", eab: true, needs_directory_url: true, staging: false },
+    { id: "aws-acm", label: "AWS Certificate Manager (ACME)", eab: true, needs_directory_url: true, staging: false },
     { id: "local_ca", label: "Built-in private CA", eab: false, needs_directory_url: false, staging: false },
   ],
   notifier_types: [

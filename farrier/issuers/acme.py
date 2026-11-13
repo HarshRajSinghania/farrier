@@ -58,6 +58,7 @@ def b64u(data: bytes) -> str:
 
 
 def b64u_decode(s: str) -> bytes:
+    s = s.strip().rstrip("=").replace("+", "-").replace("/", "_")  # CAs hand out EAB keys in either base64 alphabet
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
@@ -153,6 +154,7 @@ class _HookSolver:
 
 class AcmeIssuer:
     automated_dcv = True
+    prevalidated = False  # True: the CA authorizes names out of band (AWS ACM), so no DNS-01 setup is needed
     supports_dns_account = True  # issue() accepts dns_account= (per-endpoint override)
 
     def __init__(self, data_dir: Path, directory_url: str = LETSENCRYPT_STAGING, email: str | None = None,
@@ -161,7 +163,7 @@ class AcmeIssuer:
                  http: httpx.Client | None = None, poll_interval: float = 2.0, timeout: float = 600,
                  dns: str | None = None, dns_accounts=None, profile: str | None = None,
                  preferred_chain: str | None = None):
-        if dns_hook is None and not dns:
+        if dns_hook is None and not dns and not self.prevalidated:
             raise ValueError('ACME issuer needs "dns" ("auto" or a dns.json account) or a dns_hook (command or callable)')
         if dns_hook is not None and dns:
             raise ValueError('ACME issuer: set either "dns" or "dns_hook", not both')
@@ -366,6 +368,9 @@ class AcmeIssuer:
             authz = self.post(authz_url).json()
             if authz["status"] == "valid":
                 continue
+            if self.prevalidated and self.dns_hook is None and not self.dns and not dns_account:
+                raise AcmeError(403, f"{authz['identifier']['value']} is not prevalidated on this ACME endpoint "
+                                     "(AWS ACM: farrier acm domain add)")
             chal = next((c for c in authz["challenges"] if c["type"] == "dns-01"), None)
             if chal is None:
                 raise AcmeError(400, f"no dns-01 challenge offered for {authz['identifier']['value']}")

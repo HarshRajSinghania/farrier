@@ -252,6 +252,12 @@ variable "route53_zone_ids" {
   default     = []
 }
 
+variable "acm_acme_endpoint_arns" {
+  description = "ACM managed ACME endpoints whose directory URL and EAB key the engine may read (issuers.json preset aws-acm with acm_eab_arn). Empty grants no ACM access."
+  type        = list(string)
+  default     = []
+}
+
 variable "event_bus_arn" {
   description = "Optional EventBridge bus the engine publishes certificate events to (e.g. the aws-events module's bus). Empty grants no EventBridge access."
   type        = string

@@ -272,7 +272,7 @@ CA_LABELS = {
     "letsencrypt": "Let's Encrypt", "letsencrypt-staging": "Let's Encrypt (staging)", "zerossl": "ZeroSSL",
     "google": "Google Trust Services", "google-staging": "Google Trust Services (staging)", "buypass": "Buypass Go SSL",
     "buypass-staging": "Buypass Go SSL (staging)", "sslcom": "SSL.com (ECDSA)", "sslcom-rsa": "SSL.com (RSA)",
-    "digicert": "DigiCert", "sectigo": "Sectigo",
+    "digicert": "DigiCert", "sectigo": "Sectigo", "aws-acm": "AWS Certificate Manager (ACME)",
 }
 
 def _itsm_fields() -> dict[str, tuple[str, list[dict]]]:
@@ -380,7 +380,7 @@ def issuer_view(name: str, source: str, c: dict) -> dict:
 
 def validate_issuer(engine, name: str, body, allow_commands: bool, allow_inline: bool) -> dict:
     from farrier.dns.base import DnsConfigError
-    from farrier.issuers import ACME_KEYS, LOCAL_CA_KEYS, build_issuer
+    from farrier.issuers import ACME_KEYS, CLOUD_CA, LOCAL_CA_KEYS, build_issuer
     if not isinstance(body, dict) or not body:
         raise Invalid("send an issuers.json entry, e.g. {\"preset\": \"letsencrypt\", \"email\": ..., \"dns\": \"auto\"}")
     guard(body, allow_commands, allow_inline)
@@ -391,13 +391,15 @@ def validate_issuer(engine, name: str, body, allow_commands: bool, allow_inline:
             raise Invalid(f"{k} must reference a secret (vault:NAME, env:NAME or file:/path), not contain it")
     body = {k: v for k, v in body.items() if v not in (None, "")}
     kind = body.get("type") or ("acme" if "preset" in body or "directory_url" in body else None)
-    if kind not in ("acme", "local_ca"):
-        raise Invalid(f"issuer {name}: set \"preset\" (an ACME CA) or \"type\": \"acme\" or \"local_ca\"")
-    allowed = ACME_KEYS if kind == "acme" else LOCAL_CA_KEYS
+    if kind not in ("acme", "local_ca", *CLOUD_CA):
+        raise Invalid(f"issuer {name}: set \"preset\" (an ACME CA) or \"type\": one of acme, local_ca, "
+                      f"{', '.join(CLOUD_CA)}")
+    allowed = ACME_KEYS if kind == "acme" else CLOUD_CA[kind][1] if kind in CLOUD_CA else LOCAL_CA_KEYS
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise Invalid(f"issuer {name}: unknown keys {unknown} for type {kind} (allowed: {sorted(allowed)})")
-    if kind == "acme" and not body.get("dns") and not body.get("dns_hook"):
+    prevalidated = str(body.get("preset", "")).lower() == "aws-acm" or "acm_eab_arn" in body
+    if kind == "acme" and not body.get("dns") and not body.get("dns_hook") and not prevalidated:
         raise Invalid(f"issuer {name}: set \"dns\" (\"auto\" or a DNS account name) so Farrier can answer DNS-01")
     if kind == "acme" and body.get("directory_url"):
         u = urlparse(str(body["directory_url"]))
@@ -424,11 +426,17 @@ def test_issuer(engine, name: str) -> dict:
         iss = build_issuer(name, found[1], engine.data_dir, lambda: load_dns_accounts(engine))
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "detail": f"configuration: {e}"}
+    if hasattr(iss, "check"):   # cloud private CAs: can Farrier's identity reach the CA?
+        try:
+            return {"ok": True, "detail": iss.check()}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "detail": f"{type(e).__name__}: {e}"[:400]}
     if not hasattr(iss, "ensure_account"):
         return {"ok": True, "detail": "private CA ready (no network needed)"}
-    host = urlparse(iss.directory_url).hostname
+    host = urlparse(iss.directory_url).hostname or iss.directory_url
     try:
         iss.directory  # noqa: B018 - fetches the directory
+        host = urlparse(iss.directory_url).hostname  # an ACM endpoint ARN resolves to its URL here
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "detail": f"could not fetch the ACME directory at {host}: {type(e).__name__}: {e}"[:400]}
     try:

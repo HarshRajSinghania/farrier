@@ -86,12 +86,14 @@ def cmd_demo(args):
 
     from farrier.api.app import create_app
     from farrier.demo import start
+    if args.host not in ("127.0.0.1", "localhost") and not os.environ.get("FARRIER_API_TOKEN"):
+        sys.exit("refusing to listen on a non-loopback address without FARRIER_API_TOKEN set")
     eng, srv = start(Path(args.data), args.simulate_date)
     print(f"demo estate: {len(eng.store.endpoints())} endpoints served by SNI on 127.0.0.1:{srv.port}")
     eng.tick()
-    print(f"api:         http://127.0.0.1:{args.port}/api  (OpenAPI docs at /docs)")
-    print(f"dashboard:   cd web && FARRIER_API_URL=http://127.0.0.1:{args.port} npm run dev")
-    uvicorn.run(create_app(eng, tick_seconds=args.tick), host="127.0.0.1", port=args.port, log_level="warning")
+    print(f"api:         http://{args.host}:{args.port}/api  (OpenAPI docs at /docs)")
+    print(f"dashboard:   cd web && FARRIER_API_URL=http://{args.host}:{args.port} npm run dev", flush=True)
+    uvicorn.run(create_app(eng, tick_seconds=args.tick), host=args.host, port=args.port, log_level="warning")
 
 
 def cmd_scan(args):
@@ -295,6 +297,73 @@ def cmd_endpoints_approve(args):
     _emit(args, {"ok": True, "endpoint_id": ep["id"]}, lambda: [f"{ep['name']} approved for renewal"])
 
 
+def cmd_acm(args):
+    """AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings."""
+    from farrier.security.cloud_auth.http import CloudError
+    try:
+        _acm(args)
+    except (CloudError, RuntimeError, ValueError) as e:   # AWS refusals and config errors: one line, no traceback
+        sys.exit(f"farrier acm: {e}")
+
+
+def _acm(args):
+    from farrier.issuers.aws_acm import KEY_ALGORITHMS, Acm, region_of, wait_until
+    from farrier.security.cloud_auth.aws import region_for
+    arn = getattr(args, "arn", None)
+    acm = Acm(region_of(arn) if arn else region_for("--region", args.region))
+    what, verb = args.acm_what, args.acm_verb
+    if (what, verb) == ("endpoint", "create"):
+        kinds = args.key_types.split(",")
+        if set(kinds) - set(KEY_ALGORITHMS):
+            sys.exit(f"--key-types: choose from {', '.join(KEY_ALGORITHMS)}")
+        new = acm.create_endpoint(kinds, args.contact_required)
+        e = wait_until(lambda: acm.describe_endpoint(new)) if args.wait else acm.describe_endpoint(new)
+        return _emit(args, e, lambda: [f"endpoint:  {e['AcmeEndpointArn']}", f"status:    {e.get('Status')}",
+                                       f"directory: {e.get('EndpointUrl') or '(once ACTIVE)'}",
+                                       f"next:      farrier acm domain add {new} <domain> [--hosted-zone-id Z...]"])
+    if (what, verb) == ("domain", "add"):
+        new = acm.add_domain(arn, args.domain, args.hosted_zone_id, not args.no_subdomains, args.wildcards)
+        d = (wait_until(lambda: acm.describe_domain(new), timeout=args.timeout) if args.wait
+             else acm.describe_domain(new))
+        return _emit(args, d, lambda: _acm_domain_lines(d))
+    if (what, verb) == ("eab", "create"):
+        b = acm.create_eab(arn, args.role_arn, args.expires_days)
+        entry = {"acm": {"preset": "aws-acm", "acm_eab_arn": b["AcmeExternalAccountBindingArn"]}}
+        return _emit(args, b, lambda: [f"binding:  {b['AcmeExternalAccountBindingArn']}",
+                                       f"expires:  {b.get('ExpiresAt') or 'never'}",
+                                       "issuers.json entry (the engine reads the key from ACM with its IAM role):",
+                                       "  " + json.dumps(entry),
+                                       "outside AWS: `farrier acm eab credentials <binding>`, store both as secrets"])
+    if (what, verb) == ("eab", "credentials"):
+        kid, mac = acm.eab_credentials(arn)
+        return _emit(args, {"KeyId": kid, "MacKey": mac}, lambda: [f"key id:   {kid}", f"hmac key: {mac}"])
+    if verb in ("delete", "revoke"):
+        getattr(acm, f"{verb}_{what}")(arn)
+        return _emit(args, {"ok": True, "arn": arn}, lambda: [f"{what} {verb}d: {arn}"])
+    if verb == "show":
+        obj = getattr(acm, f"describe_{what}")(arn)
+        return _emit(args, obj, lambda: _acm_domain_lines(obj) if what == "domain"
+                     else [f"{k + ':':<24}{v}" for k, v in obj.items()])
+    rows = acm.list_endpoints() if what == "endpoint" else getattr(acm, f"list_{what}s")(arn)
+    key = {"endpoint": "AcmeEndpointArn", "domain": "DomainName", "eab": "AcmeExternalAccountBindingArn"}[what]
+    _emit(args, rows, lambda: [f"{r.get('Status') or ('revoked' if r.get('RevokedAt') else 'active'):<11}{r[key]}"
+                               + (f"  {r['EndpointUrl']}" if r.get("EndpointUrl") else "") for r in rows]
+          or ["(none)"])
+
+
+def _acm_domain_lines(d: dict):
+    yield f"domain:     {d.get('DomainName')}"
+    yield f"validation: {d.get('AcmeDomainValidationArn')}"
+    yield f"status:     {d.get('Status')}" + (f" ({d['FailureDetails']})" if d.get("FailureDetails") else "")
+    dns = (d.get("PrevalidationDetails") or {}).get("DnsPrevalidation") or {}
+    if dns.get("HostedZoneId"):
+        yield f"route 53:   ACM writes the CNAME in hosted zone {dns['HostedZoneId']}"
+    elif dns.get("ResourceRecord"):
+        rr = dns["ResourceRecord"]
+        yield f"create:     {rr['Name']} CNAME {rr['Value']}"
+        yield "            keep this record: it authorizes every future issuance (ACM checks for up to 72 hours)"
+
+
 def main(argv=None):
     from farrier import __version__
     p = argparse.ArgumentParser(prog="farrier", description="Agentless machine identity automation: TLS "
@@ -340,6 +409,7 @@ def main(argv=None):
     s.add_argument("--port", type=int, default=8740)
     s.add_argument("--tick", type=float, default=20)
     s.add_argument("--simulate-date", help="issue certs as if on this date, e.g. 2029-03-15 for 47-day life")
+    s.add_argument("--host", default="127.0.0.1", help="API bind address (non-loopback needs FARRIER_API_TOKEN)")
     s.set_defaults(fn=cmd_demo)
 
     s = sub.add_parser("scan", help="handshake with TLS targets and report the certificates they serve")
@@ -405,6 +475,47 @@ def main(argv=None):
     x = js(esub.add_parser("approve", help="let a discovered endpoint be renewed (logged with actor cli)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_endpoints_approve)
+
+    s = sub.add_parser("acm", help="AWS Certificate Manager managed ACME: endpoints, domains, EAB credentials")
+    s.add_argument("--region", default=None, help="AWS region for create/list (default: $AWS_REGION); commands "
+                   "that take an ARN use its region")
+    asub = s.add_subparsers(dest="acm_what", required=True)
+    e = asub.add_parser("endpoint", help="ACME endpoints (each one a directory URL and an authorization boundary)")
+    vsub = e.add_subparsers(dest="acm_verb", required=True)
+    x = js(vsub.add_parser("create", help="create a PRE_APPROVED endpoint for public certificates"))
+    x.add_argument("--key-types", default="ec256", help="comma-separated: ec256, ec384, rsa2048 (default ec256)")
+    x.add_argument("--contact-required", action="store_true", help="ACME accounts must give a contact email")
+    x.add_argument("--wait", action="store_true", help="wait until ACTIVE and print the directory URL")
+    js(vsub.add_parser("list", help="endpoints in the region"))
+    for verb, h in (("show", "status and directory URL"),
+                    ("delete", "delete with its domains and bindings (issued certificates stay valid)")):
+        js(vsub.add_parser(verb, help=h)).add_argument("arn", help="endpoint ARN")
+    d = asub.add_parser("domain", help="domain prevalidation: the names an endpoint may issue for")
+    vsub = d.add_subparsers(dest="acm_verb", required=True)
+    x = js(vsub.add_parser("add", help="allow a domain; ACM proves control through one CNAME"))
+    x.add_argument("arn", help="endpoint ARN")
+    x.add_argument("domain", help="e.g. example.com")
+    x.add_argument("--hosted-zone-id", help="Route 53 hosted zone: ACM creates the CNAME itself")
+    x.add_argument("--no-subdomains", action="store_true", help="only the exact domain, not names below it")
+    x.add_argument("--wildcards", action="store_true", help="also allow *.domain certificates")
+    x.add_argument("--wait", action="store_true", help="wait until VALID (or INVALID)")
+    x.add_argument("--timeout", type=float, default=1800, help="seconds --wait waits (default 1800)")
+    js(vsub.add_parser("list", help="domains of an endpoint")).add_argument("arn", help="endpoint ARN")
+    for verb, h in (("show", "status and the CNAME to create"), ("delete", "stop issuing for this domain")):
+        js(vsub.add_parser(verb, help=h)).add_argument("arn", help="domain validation ARN")
+    b = asub.add_parser("eab", help="External Account Bindings: what authorizes an ACME client")
+    vsub = b.add_subparsers(dest="acm_verb", required=True)
+    x = js(vsub.add_parser("create", help="create a binding tied to an IAM issuance role"))
+    x.add_argument("arn", help="endpoint ARN")
+    x.add_argument("--role-arn", required=True, help="IAM role ACM assumes to issue (acm:RequestCertificate)")
+    x.add_argument("--expires-days", type=int, help="stop registering new accounts after this many days")
+    js(vsub.add_parser("list", help="bindings of an endpoint")).add_argument("arn", help="endpoint ARN")
+    for verb, h in (("credentials", "print the key id and HMAC key, for ACME clients other than Farrier"),
+                    ("revoke", "no new accounts with this binding (existing accounts keep working)"),
+                    ("delete", "remove the binding for good")):
+        js(vsub.add_parser(verb, help=h)).add_argument("arn", help="binding ARN")
+    for parser in (e, d, b):
+        parser.set_defaults(fn=cmd_acm)
 
     def describe(parser):   # `farrier <cmd> --help` opens with the same one-liner the command list shows
         for action in parser._subparsers._group_actions if parser._subparsers else ():

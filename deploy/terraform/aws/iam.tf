@@ -188,6 +188,16 @@ data "aws_iam_policy_document" "engine_task" {
       resources = ["arn:${local.partition}:route53:::change/*"]
     }
   }
+
+  dynamic "statement" {
+    for_each = length(var.acm_acme_endpoint_arns) > 0 ? [1] : []
+
+    content {
+      sid       = "AcmManagedAcme"
+      actions   = ["acm:DescribeAcmeEndpoint", "acm:GetAcmeExternalAccountBindingCredentials"]
+      resources = flatten([for a in var.acm_acme_endpoint_arns : [a, "${a}/*"]])
+    }
+  }
 }
 
 resource "aws_iam_role" "engine_task" {

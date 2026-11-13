@@ -45,6 +45,7 @@ const CA_LOGO: Record<string, string> = {
   sslcom: "/assets/icons/ca-ssl.png",
   digicert: "/assets/icons/ca-digicert.png",
   sectigo: "/assets/icons/ca-sectigo.png",
+  "aws-acm": "/assets/icons/cert.svg",
   local_ca: "/assets/icons/cert.svg",
 };
 
@@ -112,6 +113,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
   const needsEab = !!preset?.eab;
   const showEab = needsEab || custom;
   const needsDirectory = custom || !!preset?.needs_directory_url;
+  const prevalidated = base === "aws-acm"; // ACM validates domains on the endpoint: no DNS-01
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -133,7 +135,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
     if (!local) {
       Object.assign(body, {
         email: email.trim() || undefined,
-        dns,
+        dns: prevalidated ? undefined : dns,
         profile: base === "letsencrypt" ? profile || undefined : undefined,
         preferred_chain: chain.trim() || undefined,
         directory_url: needsDirectory ? directory.trim() : undefined,
@@ -213,7 +215,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
       ) : (
         <>
           {needsDirectory && (
-            <Field id="issuer-dir" label="ACME directory URL" error={errors.directory} hint="From your CA's ACME settings page.">
+            <Field id="issuer-dir" label="ACME directory URL" error={errors.directory} hint={prevalidated ? "The endpoint's URL: farrier acm endpoint show <arn>. Key ID and HMAC: farrier acm eab credentials <arn>." : "From your CA's ACME settings page."}>
               <Input
                 id="issuer-dir"
                 value={directory}
@@ -229,7 +231,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
             <Field id="issuer-email" label="Account email" optional error={errors.email} hint="The CA's contact for this account.">
               <Input id="issuer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pki@example.com" aria-invalid={!!errors.email} />
             </Field>
-            <Field
+            {!prevalidated && <Field
               id="issuer-dns"
               label="DNS for validation"
               hint={
@@ -250,7 +252,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
                   ...(dnsAccounts ?? []).map((a) => ({ value: a.name, label: a.name, description: a.provider })),
                 ]}
               />
-            </Field>
+            </Field>}
           </div>
 
           {showEab && (

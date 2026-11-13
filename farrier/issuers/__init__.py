@@ -9,12 +9,16 @@
               "eab_kid": "env:DIGICERT_EAB_KID", "eab_hmac_key": "env:DIGICERT_EAB_HMAC",
               "dns_hook": "/opt/farrier/hooks/infoblox.sh"},
   "legacy":  {"type": "acme", "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
-              "email": "pki@example.com", "dns_hook": "/opt/farrier/hooks/route53.sh", "propagation_seconds": 60}
+              "email": "pki@example.com", "dns_hook": "/opt/farrier/hooks/route53.sh", "propagation_seconds": 60},
+  "acm":     {"preset": "aws-acm",
+              "acm_eab_arn": "arn:aws:acm:eu-west-1:123456789012:acme-endpoint/E/acme-external-account-binding/B"}
 }
 
 "dns": "auto" picks the DNS account per name from <data_dir>/dns.json (longest matching zone);
 "dns": "<account>" pins one account. "dns_hook" (shell command) keeps working unchanged.
 A preset fills in "type" and "directory_url"; anything set explicitly wins.
+"aws-acm" (AWS Certificate Manager managed ACME) needs no "dns": names are prevalidated on the endpoint,
+see farrier.issuers.aws_acm.
 """
 from __future__ import annotations
 
@@ -22,6 +26,8 @@ import json
 from pathlib import Path
 
 from farrier.issuers.acme import AcmeIssuer
+from farrier.issuers.aws_acm import AcmAcmeIssuer
+from farrier.issuers.cloud_ca import AwsPrivateCA, GoogleCAS
 from farrier.issuers.local_ca import LocalCA
 from farrier.security.vault import resolve_secret
 
@@ -40,6 +46,8 @@ PRESETS: dict[str, dict] = {
     # Commercial CAs hand out a per-account / per-product directory URL together with the EAB key
     "digicert": {"directory_url": None, "eab": True},
     "sectigo": {"directory_url": None, "eab": True},
+    # AWS ACM: per-endpoint directory URL and EAB, or "acm_eab_arn" alone (both read from ACM via IAM)
+    "aws-acm": {"directory_url": None, "eab": True},
 }
 
 
@@ -51,6 +59,8 @@ def apply_preset(name: str, c: dict) -> dict:
         raise ValueError(f"issuer {name}: unknown preset {preset!r}; known: {', '.join(sorted(PRESETS))}")
     if c.setdefault("type", "acme") != "acme":
         raise ValueError(f"issuer {name}: preset {preset!r} is an ACME preset but type is {c['type']!r}")
+    if str(preset).lower() == "aws-acm" and c.get("acm_eab_arn"):
+        return c
     if not c.get("directory_url"):
         if p["directory_url"] is None:
             raise ValueError(f"issuer {name}: preset {preset!r} needs \"directory_url\" (the ACME directory "
@@ -64,14 +74,18 @@ def apply_preset(name: str, c: dict) -> dict:
 
 # Keys an issuers.json entry may hold, per type (anything else is a typo or a misplaced setting).
 ACME_KEYS = {"type", "preset", "directory_url", "email", "dns", "dns_hook", "propagation_seconds", "eab_kid",
-             "eab_hmac_key", "profile", "preferred_chain"}
+             "eab_hmac_key", "profile", "preferred_chain", "acm_eab_arn"}
 LOCAL_CA_KEYS = {"type", "name", "lifetime_days", "simulate_date"}
+# Cloud private CAs (farrier.issuers.cloud_ca): no DNS, the cloud IAM policy authorizes issuance
+CLOUD_CA = {"aws_pca": (AwsPrivateCA, {"type", "ca_arn", "template_arn", "signing_algorithm", "lifetime_days"}),
+            "gcp_cas": (GoogleCAS, {"type", "ca_pool", "certificate_template", "issuing_ca", "lifetime_days"})}
 
 
 def build_issuer(name: str, c: dict, data_dir: Path, dns_accounts=None):
     """Construct one issuer from its issuers.json entry (no network). ``dns_accounts`` is an optional
     callable returning the shared DnsAccounts (file + dashboard); without it ACME loads dns.json itself."""
     c = dict(c)
+    acm = str(c.get("preset", "")).lower() == "aws-acm" or "acm_eab_arn" in c
     if "preset" in c:
         c = apply_preset(name, c)
     c = {k: resolve_secret(v) for k, v in c.items()}
@@ -81,7 +95,9 @@ def build_issuer(name: str, c: dict, data_dir: Path, dns_accounts=None):
     if kind == "acme":
         if c.get("dns") and dns_accounts is not None and "dns_accounts" not in c:
             c["dns_accounts"] = dns_accounts()
-        return AcmeIssuer(data_dir, **c)
+        return (AcmAcmeIssuer if acm else AcmeIssuer)(data_dir, **c)
+    if kind in CLOUD_CA:
+        return CLOUD_CA[kind][0](data_dir, **c)
     raise ValueError(f"issuer {name}: unknown type {kind}")
 
 

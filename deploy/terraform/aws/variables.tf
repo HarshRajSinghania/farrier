@@ -356,6 +356,12 @@ variable "route53_zone_ids" {
   default     = []
 }
 
+variable "acm_acme_endpoint_arns" {
+  description = "ACM managed ACME endpoints whose directory URL and EAB key the engine may read (issuers.json preset aws-acm with acm_eab_arn). Empty grants no ACM access."
+  type        = list(string)
+  default     = []
+}
+
 # ---------------------------------------------------------------------------------------------
 # Dashboard sign-in
 # ---------------------------------------------------------------------------------------------

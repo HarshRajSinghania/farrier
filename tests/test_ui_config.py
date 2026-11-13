@@ -489,3 +489,19 @@ def test_catalog_shape(env):
     slack = next(t for t in cat["notifier_types"] if t["id"] == "slack")
     assert next(f for f in slack["fields"] if f["key"] == "url")["secret"] is True
     assert [t["id"] for t in cat["alert_rule_types"]] == ["event", "expiring", "health", "zombie", "unreachable"]
+
+
+def test_aws_acm_issuer_needs_no_dns(env, monkeypatch):
+    _, c = env
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")
+    arn = "arn:aws:acm:eu-west-1:123456789012:acme-endpoint/ep/acme-external-account-binding/b"
+    r = put(c, "/api/issuers/acm", {"preset": "aws-acm", "acm_eab_arn": arn})
+    assert r.status_code == 200, r.text
+    put(c, "/api/secrets/acm-hmac", {"value": "bWFj"})
+    r = put(c, "/api/issuers/acm2", {"preset": "aws-acm", "directory_url": "https://acm-acme-enroll.eu-west-1.api.aws/x/directory",
+                                     "eab_kid": "kid", "eab_hmac_key": "vault:acm-hmac"})
+    assert r.status_code == 400 and "eab_kid" in r.json()["detail"]   # every EAB value must be a reference
+    put(c, "/api/secrets/acm-kid", {"value": "kid"})
+    r = put(c, "/api/issuers/acm2", {"preset": "aws-acm", "directory_url": "https://acm-acme-enroll.eu-west-1.api.aws/x/directory",
+                                     "eab_kid": "vault:acm-kid", "eab_hmac_key": "vault:acm-hmac"})
+    assert r.status_code == 200, r.text
