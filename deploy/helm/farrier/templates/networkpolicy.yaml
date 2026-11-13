@@ -135,7 +135,7 @@ spec:
               {{- include "farrier.selectorLabels" $engine | nindent 14 }}
       ports:
         - { port: 8740, protocol: TCP }
-    {{- if and (eq .Values.web.auth.mode "oidc") $wnp.idp.enabled }}
+    {{- if and (has .Values.web.auth.mode (list "oidc" "saml")) $wnp.idp.enabled }}
     - to:
         {{- range $wnp.idp.cidrs }}
         - ipBlock:

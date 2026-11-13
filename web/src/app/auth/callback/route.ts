@@ -8,7 +8,7 @@
  */
 import { type NextRequest, NextResponse } from "next/server";
 import { authMode, oidcConfig } from "@/lib/auth/config";
-import { noStore, toSignin } from "@/lib/auth/flow";
+import { noStore, projectGroups, toSignin } from "@/lib/auth/flow";
 import { discover, exchangeCode, OidcError, userInfo, verifyIdToken } from "@/lib/auth/oidc";
 import { claimValues, mapRole } from "@/lib/auth/roles";
 import { unseal } from "@/lib/auth/seal";
@@ -26,23 +26,6 @@ interface Tx extends Record<string, unknown> {
 const MAX_HINT = 1500;
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
-
-/**
- * The groups kept in the session cookie for project membership, capped so the cookie stays under 4 KB.
- * A user with more groups than fit loses the rest: they see fewer projects, never more.
- */
-const MAX_GROUPS_CHARS = 1500;
-function projectGroups(values: string[]): string[] {
-  const out: string[] = [];
-  let used = 0;
-  for (const v of values) {
-    if (v.length > 256 || used + v.length + 3 > MAX_GROUPS_CHARS) continue;
-    out.push(v);
-    used += v.length + 3;
-  }
-  if (out.length < values.length) console.warn(`[farrier] kept ${out.length} of ${values.length} groups for project membership`);
-  return out;
-}
 
 export async function GET(req: NextRequest) {
   const done = (res: NextResponse) => {

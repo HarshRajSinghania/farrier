@@ -3,6 +3,7 @@
  *
  *   FARRIER_OIDC_ISSUER set         single sign-on: pages without a session go to /auth/signin,
  *                                   API calls get 401; each request slides the idle timeout.
+ *   FARRIER_SAML_IDP_* set          the same, with a session from SAML 2.0 sign-in.
  *   FARRIER_DASHBOARD_PASSWORD set  HTTP Basic with a lockout on repeated failures (fallback).
  *   neither                         open (demo and local development; see the bridge's guard).
  *
@@ -15,7 +16,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { checkBasic } from "@/lib/auth/basic";
-import { authMode, oidcConfig } from "@/lib/auth/config";
+import { authMode, ssoConfig } from "@/lib/auth/config";
 import { clientAddress, requiredHeaderStatus } from "@/lib/auth/request";
 import { clearSession, hasSessionCookie, readSession, touchSession } from "@/lib/auth/session";
 
@@ -31,8 +32,8 @@ const clientKey = (req: NextRequest) => clientAddress(req.headers, process.env);
 
 const isApi = (req: NextRequest) => req.nextUrl.pathname.startsWith("/api/");
 
-async function oidcGate(req: NextRequest) {
-  const cfg = oidcConfig();
+async function ssoGate(req: NextRequest) {
+  const cfg = ssoConfig();
   if (!cfg.ok) {
     // fail closed: a half-configured SSO never falls back to an open dashboard
     const detail = `Single sign-on is misconfigured: ${cfg.error}`;
@@ -101,7 +102,8 @@ export async function proxy(req: NextRequest) {
   if (!gated(req.nextUrl.pathname)) return NextResponse.next();
   switch (authMode()) {
     case "oidc":
-      return oidcGate(req);
+    case "saml":
+      return ssoGate(req);
     case "basic":
       return basicGate(req);
     default:

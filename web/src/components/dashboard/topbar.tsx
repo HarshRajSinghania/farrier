@@ -224,14 +224,15 @@ function UserMenu() {
   const user = data?.user ?? "operator";
   const auth = data?.auth ?? "none";
   const protectedDash = auth !== "none";
+  const sso = auth === "oidc" || auth === "saml";
 
   // An SSO session that ends while the page is open: back to sign-in, then return here.
   useEffect(() => {
-    if (auth === "oidc" && error instanceof ApiError && error.status === 401) {
+    if (sso && error instanceof ApiError && error.status === 401) {
       const here = window.location.pathname + window.location.search;
       router.replace(`/auth/signin?error=expired&returnTo=${encodeURIComponent(here)}`);
     }
-  }, [auth, error, router]);
+  }, [sso, error, router]);
 
   return (
     <Dropdown>
@@ -264,7 +265,7 @@ function UserMenu() {
               {protectedDash ? (
                 <>
                   <ShieldCheck className="size-3.5 text-good-fg" />
-                  {auth === "oidc" ? "Signed in with SSO" : "Signed in"}
+                  {sso ? "Signed in with SSO" : "Signed in"}
                 </>
               ) : data?.mode === "demo" ? (
                 "Demo session"
@@ -299,7 +300,7 @@ function UserMenu() {
             </a>
           </DropdownItem>
         )}
-        {auth === "oidc" && (
+        {sso && (
           <>
             <DropdownSeparator />
             <DropdownItem onSelect={() => signOut.current?.requestSubmit()}>

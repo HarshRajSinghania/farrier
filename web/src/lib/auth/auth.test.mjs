@@ -81,10 +81,11 @@ const SECRET = "0123456789abcdef0123456789abcdef-test";
 const later = () => Math.floor(Date.now() / 1000) + 60;
 
 test("seal/unseal round trip", async () => {
-  const token = await seal({ sub: "u1", role: "admin" }, SECRET, "p1", later());
-  assert.ok(!token.includes("u1"), "the payload is encrypted");
+  // a probe long enough that random base64url never contains it by chance ("u1" did, ~6% of runs)
+  const token = await seal({ sub: "plaintext-subject", role: "admin" }, SECRET, "p1", later());
+  assert.ok(!token.includes("plaintext-subject") && !token.includes("cGxhaW50ZXh0"), "the payload is encrypted"); // raw or base64
   const out = await unseal(token, SECRET, "p1");
-  assert.equal(out.sub, "u1");
+  assert.equal(out.sub, "plaintext-subject");
   assert.equal(out.role, "admin");
 });
 

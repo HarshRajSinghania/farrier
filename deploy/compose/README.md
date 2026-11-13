@@ -67,6 +67,11 @@ Add to `web.environment`: `FARRIER_OIDC_ISSUER`, `FARRIER_OIDC_CLIENT_ID`,
 exactly with the identity provider), and optionally `FARRIER_OIDC_SCOPES` and group settings; add `oidc_client_secret` and `session_secret` files and mount them on `web` with
 targets `FARRIER_OIDC_CLIENT_SECRET` and `FARRIER_SESSION_SECRET`. Remove `dashboard_password`.
 
+SAML 2.0 instead of OIDC: add `FARRIER_SAML_IDP_METADATA_URL` (or `FARRIER_SAML_IDP_SSO_URL` and
+`FARRIER_SAML_IDP_CERT`), `FARRIER_SAML_GROUPS_ATTRIBUTE` and the `FARRIER_SAML_*_GROUPS` settings, and the
+`session_secret` file with target `FARRIER_SESSION_SECRET`. Give the identity provider
+`<NEXT_PUBLIC_SITE_URL>/auth/saml/metadata`. Set one of OIDC or SAML, not both.
+
 ## Object storage
 
 The engine gets `FARRIER_STORAGE_URL=s3://farrier/farrier` and

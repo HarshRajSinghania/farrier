@@ -41,7 +41,7 @@ function guard(identity: Identity): NextResponse | null {
   if (UPSTREAM && process.env.NODE_ENV === "production" && identity.auth === "none") {
     return err(
       503,
-      "No sign-in is configured. Set FARRIER_OIDC_ISSUER (single sign-on) or FARRIER_DASHBOARD_PASSWORD before pointing a production dashboard at a live Farrier API.",
+      "No sign-in is configured. Set FARRIER_OIDC_ISSUER or FARRIER_SAML_IDP_METADATA_URL (single sign-on) or FARRIER_DASHBOARD_PASSWORD before pointing a production dashboard at a live Farrier API.",
     );
   }
   return null;
