@@ -299,6 +299,13 @@ def cmd_certs_show(args):
     _emit(args, d, text)
 
 
+def cmd_explain(args):
+    from farrier.core.explain import explain, lines
+    eng = _engine(args)
+    d = explain(eng, _endpoint(eng, args.endpoint))
+    _emit(args, d, lambda: lines(d))
+
+
 def cmd_endpoints_approve(args):
     eng = _engine(args)
     ep = _endpoint(eng, args.endpoint)
@@ -585,6 +592,12 @@ def main(argv=None):
                            f"(exit {NOT_FOUND} if there is no such endpoint)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_certs_show)
+
+    x = js(sub.add_parser("explain", help="why the next renewal is when it is: lifetime maths, ARI, change window, "
+                          "daily cap, backoff, approval, issuance policy, runner group, last failure with its reason "
+                          f"code (exit {NOT_FOUND} if there is no such endpoint)"))
+    x.add_argument("endpoint", help="endpoint name or id")
+    x.set_defaults(fn=cmd_explain)
 
     s = sub.add_parser("endpoints", help="inventory endpoints")
     esub = s.add_subparsers(dest="endpoints_cmd", required=True)

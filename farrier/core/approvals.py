@@ -49,14 +49,14 @@ class Approvals:
         row = self.store.q1("SELECT body FROM config_items WHERE kind=? AND name=?", (KIND, str(rid)))
         return json.loads(row["body"]) if row else None
 
+    def records(self) -> dict[int, dict]:
+        """Renewal id -> approval record, every state."""
+        return {int(row["name"]): json.loads(row["body"])
+                for row in self.store.q("SELECT name, body FROM config_items WHERE kind=?", (KIND,))}
+
     def pending(self) -> dict[int, dict]:
         """Renewal id -> approval record, for every gate that is still closed."""
-        out = {}
-        for row in self.store.q("SELECT name, body FROM config_items WHERE kind=?", (KIND,)):
-            b = json.loads(row["body"])
-            if b["state"] == "pending":
-                out[int(row["name"])] = b
-        return out
+        return {rid: b for rid, b in self.records().items() if b["state"] == "pending"}
 
     def _put(self, rid: int, body: dict) -> None:
         with self.store.transaction():

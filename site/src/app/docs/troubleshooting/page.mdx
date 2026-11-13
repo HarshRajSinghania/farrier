@@ -1,0 +1,106 @@
+export const metadata = {
+  title: "Troubleshooting",
+  description: "Why a renewal is stuck or failed: farrier explain, every reason code and its fix, runners, approvals, and why a certificate did or didn't renew.",
+};
+
+# Troubleshooting
+
+Start with one command. It shows how Farrier scheduled the endpoint's next renewal, what still has to happen before it can run, and the last failure with its reason code:
+
+```bash
+farrier explain www-lb          # endpoint name or id; add --json for the API payload
+```
+
+The dashboard's **Renewals** table shows the same reason code and a one-line fix next to each stuck or failed renewal. `GET /api/renewals` returns them as `reason_code` and `hint`. Failures are counted in `/metrics` as `farrier_renewal_failures_total{reason,issuer}`, and the Helm chart's [alerts](/docs/api#get-metrics) fire on them.
+
+## `farrier explain`
+
+```
+www-lb (id 12, 10.0.4.20:443, f5, issuer letsencrypt)
+Next: will be planned for 2026-12-05T02:00 UTC (due) on the tick after 2026-11-21 (due within 14 days)
+Certificate: www.example.com, valid 2026-10-06 -> 2027-01-04 (53.2 days left)
+Lifetime: 90 days; renew 30 days before expiry (a third of the lifetime, at least lead_days=0, at most three quarters) -> 2026-12-05T00:00
+Due: 2026-12-05T00:00 UTC; planned once due is within horizon_days=14 (from 2026-11-21); deadline 2027-01-02T00:00 UTC (expiry minus safety_days)
+Window: sat,sun 03:00 for 4 h (Europe/Berlin); first opening from the due date: 2026-12-05T02:00 UTC = 2026-12-05T03:00 Europe/Berlin
+Daily cap: 1000 auto renewals per day
+Planner chooses: 2026-12-05T02:00 UTC (due)
+Approval: not required
+Issuance policy: allowed
+```
+
+Read it top to bottom:
+
+| Line | Comes from |
+|---|---|
+| Lifetime | The served certificate's lifetime, capped to today's public maximum ([CA/B Forum schedule](/docs/concepts#renewal-timing)) |
+| renew N days before expiry | A third of the lifetime, at least the endpoint's `lead_days`, never more than three quarters |
+| ARI | The CA's suggested renewal window (RFC 9773), for certificates Farrier issued through an ACME CA that offers it. It wins when it is earlier |
+| Due / horizon | A renewal is created once `due` is within `horizon_days`; its deadline is expiry minus `safety_days` |
+| Window | The endpoint's change window and its time zone, and the first opening at or after the due date |
+| Daily cap | `auto_daily_cap` or `manual_daily_cap`; a full day pushes the renewal to the next window with room |
+| Backoff | After failed or rolled-back renewals: 1 h, doubling to 32 h, from when the last one failed |
+| Approval / Issuance policy / Runner group | Gates the renewal still has to pass when its time comes |
+| Blocker | Anything that stops progress right now |
+
+## Walking a renewal through its states
+
+| State | If stuck here, check |
+|---|---|
+| (none open) | `farrier explain`: is `due` beyond `horizon_days`? Is the endpoint disabled, `discovered` (approve it), or failing its scans? |
+| `planned` | `scheduled_for` still in the future (window, daily cap, backoff)? An approval gate (`APPROVAL_PENDING`)? Issuance retrying (`error` starts with `issuance:`, `attempts` counts up, waits 5, 10, 20, 40 min or the CA's Retry-After)? |
+| `issued` | Should not last a tick. If it does, the deploy step raised before claiming it: see the activity log. |
+| `deploying` | Behind a runner: is the group online and did it claim the job (`farrier runner list`)? Without a runner, the next tick moves it to `verifying`. |
+| `verifying` | The endpoint still serves the old certificate (`VERIFY_MISMATCH`), or the new one with a bad chain or missing name (`VERIFY_CHAIN`). After `verify_max_attempts` ticks it rolls back. |
+| `awaiting_manual` | Someone has to install the change pack. Past the deadline it is flagged `OVERDUE_MANUAL`. It closes itself once the new certificate is seen live. |
+| `failed` / `rolled_back` | Read the reason code below, fix the cause, then **Renew now** (`POST /api/endpoints/{id}/renew`), which skips the backoff. |
+
+## Reason codes
+
+| Code | Means | Fix |
+|---|---|---|
+| `ISSUE_RATE_LIMITED` | The CA rate limits this account or name | Farrier waits for its Retry-After. Stop forced renewals and look for duplicate certificates for the same names. |
+| `ISSUE_DNS` | The DNS-01 challenge failed | Check the DNS account's credentials and zone, and that `_acme-challenge.<name>` TXT is visible from public resolvers ([DNS providers](/docs/dns)). |
+| `NOT_PREVALIDATED` | The CA authorizes names out of band and this one is not prevalidated | Add the domain (AWS ACM: `farrier acm domain add`), then renew. |
+| `ISSUE_CA_ERROR` | The CA refused or failed the request | Read the error; check the issuer's credentials (EAB, API key) and the CA's status. |
+| `POLICY_DENIED` | The [issuance policy](/docs/configuration#issuance-policy) forbids these names, the issuer or the key type | Fix the endpoint or the policy, then renew. |
+| `APPROVAL_PENDING` | Waiting at an [approval gate](/docs/concepts#approvals) | Approve in **Renewals**, `POST /api/renewals/{id}/approve`, or in the ServiceNow change. |
+| `APPROVAL_OVERDUE` | Still unapproved past the deadline | Approve now; the current certificate expires soon. |
+| `APPROVAL_REJECTED` | An approver rejected it; the renewal was cancelled | The next tick plans a new renewal that waits for approval again. Resolve the objection first. |
+| `DEPLOY_FAILED` | The connector could not install the certificate | Check the device's address, credentials and API access ([connectors](/docs/connectors)), then renew. |
+| `DEPLOY_RUNNER_OFFLINE` | No runner of the endpoint's group answered | Start `farrier runner start` in that segment; check its token and outbound HTTPS to the engine. |
+| `VERIFY_MISMATCH` | The endpoint never served the new certificate | Check that the right virtual server or profile changed, every node behind the name (`verify_all_addresses`), and caches or CDNs in front. |
+| `VERIFY_CHAIN` | The new certificate is live, but its chain is incomplete or untrusted, or it misses a name | Install the intermediates; check the endpoint's SANs. |
+| `ROLLBACK_FAILED` | The deploy did not go live and the rollback did not finish | Check the device by hand: it may serve a half-applied change. |
+| `OVERDUE_MANUAL` | A manual change was not installed before the deadline | Install the change pack now. |
+| `SUPERSEDED` | Someone installed a different certificate | Nothing, unless that was a mistake. |
+| `UNKNOWN` | An error no rule above matches | Read the error and the endpoint's activity log. |
+
+Codes are derived from the renewal's state, error and approval record (`farrier/core/reasons.py`), so renewals recorded by older versions get one too.
+
+## Runners
+
+- `farrier runner list` (or **Settings → Remote runners**) shows each group, whether a runner polled in the last 5 minutes, and its pending jobs. `/metrics` exports the same as `farrier_runner_group_online` and `farrier_runner_group_pending_jobs`.
+- Offline: the runner process is down, its token was replaced (`farrier runner token <group>` revokes the old one), or it cannot reach the engine over HTTPS.
+- A deploy no runner claims before the renewal's deadline fails with `DEPLOY_RUNNER_OFFLINE`. A runner that disappears mid-deploy is not retried: the engine verifies what the device serves, as after its own crash.
+- `farrier runner start --once` runs whatever is queued and exits, so you can watch one job.
+
+## Approvals
+
+- `GET /api/approvals` lists every renewal waiting at a gate, with its mode and ServiceNow change.
+- `servicenow:<channel>`: Farrier opens a change request and polls its approval field. If the channel is not a ServiceNow channel the activity log says so once; approve in Farrier instead. ServiceNow being down keeps the gate closed, never opens it.
+- An approval that arrives after the change window closed moves the renewal to the next window, unless that would miss its deadline.
+- `farrier_approvals_pending{overdue="true"}` counts gates still closed past the deadline.
+
+## FAQ
+
+**Why did it renew?** The activity log of the renewal says why it was planned: `due`, `due (CA renewal window)` (the CA's ARI window came first), `expired`, `urgent: no window before expiry`, `retry after N failed renewals`, or `requested by <who>` for **Renew now**, and `replace (<reason>) by <who>` for `farrier replace`. Lifetimes are capped to today's public maximum, so a 398-day certificate renews as if it lasted 200 days.
+
+**Why didn't it renew?** Run `farrier explain`. The usual answers: the due date is more than `horizon_days` away; the endpoint is `discovered` and not yet approved, or disabled; its last scan failed (nothing is planned without a successful handshake); a backoff after failures pushed it later; it waits for approval; or the issuance policy denies it.
+
+**Why is it scheduled so late?** The change window (in its own time zone), the daily cap, or a backoff after failures. If no window with capacity opens before the deadline, expiry wins and the renewal runs at the due date anyway.
+
+**Why does it say expired, but a browser shows a valid certificate?** Farrier reports what the endpoint served at its last handshake from the engine (or the endpoint's runner). Another node behind the same name, SNI or a CDN can serve something else; set `verify_all_addresses` to probe every address.
+
+**The renewal failed. How do I retry?** Fix the cause, then **Renew now**. It skips the backoff. Planned renewals retry on their own once the backoff lifts.
+
+**Is the activity log intact?** `farrier audit verify`, or watch `farrier_audit_log_intact`. A `0` means a sealed row was changed or deleted ([audit log](/docs/security#tamper-evident-audit-log)).

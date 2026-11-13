@@ -157,6 +157,11 @@ export function RenewalsView() {
                   <TD className={cn("hidden max-w-72 truncate text-sm lg:table-cell", r.error ? "text-critical-fg" : "text-muted-foreground")} title={r.error ?? r.reason ?? ""}>
                     {r.error ?? (r.ticket_ref ? `Ticket ${r.ticket_ref}` : r.reason) ?? "—"}
                     {r.attempts > 0 && !r.error && <span className="ml-1">· attempt {r.attempts}</span>}
+                    {r.reason_code && (
+                      <p className="whitespace-normal text-xs text-muted-foreground">
+                        <code className="font-mono text-foreground">{r.reason_code}</code> · {r.hint}
+                      </p>
+                    )}
                   </TD>
                   <TD className="text-right">
                     <div className="flex justify-end">

@@ -204,6 +204,7 @@ def check_schema(docs: dict) -> None:
         "externalSecrets without store": {"secrets": {"mode": "externalSecrets"}},
         "bad digest": {"engine": {"image": {"digest": "latest"}}},
         "bad CIDR": {"engine": {"networkPolicy": {"database": {"cidrs": ["db.internal"]}}}},
+        "alert threshold 0 days": {"engine": {"metrics": {"prometheusRule": {"enabled": True, "expiringDays": 0}}}},
         "unknown cloud provider": {"cloud": {"provider": "openshift"}},
         "identity without provider": {"cloud": {"identity": "irsa"}},
         "gke with irsa": {"cloud": {"provider": "gke", "identity": "irsa"}},

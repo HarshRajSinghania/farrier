@@ -401,6 +401,25 @@ engine:
       labels: {}
       # -- Metric relabelings.
       metricRelabelings: []
+    prometheusRule:
+      # -- Render a Prometheus Operator PrometheusRule with ready-made alerts: certificate expiring with
+      # no open renewal, certificate expired, renewal failed (by reason code), approvals overdue, runner
+      # group offline, audit log broken.
+      enabled: false
+      # -- FarrierCertificateExpiringNoRenewal fires when fewer days than this are left.
+      expiringDays: 7
+      # -- Extra labels (e.g. the release label your Prometheus selects rules on).
+      labels: {}
+      # -- Extra alerting or recording rules appended to the farrier group.
+      additionalRules: []
+    grafanaDashboard:
+      # -- Ship the Farrier Grafana dashboard as a ConfigMap for the Grafana sidecar.
+      enabled: false
+      # -- Labels the Grafana sidecar selects dashboards by.
+      labels:
+        grafana_dashboard: "1"
+      # -- Annotations, e.g. {grafana_folder: Certificates} for the sidecar's folder annotation.
+      annotations: {}
 
 # ---------------------------------------------------------------------------------------------
 # Web (dashboard)
