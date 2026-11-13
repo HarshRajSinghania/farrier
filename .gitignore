@@ -68,3 +68,6 @@ Thumbs.db
 
 # Security audit reports stay private (kept outside this repository)
 security/audits/
+
+# Claude Code agent worktrees (temporary checkouts)
+.claude/worktrees/
