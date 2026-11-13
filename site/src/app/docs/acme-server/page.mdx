@@ -1,0 +1,146 @@
+export const metadata = {
+  title: "ACME server",
+  description: "Point certbot, cert-manager, lego, acme.sh or win-acme at Farrier: internal certificates from your own issuer, under your issuance policy, with every one in the audit log.",
+};
+
+# ACME server
+
+Teams already run ACME clients: certbot on VMs, cert-manager in Kubernetes, lego, acme.sh and win-acme
+everywhere else. Farrier speaks **RFC 8555** itself, so those clients can get certificates for internal
+names from a Farrier issuer (the built-in local CA, AWS Private CA, Google CAS or an upstream ACME CA)
+instead of a private CA nobody governs. Every certificate follows Farrier's issuance policy, and every one
+is recorded with the account and key that asked for it.
+
+```
+certbot / cert-manager / lego ──ACME──▶ Farrier /acme/<profile>/ ──▶ issuer (local_ca, aws_pca, ...)
+     EAB key from an admin              policy decides the names       certificate kept + audit log
+```
+
+## Set it up
+
+**1. Add a profile** to `settings.json`. Each profile is one ACME directory:
+
+```json
+"acme_server": {
+  "internal": {
+    "issuer": "default",
+    "allowed_names": ["*.internal.example.com"],
+    "lifetime_days": 30,
+    "project": "platform",
+    "base_url": "https://farrier.example.com"
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `issuer` | An issuer name from `issuers.json` (or the dashboard). **Required.** |
+| `allowed_names` | Name patterns this profile may issue for. `*.internal.example.com` matches every name below it and the wildcard itself. **Required.** |
+| `lifetime_days` | Certificate lifetime, for `local_ca`, `aws_pca` and `gcp_cas` issuers. Default: the issuer's own. |
+| `project` | Whose [issuance policy](/docs/configuration) also applies (default: the `default` rules). |
+| `orders_per_hour` | Orders one account may place per hour (default 100). |
+| `base_url` | The origin clients reach Farrier at, e.g. behind a reverse proxy. Default: the request's own. |
+
+The directory is `https://<engine>/acme/<profile>/directory`. ACME clients insist on HTTPS: serve the
+engine behind TLS as described in [Security and hosting](/docs/security), and only publish `/acme/` to the
+networks whose clients need it.
+
+**2. Create an External Account Binding key** for each client (or team):
+
+```bash
+farrier acme-server eab create internal --names '*.web.internal.example.com'
+```
+
+The key id and HMAC key are shown once. `--names` narrows what this key may order, within the profile;
+leave it out for the whole profile. The same is `POST /api/acme-server/eab` with the admin token
+(`{"profile": "internal", "names": [...]}`).
+
+**3. Point the client at the directory.**
+
+### certbot
+
+```bash
+certbot certonly \
+  --server https://farrier.example.com/acme/internal/directory \
+  --eab-kid fae_... --eab-hmac-key ... \
+  --manual --manual-auth-hook /bin/true --preferred-challenges dns \
+  -d app.web.internal.example.com --agree-tos -m team@example.com
+```
+
+Farrier authorizes names by policy, so certbot finds every authorization already valid and never calls
+the hook. If Farrier's TLS certificate is from a private CA, set `REQUESTS_CA_BUNDLE` to that CA.
+`certbot renew` works as usual.
+
+### cert-manager
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata: {name: farrier-eab, namespace: cert-manager}
+stringData: {secret: "<hmac key>"}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: farrier}
+spec:
+  acme:
+    server: https://farrier.example.com/acme/internal/directory
+    caBundle: <base64 of the CA that signs Farrier's own TLS certificate, if private>
+    privateKeySecretRef: {name: farrier-acme-account}
+    externalAccountBinding:
+      keyID: fae_...
+      keySecretRef: {name: farrier-eab, key: secret}
+    solvers:
+      - http01: {ingress: {}}   # never used: authorizations are already valid
+```
+
+Then reference `issuerRef: {name: farrier, kind: ClusterIssuer}` from a `Certificate` or an Ingress
+annotation as with any ACME issuer.
+
+lego, acme.sh and win-acme work the same way: the directory URL, the EAB key id and HMAC key, and any
+challenge setting (it is never used).
+
+## Security model
+
+- **Who may ask:** only accounts registered with an EAB key an admin created for that profile. Each key
+  registers **one** account; a second registration with it is refused. The HMAC key is sealed under the
+  master key in the database (it must stay readable to check the binding). `farrier acme-server eab
+  delete <kid>` (or `DELETE /api/acme-server/eab/{kid}`) deletes a key and **revokes its account** at once.
+- **What they may get:** a name is authorized only when the profile's `allowed_names`, the EAB key's own
+  patterns and the global issuance policy all allow it, as with AWS ACM's pre-approved endpoints. There
+  are no challenges to pass; an order for any other name fails with `rejectedIdentifier`, and the refusal
+  is logged. Policy is checked again at finalize, so tightening it applies to orders already placed.
+- **What is issued:** the CSR's names must equal the order's names exactly (DNS names only), its key must
+  be EC P-256/P-384 or RSA 2048-4096 (narrowed by the policy's `key_types`), and it may not be the account
+  key. The profile's issuer signs it; the issuer and lifetime are not the client's choice.
+- **Requests:** every POST is a JWS checked strictly: ES256, ES384, RS256 (2048-bit keys or more) or
+  EdDSA (Ed25519); the `url` header must equal the request URL; `jwk` only for new-account and
+  key-signed revocation, `kid` for everything else; single-use nonces that expire after an hour, kept in
+  the database so several replicas share them. Bodies over 64 KiB are refused, and orders are limited per
+  account per hour (`rateLimited` with `Retry-After`).
+- **Audit:** each certificate is kept (the inventory's certificate store, and `farrier acme-server certs`
+  or `GET /api/acme-server/certificates`), and the [tamper-evident activity log](/docs/security#tamper-evident-audit-log)
+  records every account, issuance (names, serial, issuer, account, EAB key), refusal and revocation.
+
+## Revocation
+
+`revokeCert` works when the profile's issuer can revoke: an upstream ACME CA or AWS Private CA. The
+ordering account, or a request signed by the certificate's own key, may revoke it. The built-in local CA
+publishes no revocation, so revocation there is refused with `unauthorized`; keep lifetimes short instead.
+
+## Endpoints
+
+| Path under `/acme/<profile>/` | RFC 8555 |
+|---|---|
+| `directory` | 7.1.1 (`meta.externalAccountRequired` is true) |
+| `new-nonce` (HEAD, GET) | 7.2 |
+| `new-account`, `acct/<id>` (contact update, deactivate), `acct/<id>/orders` | 7.3 |
+| `new-order`, `order/<id>`, `order/<id>/finalize` | 7.4 |
+| `authz/<order>/<n>`, `chall/<order>/<n>` (always valid) | 7.5 |
+| `cert/<order>` (`application/pem-certificate-chain`) | 7.4.2 |
+| `revoke-cert` | 7.6 |
+
+**Not supported:** challenge validation (`http-01`, `dns-01`, `tls-alpn-01`: names are authorized by
+policy), `keyChange` (register a new account with a new EAB key), `newAuthz`, `notBefore`/`notAfter` in
+orders (the profile sets the lifetime), and ARI renewal information. IP address identifiers are refused
+with `unsupportedIdentifier`.
