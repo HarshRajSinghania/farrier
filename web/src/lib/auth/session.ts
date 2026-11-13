@@ -5,7 +5,7 @@
  * sign-in. Nothing is stored server-side, so it works across replicas.
  */
 import type { NextRequest, NextResponse } from "next/server";
-import type { OidcConfig } from "./config";
+import type { SessionConfig } from "./config";
 import { configuredOrigin } from "./request";
 import type { Role } from "./roles";
 import { seal, unseal } from "./seal";
@@ -15,6 +15,9 @@ export const TX_PURPOSE = "farrier-oidc-tx+jwe";
 const SECURE_NAME = "__Host-farrier_session";
 const PLAIN_NAME = "farrier_session";
 export const TX_COOKIE = "farrier_oidc_tx";
+export const SAML_TX_PURPOSE = "farrier-saml-tx+jwe";
+/** SameSite=None (so it comes back on the IdP's cross-site POST), hence always Secure; scoped to /auth/saml. */
+export const SAML_TX_COOKIE = "farrier_saml_tx";
 /** Refresh the idle clock at most this often, so most requests don't rewrite the cookie. */
 const TOUCH_AFTER = 60;
 
@@ -23,7 +26,7 @@ export interface Session {
   email?: string;
   name?: string;
   role: Role;
-  /** values of FARRIER_OIDC_PROJECT_CLAIM (project membership is worked out per request from these) */
+  /** values of FARRIER_OIDC_PROJECT_CLAIM / FARRIER_SAML_PROJECT_ATTRIBUTE (project membership is worked out per request from these) */
   grp?: string[];
   /** the ID token, kept only when small enough, as the logout hint */
   idt?: string;
@@ -71,7 +74,7 @@ export function hasSessionCookie(req: NextRequest) {
 }
 
 /** The session if it is intact and inside both timeouts. */
-export async function readSession(req: NextRequest, cfg: OidcConfig): Promise<(Session & { exp: number }) | null> {
+export async function readSession(req: NextRequest, cfg: SessionConfig): Promise<(Session & { exp: number }) | null> {
   const raw = req.cookies.get(cookieName(req))?.value;
   const s = await unseal<Session & Record<string, unknown>>(raw, cfg.sessionSecret, SESSION_PURPOSE);
   if (!s || typeof s.sub !== "string" || typeof s.lsa !== "number" || typeof s.sat !== "number") return null;
@@ -81,7 +84,7 @@ export async function readSession(req: NextRequest, cfg: OidcConfig): Promise<(S
   return s;
 }
 
-export async function writeSession(res: NextResponse, req: NextRequest, cfg: OidcConfig, s: Session) {
+export async function writeSession(res: NextResponse, req: NextRequest, cfg: SessionConfig, s: Session) {
   const exp = s.sat + cfg.maxSeconds;
   const value = await seal({ ...s }, cfg.sessionSecret, SESSION_PURPOSE, exp);
   res.cookies.set(cookieName(req), value, {
@@ -94,7 +97,7 @@ export async function writeSession(res: NextResponse, req: NextRequest, cfg: Oid
 }
 
 /** Slide the idle window forward when it is worth a cookie rewrite. */
-export async function touchSession(res: NextResponse, req: NextRequest, cfg: OidcConfig, s: Session) {
+export async function touchSession(res: NextResponse, req: NextRequest, cfg: SessionConfig, s: Session) {
   if (now() - s.lsa < TOUCH_AFTER) return;
   const { sub, email, name, role, grp, idt, sat } = s;
   await writeSession(res, req, cfg, { sub, email, name, role, grp, idt, sat, lsa: now() });

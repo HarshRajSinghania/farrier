@@ -186,7 +186,7 @@ export default function ProjectsPage() {
             )}
           </Card>
           <p className="mt-4 text-xs text-muted-foreground">
-            Group names are matched against the FARRIER_OIDC_PROJECT_CLAIM claim (default: the role claim). Edits here apply
+            Group names are matched against the FARRIER_OIDC_PROJECT_CLAIM claim (SAML: FARRIER_SAML_PROJECT_ATTRIBUTE; default: the role claim or groups attribute). Edits here apply
             within seconds; a person&apos;s own groups are read when they sign in.
           </p>
         </>

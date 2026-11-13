@@ -120,6 +120,7 @@ Keys each component needs (names configurable under `secrets.keys`):
 | `database-password` | postgresql/mysql | | Mounted at `/run/secrets/farrier-db/password`. |
 | `dashboard-password` | | `web.auth.mode=basic` | |
 | `oidc-client-secret`, `session-secret` | | `web.auth.mode=oidc` | |
+| `session-secret` | | `web.auth.mode=saml` | The IdP certificate is public: it goes in `web.auth.saml.idpCert`. |
 
 The web Secret is separate from the engine's so that dashboard pods can't read the master key or
 database password. Device, DNS and notifier credentials go in `engine.deviceSecrets.existingSecret`,
@@ -135,7 +136,7 @@ With `networkPolicy.enabled` (the default) both components are default-deny:
 | engine ingress | web pods and the `helm test` pod on 8740; Prometheus on 8740 when `engine.networkPolicy.metricsNamespaceSelector` is set. |
 | engine egress | cluster DNS; the database (`engine.networkPolicy.database.cidrs`, required with an external database); device management networks (`managementNetworks`: CIDR + ports); TCP 443 to the internet except private ranges and link-local (`internet`); the workload identity endpoint `cloud.provider` needs, and only that; `extraEgress`. |
 | web ingress | TCP 3000, from `web.networkPolicy.ingressFrom` when set (e.g. your ingress controller's namespace). |
-| web egress | cluster DNS; the engine on 8740; the IdP on 443 in OIDC mode (`web.networkPolicy.idp`); `extraEgress`. |
+| web egress | cluster DNS; the engine on 8740; the IdP on 443 in OIDC or SAML mode (`web.networkPolicy.idp`); `extraEgress`. |
 
 Cluster-specific additions go in `extraEgress`:
 
@@ -295,9 +296,9 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `secrets.keys.databasePassword` | `"database-password"` | Database password (engine, mounted as a file). Not needed for sqlite. |
 | `secrets.keys.dashboardPassword` | `"dashboard-password"` | Dashboard Basic-auth password (FARRIER_DASHBOARD_PASSWORD, web, web.auth.mode=basic). |
 | `secrets.keys.oidcClientSecret` | `"oidc-client-secret"` | OIDC client secret (FARRIER_OIDC_CLIENT_SECRET, web, web.auth.mode=oidc). |
-| `secrets.keys.sessionSecret` | `"session-secret"` | Session cookie encryption key, 32+ random bytes (FARRIER_SESSION_SECRET, web, oidc). |
+| `secrets.keys.sessionSecret` | `"session-secret"` | Session cookie encryption key, 32+ random bytes (FARRIER_SESSION_SECRET, web, oidc and saml). |
 | `secrets.existingSecret.engine` | `""` | Secret holding the engine keys (apiToken, apiReadToken, masterKey, databasePassword). Required when mode=existingSecret. |
-| `secrets.existingSecret.web` | `""` | Secret holding the web keys (apiToken, apiReadToken, and dashboardPassword or oidcClientSecret + sessionSecret). May be the same Secret as the engine's, but a separate one keeps the master key and database password out of the web pods' reach. |
+| `secrets.existingSecret.web` | `""` | Secret holding the web keys (apiToken, apiReadToken, and dashboardPassword, oidcClientSecret + sessionSecret, or sessionSecret for saml). May be the same Secret as the engine's, but a separate one keeps the master key and database password out of the web pods' reach. |
 | `secrets.externalSecrets.apiVersion` | `"external-secrets.io/v1"` | ExternalSecret API version. external-secrets.io/v1 needs ESO >= 0.17; use external-secrets.io/v1beta1 for older operators. |
 | `secrets.externalSecrets.refreshInterval` | `"1h"` | How often ESO re-reads the remote secrets. |
 | `secrets.externalSecrets.secretStoreRef.name` | `""` | Name of the SecretStore / ClusterSecretStore to read from. Required in this mode. |
@@ -396,7 +397,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `web.siteUrl` | `""` | Public URL of the dashboard (NEXT_PUBLIC_SITE_URL). Empty derives https://<first host> from the Ingress or HTTPRoute. Use https:// to turn on HSTS and __Host- cookies. |
 | `web.trustedProxyHops` | `1` | FARRIER_TRUSTED_PROXY_HOPS: X-Forwarded-For entries your own proxies append (1 = one Ingress/Gateway, 2 = a CDN or cloud LB in front of it, 0 = ignore the header). |
 | `web.apiUrl` | `""` | FARRIER_API_URL override. Empty uses the engine Service: http://<engine>.<namespace>.svc.<clusterDomain>:<port>. |
-| `web.auth.mode` | `"basic"` | basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login) or oidc (single sign-on with viewer/operator/admin roles). A production dashboard refuses to run with neither. |
+| `web.auth.mode` | `"basic"` | basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login), oidc or saml (single sign-on with viewer/operator/admin roles). A production dashboard refuses to run with none. |
 | `web.auth.basic.user` | `"admin"` | FARRIER_DASHBOARD_USER. |
 | `web.auth.oidc.issuer` | `""` | FARRIER_OIDC_ISSUER, e.g. https://example.okta.com/oauth2/default. Required for oidc. |
 | `web.auth.oidc.clientId` | `""` | FARRIER_OIDC_CLIENT_ID. Required for oidc. |
@@ -409,6 +410,19 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `web.auth.oidc.postLogoutRedirectUri` | `""` | FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI. Empty derives it from the request. |
 | `web.auth.oidc.sessionIdleMinutes` | `60` | FARRIER_SESSION_IDLE_MINUTES. |
 | `web.auth.oidc.sessionMaxHours` | `12` | FARRIER_SESSION_MAX_HOURS. |
+| `web.auth.saml.idpMetadataUrl` | `""` | FARRIER_SAML_IDP_METADATA_URL (https): the IdP's SSO URL, signing certificate and entity id. Required for saml unless idpSsoUrl and idpCert are set. |
+| `web.auth.saml.idpSsoUrl` | `""` | FARRIER_SAML_IDP_SSO_URL (HTTP-Redirect binding). Overrides the metadata's. |
+| `web.auth.saml.idpCert` | `""` | FARRIER_SAML_IDP_CERT: the IdP signing certificate, PEM or base64 (public, not a secret). Overrides the metadata's. |
+| `web.auth.saml.idpEntityId` | `""` | FARRIER_SAML_IDP_ENTITY_ID: the Issuer to expect. Empty uses the metadata's. |
+| `web.auth.saml.spEntityId` | `""` | FARRIER_SAML_SP_ENTITY_ID. Empty uses <siteUrl>/auth/saml/metadata. |
+| `web.auth.saml.groupsAttribute` | `"groups"` | FARRIER_SAML_GROUPS_ATTRIBUTE: attribute holding groups (Entra: http://schemas.microsoft.com/ws/2008/06/identity/claims/groups). |
+| `web.auth.saml.emailAttribute` | `"email"` | FARRIER_SAML_EMAIL_ATTRIBUTE. Without it, an emailAddress NameID is used. |
+| `web.auth.saml.nameAttribute` | `"displayName"` | FARRIER_SAML_NAME_ATTRIBUTE. |
+| `web.auth.saml.adminGroups` | `""` | FARRIER_SAML_ADMIN_GROUPS, comma-separated. |
+| `web.auth.saml.operatorGroups` | `""` | FARRIER_SAML_OPERATOR_GROUPS, comma-separated. |
+| `web.auth.saml.allowedGroups` | `""` | FARRIER_SAML_ALLOWED_GROUPS: refuse anyone outside these (and admin/operator) groups. |
+| `web.auth.saml.sessionIdleMinutes` | `60` | FARRIER_SESSION_IDLE_MINUTES. |
+| `web.auth.saml.sessionMaxHours` | `12` | FARRIER_SESSION_MAX_HOURS. |
 | `web.config` | `{}` | Extra non-secret settings rendered into the web ConfigMap as env vars. |
 | `web.extraEnv` | `[]` | Extra env vars (full EnvVar objects, valueFrom allowed). |
 | `web.extraEnvFrom` | `[]` | Extra envFrom sources. |
@@ -460,7 +474,7 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `web.revisionHistoryLimit` | `5` | Old ReplicaSets to keep. |
 | `web.terminationGracePeriodSeconds` | `30` | Seconds the dashboard gets to finish requests on shutdown. |
 | `web.networkPolicy.ingressFrom` | `[]` | Peers allowed to reach the dashboard on 3000 (NetworkPolicyPeer list), e.g. your ingress controller's namespace. Empty allows any source on port 3000 only. |
-| `web.networkPolicy.idp.enabled` | `true` | Allow 443 egress to the identity provider (oidc mode). |
+| `web.networkPolicy.idp.enabled` | `true` | Allow 443 egress to the identity provider (oidc and saml modes). |
 | `web.networkPolicy.idp.cidrs` | `["0.0.0.0/0"]` | IdP CIDRs. The default is the internet without private ranges; narrow it, or add your internal IdP's range. |
 | `web.networkPolicy.idp.except` | `["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.25...` | Ranges excluded from each IdP CIDR. |
 | `web.networkPolicy.extraEgress` | `[]` | Extra raw egress rules (NetworkPolicyEgressRule). |

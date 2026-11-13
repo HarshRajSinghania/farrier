@@ -191,6 +191,8 @@ directory is an emptyDir, so a key generated per pod would differ between replic
 {{- else if eq $v.web.auth.mode "oidc" -}}
 {{- $keys = append $keys (dict "id" "oidcClientSecret" "env" "FARRIER_OIDC_CLIENT_SECRET" "optional" false) -}}
 {{- $keys = append $keys (dict "id" "sessionSecret" "env" "FARRIER_SESSION_SECRET" "optional" false) -}}
+{{- else if eq $v.web.auth.mode "saml" -}}
+{{- $keys = append $keys (dict "id" "sessionSecret" "env" "FARRIER_SESSION_SECRET" "optional" false) -}}
 {{- else -}}
 {{- $keys = append $keys (dict "id" "dashboardPassword" "env" "FARRIER_DASHBOARD_PASSWORD" "optional" false) -}}
 {{- end -}}
@@ -387,6 +389,25 @@ annotation. In existingSecret mode only names and keys are known: rotate values 
 {{- $redirect := $o.redirectUri | default (ternary (printf "%s/auth/callback" (trimSuffix "/" $site)) "" (ne $site "")) -}}
 {{- $_ := set $d "FARRIER_OIDC_REDIRECT_URI" (required "web.auth.oidc.redirectUri (or web.siteUrl, an Ingress host or an HTTPRoute hostname) is required when web.auth.mode=oidc" $redirect) -}}
 {{- with $o.postLogoutRedirectUri }}{{ $_ := set $d "FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI" . }}{{ end -}}
+{{- else if eq $w.auth.mode "saml" -}}
+{{- $s := $w.auth.saml -}}
+{{- if not (or $s.idpMetadataUrl $s.idpSsoUrl) }}{{ fail "web.auth.saml.idpMetadataUrl (or idpSsoUrl and idpCert) is required when web.auth.mode=saml" }}{{ end -}}
+{{- if and $s.idpSsoUrl (not $s.idpMetadataUrl) (not $s.idpCert) }}{{ fail "web.auth.saml.idpCert is required with idpSsoUrl and no idpMetadataUrl" }}{{ end -}}
+{{- /* Production refuses to start without a configured public URL: the ACS URL and audience come from it. */ -}}
+{{- $_ := required "web.siteUrl (or an Ingress host or an HTTPRoute hostname) is required when web.auth.mode=saml" (include "farrier.web.siteUrl" .) -}}
+{{- with $s.idpMetadataUrl }}{{ $_ := set $d "FARRIER_SAML_IDP_METADATA_URL" . }}{{ end -}}
+{{- with $s.idpSsoUrl }}{{ $_ := set $d "FARRIER_SAML_IDP_SSO_URL" . }}{{ end -}}
+{{- with $s.idpCert }}{{ $_ := set $d "FARRIER_SAML_IDP_CERT" . }}{{ end -}}
+{{- with $s.idpEntityId }}{{ $_ := set $d "FARRIER_SAML_IDP_ENTITY_ID" . }}{{ end -}}
+{{- with $s.spEntityId }}{{ $_ := set $d "FARRIER_SAML_SP_ENTITY_ID" . }}{{ end -}}
+{{- $_ := set $d "FARRIER_SAML_GROUPS_ATTRIBUTE" $s.groupsAttribute -}}
+{{- $_ := set $d "FARRIER_SAML_EMAIL_ATTRIBUTE" $s.emailAttribute -}}
+{{- $_ := set $d "FARRIER_SAML_NAME_ATTRIBUTE" $s.nameAttribute -}}
+{{- $_ := set $d "FARRIER_SESSION_IDLE_MINUTES" ($s.sessionIdleMinutes | toString) -}}
+{{- $_ := set $d "FARRIER_SESSION_MAX_HOURS" ($s.sessionMaxHours | toString) -}}
+{{- with $s.adminGroups }}{{ $_ := set $d "FARRIER_SAML_ADMIN_GROUPS" . }}{{ end -}}
+{{- with $s.operatorGroups }}{{ $_ := set $d "FARRIER_SAML_OPERATOR_GROUPS" . }}{{ end -}}
+{{- with $s.allowedGroups }}{{ $_ := set $d "FARRIER_SAML_ALLOWED_GROUPS" . }}{{ end -}}
 {{- else -}}
 {{- $_ := set $d "FARRIER_DASHBOARD_USER" $w.auth.basic.user -}}
 {{- end -}}

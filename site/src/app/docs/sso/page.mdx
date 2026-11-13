@@ -1,11 +1,13 @@
 export const metadata = {
   title: "Single sign-on and roles",
-  description: "Sign in to the Farrier dashboard with Okta, Entra ID, Google, Keycloak or any OIDC provider, with viewer, operator and admin roles.",
+  description: "Sign in to the Farrier dashboard with OpenID Connect or SAML 2.0 (Okta, Entra ID, ADFS, Google, Keycloak), with viewer, operator and admin roles.",
 };
 
 # Single sign-on and roles
 
-The dashboard signs people in with OpenID Connect (authorization code flow with PKCE) and gives each person a role from their identity provider's groups. It works with Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Authentik, JumpCloud, PingFederate and any compliant provider.
+The dashboard signs people in with OpenID Connect (authorization code flow with PKCE) or [SAML 2.0](#saml-20), and gives each person a role from their identity provider's groups. OIDC works with Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Authentik, JumpCloud, PingFederate and any compliant provider. SAML covers the same providers plus ADFS and anything else that speaks SAML 2.0.
+
+Turn on one method at a time. If both `FARRIER_OIDC_ISSUER` and a `FARRIER_SAML_IDP_*` URL are set, sign-in fails closed with a configuration error.
 
 ## Register Farrier with your provider
 
@@ -50,7 +52,7 @@ Roles are fixed at sign-in, so a group change takes effect at the next sign-in.
 
 ## Sessions
 
-The session is one encrypted cookie: HttpOnly, SameSite=Lax, and `Secure` with a `__Host-` name over HTTPS. It ends after `FARRIER_SESSION_IDLE_MINUTES` (default 60) of inactivity or `FARRIER_SESSION_MAX_HOURS` (default 12) in total. Changes from another site are refused (`Sec-Fetch-Site` and `Origin` checks). Signing out clears the cookie and ends the provider session when the provider supports it.
+The session is one encrypted cookie: HttpOnly, SameSite=Lax, and `Secure` with a `__Host-` name over HTTPS. It ends after `FARRIER_SESSION_IDLE_MINUTES` (default 60) of inactivity or `FARRIER_SESSION_MAX_HOURS` (default 12) in total. Changes from another site are refused (`Sec-Fetch-Site` and `Origin` checks). Signing out clears the cookie and, with OIDC, ends the provider session when the provider supports it (SAML: see [Limits](#limits)).
 
 | Variable | Default |
 |---|---|
@@ -59,4 +61,82 @@ The session is one encrypted cookie: HttpOnly, SameSite=Lax, and `Secure` with a
 | `FARRIER_OIDC_REDIRECT_URI` | Required in production: the exact redirect URI registered with the provider. Development only: derived from the request |
 | `FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI` | derived from the request |
 
-Without OIDC, `FARRIER_DASHBOARD_PASSWORD` turns on HTTP Basic auth with a lockout. A production dashboard refuses to front a live engine with neither.
+Without single sign-on, `FARRIER_DASHBOARD_PASSWORD` turns on HTTP Basic auth with a lockout. A production dashboard refuses to front a live engine with neither.
+
+## SAML 2.0
+
+Use SAML when your identity team or your auditors require it. Farrier is a SAML service provider with SP-initiated sign-on: the dashboard sends an AuthnRequest with the HTTP-Redirect binding, and the IdP posts the response back to the assertion consumer service (ACS) with the HTTP-POST binding. People get the same session, roles and projects as with OIDC.
+
+```bash title="web.env"
+FARRIER_SAML_IDP_METADATA_URL=https://example.okta.com/app/exk1a2b3c4/sso/saml/metadata
+NEXT_PUBLIC_SITE_URL=https://farrier.example.com      # required in production
+FARRIER_SESSION_SECRET=...                            # 32+ random bytes: openssl rand -base64 48
+FARRIER_SAML_GROUPS_ATTRIBUTE=groups
+FARRIER_SAML_ADMIN_GROUPS=pki-admins
+FARRIER_SAML_OPERATOR_GROUPS=netops,secops
+```
+
+### What to give your IdP
+
+| Setting | Value |
+|---|---|
+| SP metadata URL | `https://farrier.example.com/auth/saml/metadata` (import it where the IdP allows) |
+| Entity ID / Audience / Identifier | `https://farrier.example.com/auth/saml/metadata`, or your `FARRIER_SAML_SP_ENTITY_ID` |
+| ACS / Reply / Single sign-on URL | `https://farrier.example.com/auth/saml/acs` (HTTP-POST) |
+| Sign-on / start URL (for app tiles) | `https://farrier.example.com/auth/login` |
+| Signing | Sign the assertion, the response, or both, with RSA-SHA256 |
+| Encryption | Off (Farrier does not take encrypted assertions; TLS protects the POST) |
+| Name ID | A stable identifier. Use the email format if you send no email attribute |
+
+### Variables
+
+| Variable | Default |
+|---|---|
+| `FARRIER_SAML_IDP_METADATA_URL` | The IdP's metadata (https). Farrier reads the SSO URL (HTTP-Redirect), signing certificates and entity ID, and refreshes them hourly. |
+| `FARRIER_SAML_IDP_SSO_URL` | From the metadata. Set this and `FARRIER_SAML_IDP_CERT` to configure without metadata. |
+| `FARRIER_SAML_IDP_CERT` | From the metadata. The IdP signing certificate, PEM or bare base64. Several certificates (PEM blocks, or base64 separated by commas) allow a rollover. Setting it pins the certificate, so a changed metadata document can't change the key. |
+| `FARRIER_SAML_IDP_ENTITY_ID` | From the metadata. The assertion's `Issuer` must match it. |
+| `FARRIER_SAML_SP_ENTITY_ID` | `<site URL>/auth/saml/metadata` |
+| `FARRIER_SAML_GROUPS_ATTRIBUTE` | `groups`. The attribute whose values are matched against the group lists |
+| `FARRIER_SAML_ADMIN_GROUPS`, `FARRIER_SAML_OPERATOR_GROUPS`, `FARRIER_SAML_ALLOWED_GROUPS` | Comma-separated, with the same rules as the `FARRIER_OIDC_*` ones in [Roles](#roles) |
+| `FARRIER_SAML_PROJECT_ATTRIBUTE` | The groups attribute. Its values are matched against each project's member groups |
+| `FARRIER_SAML_EMAIL_ATTRIBUTE` | `email`. Without it, an email-format Name ID is used |
+| `FARRIER_SAML_NAME_ATTRIBUTE` | `displayName` |
+
+`FARRIER_SESSION_SECRET`, `FARRIER_SESSION_IDLE_MINUTES` and `FARRIER_SESSION_MAX_HOURS` work as they do for OIDC. In production the ACS URL and audience come from `NEXT_PUBLIC_SITE_URL`, never from the request's `Host` header. As with OIDC, anything missing or invalid fails closed.
+
+### Attribute mapping
+
+Groups map to roles exactly as OIDC claims do: admin groups win over operator groups, everyone else is a viewer, and `FARRIER_SAML_ALLOWED_GROUPS` refuses outsiders. Matching is case-insensitive, and a leading `/` (Keycloak group paths) is ignored. Use the attribute's full `Name` as the IdP sends it. For Entra ID and ADFS that is a URI.
+
+### Provider notes
+
+- **Okta:** create a SAML 2.0 app integration. Set **Single sign-on URL** to the ACS URL and **Audience URI** to the entity ID, with the EmailAddress Name ID format. Add an attribute statement `email` = `user.email` and a group attribute statement `groups` (for example, filter "Starts with" `farrier-`). Copy the **Metadata URL** from the Sign On tab.
+- **Microsoft Entra ID:** go to Enterprise applications, then New application, then Create your own, and choose Single sign-on, then SAML. Set **Identifier** to the entity ID, **Reply URL** to the ACS URL and **Sign on URL** to `/auth/login`. Add a group claim, then set `FARRIER_SAML_GROUPS_ATTRIBUTE=http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`, `FARRIER_SAML_EMAIL_ATTRIBUTE=http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` and `FARRIER_SAML_NAME_ATTRIBUTE=http://schemas.microsoft.com/identity/claims/displayname`. Groups arrive as object IDs, so list the IDs in the group variables. Past 150 groups Entra sends a link instead of the list, so choose "Groups assigned to the application". The metadata URL is the **App Federation Metadata Url**.
+- **ADFS:** add a relying party trust from the SP metadata URL. Add claim rules for E-Mail-Address (as E-Mail Address) and Token-Groups - Unqualified Names (as Group), and transform E-Mail Address to a Name ID in Email format, because ADFS sends no Name ID by default. Set `FARRIER_SAML_GROUPS_ATTRIBUTE=http://schemas.xmlsoap.org/claims/Group` and `FARRIER_SAML_EMAIL_ATTRIBUTE=http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`. The metadata is at `https://adfs.example.com/FederationMetadata/2007-06/FederationMetadata.xml`.
+- **Keycloak:** create a SAML client whose Client ID is the entity ID, with the ACS URL as a valid redirect URI and the assertion consumer POST URL. Turn **Client signature required** off, because Farrier doesn't sign AuthnRequests. Add a Group list mapper named `groups` with full group path off, and a User Property mapper `email`. The metadata is at `https://keycloak.example.com/realms/<realm>/protocol/saml/descriptor`.
+
+### What Farrier checks
+
+A response signs someone in only if all of these hold:
+
+- An XML signature on the Response or the Assertion verifies against the configured IdP certificate. Unsigned assertions are refused, and certificates embedded in the message are ignored.
+- The response carries exactly one assertion, and the assertion read is the one that was signed. This defeats signature-wrapping attacks.
+- `InResponseTo` names the AuthnRequest this browser started. Its ID is kept in a short-lived encrypted cookie, so this works across replicas. Unsolicited (IdP-initiated) responses are refused.
+- The `Issuer` matches the IdP, the `Audience` is Farrier's entity ID, and the Response's `Destination` and the bearer confirmation's `Recipient` are the ACS URL.
+- `NotBefore` and `NotOnOrAfter` hold, with 60 seconds of allowed clock skew.
+- The assertion ID hasn't been used before while it is still valid (replay).
+
+XML parsing and signature checks use [`@node-saml/node-saml`](https://github.com/node-saml/node-saml) (xml-crypto), pinned to an exact version.
+
+### Limits
+
+- **No Single Logout.** Signing out ends the Farrier session only. The IdP session stays open, so the next sign-in may not prompt.
+- **No IdP-initiated sign-on.** For an Okta or Entra app tile, point the tile at `https://farrier.example.com/auth/login`, which starts an SP-initiated sign-in.
+- **No encrypted assertions, and AuthnRequests are unsigned.** The HTTP-Redirect request carries nothing secret.
+- **HTTPS only.** The request cookie must return on the IdP's cross-site POST, so it is `SameSite=None; Secure`. Browsers accept that on `http://localhost` for development.
+- **Replay memory is per replica.** Within an assertion's validity window, a captured response together with that browser's request cookie could be replayed once on each other replica.
+
+## Why there is no SCIM
+
+Farrier keeps no user accounts. Each sign-in, through OIDC or SAML, brings the person's identity and groups from the IdP, and the role and projects are worked out from them then. So there is nothing to provision, update or deprovision, and Farrier has no SCIM endpoint. To remove someone, remove them in the IdP or take them out of the groups. Their next sign-in is refused or downgraded, and an open session ends within `FARRIER_SESSION_IDLE_MINUTES` of inactivity, or `FARRIER_SESSION_MAX_HOURS` at most.
