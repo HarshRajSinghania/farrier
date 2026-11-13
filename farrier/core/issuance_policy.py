@@ -23,13 +23,17 @@ def rules_for(policy: dict | None, project: str | None) -> dict | None:
     return policy.get(project or "default") or policy.get("default")
 
 
+def name_allowed(name: str, patterns: list[str]) -> bool:
+    return any(fnmatchcase(name.lower(), p.lower()) for p in patterns)
+
+
 def violations(rules: dict | None, names: list[str], issuer: str, key_type: str) -> list[str]:
     """Human-readable reasons this issuance breaks the rules (empty: allowed)."""
     if not rules:
         return []
     out = []
     if (allowed := rules.get("allowed_names")) is not None:
-        bad = [n for n in names if not any(fnmatchcase(n.lower(), p.lower()) for p in allowed)]
+        bad = [n for n in names if not name_allowed(n, allowed)]
         if bad:
             out.append(f"names not allowed: {', '.join(bad)}")
     if (allowed := rules.get("allowed_issuers")) is not None and issuer not in allowed:
