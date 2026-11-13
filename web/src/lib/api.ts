@@ -12,6 +12,7 @@ import type {
   CryptoSummary,
   CtName,
   RunnerGroup,
+  CloudInventory,
   ConnectorInfo,
   DiscoverResult,
   DnsAccount,
@@ -135,6 +136,7 @@ export const useConfig = () => useSWR<FarrierConfig>("/config", fetcher);
 export const useCatalog = () => useSWR<IntegrationCatalog>("/integrations/catalog", fetcher, { revalidateOnFocus: false });
 export const useSecrets = () => useSWR<SecretInfo[]>("/secrets", fetcher);
 export const useIssuers = () => useSWR<Issuer[]>("/issuers", fetcher);
+export const useCloudCertificates = () => useSWR<CloudInventory>("/cloud/certificates", fetcher, { revalidateOnFocus: false });
 export const useRunners = () => useSWR<RunnerGroup[]>("/runners", fetcher, live);
 export const useDnsAccounts = () => useSWR<DnsAccount[]>("/dns-accounts", fetcher);
 export const useNotifiers = () => useSWR<NotifierChannel[]>("/notifiers", fetcher);
@@ -176,6 +178,7 @@ export const api = {
     act<DiscoverResult>("/discover", { method: "POST", body: JSON.stringify({ targets, project: currentProject() ?? undefined }) }),
   runnerToken: (group: string) => act<{ group: string; token: string }>(`/runners/${encodeURIComponent(group)}/token`, { method: "POST" }),
   revokeRunner: (group: string) => act<{ ok: true }>(`/runners/${encodeURIComponent(group)}/token`, { method: "DELETE" }),
+  refreshCloud: () => request<CloudInventory>("/cloud/certificates?refresh=true"),
   ctNames: (domain: string) => request<CtName[]>(`/discover/ct?domain=${encodeURIComponent(domain)}`),
   runbook: (id: number) => request<{ markdown: string }>(`/renewals/${id}/runbook`),
   packUrl: (id: number) => `${BASE}/renewals/${id}/pack`,

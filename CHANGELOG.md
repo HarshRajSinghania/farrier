@@ -40,6 +40,9 @@ a tag that doesn't match both versions and this file.
   connects out over HTTPS and runs that group's observe, deploy, verify and rollback jobs with the
   same connectors; device credentials can stay on the runner. Group tokens from `farrier runner token`
   or **Settings → Remote runners** (schema migration 9).
+- Cloud certificate inventory: **Certificates → Cloud**, `farrier cloud-certs` and
+  `GET /api/cloud/certificates` list certificates in AWS ACM, Azure Key Vault and Google Certificate
+  Manager (settings `cloud_inventory`).
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 

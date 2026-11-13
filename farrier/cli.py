@@ -304,6 +304,20 @@ def cmd_endpoints_approve(args):
     _emit(args, {"ok": True, "endpoint_id": ep["id"]}, lambda: [f"{ep['name']} approved for renewal"])
 
 
+def cmd_cloud_certs(args):
+    from farrier.monitoring.cloud_inventory import inventory
+    eng = _engine(args)
+    cfg = eng.settings.get("cloud_inventory")
+    if not cfg:
+        sys.exit('farrier cloud-certs: add "cloud_inventory" to settings.json (aws_regions, azure_vaults, gcp_projects)')
+    out = inventory(cfg)
+    _emit(args, out, lambda: [f"{(c['not_after'] or '?')[:10]:<11}{c['source']:<24}{c['location']:<16}"
+                              f"{'in use  ' if c['in_use'] else '        '}{c['name']}" for c in out["certificates"]]
+          + [f"error: {e['source']} {e['location']}: {e['error']}" for e in out["errors"]])
+    if out["errors"]:
+        sys.exit(1)
+
+
 def cmd_ct(args):
     from farrier.core.ct import ct_names
     try:
@@ -538,6 +552,9 @@ def main(argv=None):
     x.add_argument("group", help="e.g. dmz-frankfurt")
     x.set_defaults(fn=cmd_runner)
     js(rsub.add_parser("list", help="runner groups: endpoints, pending jobs, last seen")).set_defaults(fn=cmd_runner)
+
+    js(sub.add_parser("cloud-certs", help="certificates in AWS ACM, Azure Key Vault and Google Certificate Manager "
+                      "(settings.json cloud_inventory)")).set_defaults(fn=cmd_cloud_certs)
 
     x = js(sub.add_parser("ct", help="names with a valid public certificate under a domain, from Certificate "
                           "Transparency logs (crt.sh)"))

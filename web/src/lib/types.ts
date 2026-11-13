@@ -278,6 +278,25 @@ export interface DnsProviderInfo {
   label: string;
   fields: CatalogField[];
 }
+/** A certificate held in a cloud certificate store (farrier.monitoring.cloud_inventory). */
+export interface CloudCertificate {
+  source: "aws-acm" | "azure-keyvault" | "gcp-certificate-manager";
+  location: string;
+  name: string;
+  id: string;
+  domains: string[];
+  not_after: string | null;
+  days_left: number | null;
+  in_use: boolean | null;
+  managed: boolean | null;
+  status: string | null;
+}
+export interface CloudInventory {
+  configured: boolean;
+  certificates: CloudCertificate[];
+  errors: { source: string; location: string; error: string }[];
+  listed_at: string | null;
+}
 /** A remote runner group (farrier.core.runners): its endpoints are reached only through its runners. */
 export interface RunnerGroup {
   group: string;

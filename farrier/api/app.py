@@ -6,6 +6,7 @@ import io
 import os
 import re
 import threading
+import time
 import zipfile
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -23,7 +24,7 @@ from farrier.connectors import REGISTRY, is_automated, make_connector
 from farrier.core import policy
 from farrier.core.discovery import expand_targets, scan
 from farrier.core.engine import Engine, NotApproved
-from farrier.db.store import OPEN_STATES, parse_dt
+from farrier.db.store import OPEN_STATES, now_iso, parse_dt
 from farrier.security.vault import REF_PREFIXES, SecretRefused, check_secret_refs
 
 
@@ -340,6 +341,20 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         with lock:
             reg = engine.register_scan(results, pid, None if sc.all else sc.has_row)
         return reg | {"scanned": len(targets), "with_tls": sum(1 for r in results if r.cert)}
+
+    cloud_cache: dict = {}
+
+    @app.get("/api/cloud/certificates", dependencies=[Depends(auth), Depends(guard.global_only)])
+    def cloud_certificates(refresh: bool = False):
+        """Certificates in AWS ACM, Azure Key Vault and Google Certificate Manager (settings cloud_inventory),
+        cached for 15 minutes; ?refresh=true lists again."""
+        from farrier.monitoring.cloud_inventory import inventory
+        cfg = engine.settings.get("cloud_inventory")
+        if not cfg:
+            return {"configured": False, "certificates": [], "errors": [], "listed_at": None}
+        if refresh or not cloud_cache or time.monotonic() - cloud_cache["at"] > 900:
+            cloud_cache.update(at=time.monotonic(), data=inventory(cfg) | {"listed_at": now_iso()})
+        return {"configured": True, **cloud_cache["data"]}
 
     @app.get("/api/discover/ct", dependencies=[Depends(auth)])
     def discover_ct(domain: str):

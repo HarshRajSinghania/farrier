@@ -37,6 +37,7 @@ const NAV: { label: string; icon: typeof LayoutDashboard; pages: Page[] }[] = [
       { href: "/dashboard/endpoints", label: "Inventory" },
       { href: "/dashboard/renewals", label: "Renewals", badge: true },
       { href: "/dashboard/discovery", label: "Discovery" },
+      { href: "/dashboard/cloud", label: "Cloud" },
     ],
   },
   {

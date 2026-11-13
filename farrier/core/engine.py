@@ -88,6 +88,8 @@ class Engine:
         file_settings = json.loads(sp.read_text()) if sp.exists() else {}
         self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
         issuance_policy.validate(self.settings.get("policy"))
+        from farrier.monitoring.cloud_inventory import validate as validate_cloud_inventory
+        validate_cloud_inventory(self.settings.get("cloud_inventory"))
         # issuers passed in (tests, embedding) are kept; dashboard-configured ones are added around them
         self._explicit_issuers = issuers
         self._issuers = None
