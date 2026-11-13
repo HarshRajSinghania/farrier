@@ -316,6 +316,35 @@ def cmd_ct(args):
                                                     + " ".join(hosts[:5]) + (" ..." if len(hosts) > 5 else "")])
 
 
+def cmd_runner(args):
+    if args.runner_cmd == "start":
+        from farrier.runner import run
+        token = os.environ.get("FARRIER_RUNNER_TOKEN") or (Path(args.token_file).read_text().strip()
+                                                            if args.token_file else "")
+        if not token:
+            sys.exit("farrier runner: set FARRIER_RUNNER_TOKEN or --token-file (create one with `farrier runner token`)")
+        verify = args.ca or not args.insecure
+        print(f"farrier runner polling {args.url} every {args.interval:g}s", flush=True)
+        run(args.url, token, once=args.once, interval=args.interval, verify_tls=verify,
+            log=lambda *a, **k: print(*a, **k, flush=True))
+        return
+    eng = _engine(args)
+    if args.runner_cmd == "token":
+        try:
+            token = eng.runners.issue_token(args.group)
+        except ValueError as e:
+            sys.exit(f"farrier runner: {e}")
+        eng.store.log(f"runner token for group {args.group} created by cli")
+        return _emit(args, {"group": args.group, "token": token}, lambda: [
+            token, "", "Shown once. On the runner host:",
+            "  FARRIER_RUNNER_TOKEN=<that token> farrier runner start --url https://<engine address>",
+            f'Then set "runner": "{args.group}" in the connector_config of the endpoints it should reach.'])
+    rows = eng.runners.groups()
+    _emit(args, rows, lambda: [f"{g['group']:<24}{g['endpoints']:>4} endpoints  {g['pending_jobs']:>3} pending  "
+                               f"last seen {g['last_seen'] or 'never'}" + ("" if g["token"] else "  (no token)")
+                               for g in rows] or ["(no runner groups)"])
+
+
 def cmd_acm(args):
     """AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings."""
     from farrier.security.cloud_auth.http import CloudError
@@ -494,6 +523,21 @@ def main(argv=None):
     x = js(esub.add_parser("approve", help="let a discovered endpoint be renewed (logged with actor cli)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_endpoints_approve)
+
+    s = sub.add_parser("runner", help="remote runners: Farrier's hands inside segmented networks (outbound HTTPS only)")
+    rsub = s.add_subparsers(dest="runner_cmd", required=True)
+    x = rsub.add_parser("start", help="run a runner: claim this group's jobs from the engine and run them here")
+    x.add_argument("--url", required=True, help="the engine's address as this host reaches it, e.g. https://farrier-gw")
+    x.add_argument("--token-file", help="file holding the group token (default: $FARRIER_RUNNER_TOKEN)")
+    x.add_argument("--interval", type=float, default=5, help="seconds between polls when idle (default 5)")
+    x.add_argument("--ca", help="CA bundle for the engine's TLS certificate")
+    x.add_argument("--insecure", action="store_true", help="don't verify the engine's TLS certificate (labs only)")
+    x.add_argument("--once", action="store_true", help="poll once, run what is there, exit")
+    x.set_defaults(fn=cmd_runner)
+    x = js(rsub.add_parser("token", help="create or replace a runner group's token (on the engine host)"))
+    x.add_argument("group", help="e.g. dmz-frankfurt")
+    x.set_defaults(fn=cmd_runner)
+    js(rsub.add_parser("list", help="runner groups: endpoints, pending jobs, last seen")).set_defaults(fn=cmd_runner)
 
     x = js(sub.add_parser("ct", help="names with a valid public certificate under a domain, from Certificate "
                           "Transparency logs (crt.sh)"))

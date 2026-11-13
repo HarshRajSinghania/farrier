@@ -11,6 +11,7 @@ import type {
   CryptoAsset,
   CryptoSummary,
   CtName,
+  RunnerGroup,
   ConnectorInfo,
   DiscoverResult,
   DnsAccount,
@@ -134,6 +135,7 @@ export const useConfig = () => useSWR<FarrierConfig>("/config", fetcher);
 export const useCatalog = () => useSWR<IntegrationCatalog>("/integrations/catalog", fetcher, { revalidateOnFocus: false });
 export const useSecrets = () => useSWR<SecretInfo[]>("/secrets", fetcher);
 export const useIssuers = () => useSWR<Issuer[]>("/issuers", fetcher);
+export const useRunners = () => useSWR<RunnerGroup[]>("/runners", fetcher, live);
 export const useDnsAccounts = () => useSWR<DnsAccount[]>("/dns-accounts", fetcher);
 export const useNotifiers = () => useSWR<NotifierChannel[]>("/notifiers", fetcher);
 export const useAlertRules = () => useSWR<AlertRule[]>("/alert-rules", fetcher);
@@ -172,6 +174,8 @@ export const api = {
   // new endpoints, hosts and assets land in the picked project (the engine picks your only one otherwise)
   discover: (targets: string) =>
     act<DiscoverResult>("/discover", { method: "POST", body: JSON.stringify({ targets, project: currentProject() ?? undefined }) }),
+  runnerToken: (group: string) => act<{ group: string; token: string }>(`/runners/${encodeURIComponent(group)}/token`, { method: "POST" }),
+  revokeRunner: (group: string) => act<{ ok: true }>(`/runners/${encodeURIComponent(group)}/token`, { method: "DELETE" }),
   ctNames: (domain: string) => request<CtName[]>(`/discover/ct?domain=${encodeURIComponent(domain)}`),
   runbook: (id: number) => request<{ markdown: string }>(`/renewals/${id}/runbook`),
   packUrl: (id: number) => `${BASE}/renewals/${id}/pack`,

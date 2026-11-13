@@ -106,8 +106,8 @@ For a consistent SQLite copy while the engine runs, use `sqlite3 farrier.db ".ba
   5 s) on each. Disable endpoints that are gone for good so they don't hold workers. Discovery scans up to 64
   targets in parallel.
 - Run the dashboard with as many replicas as you like; it is stateless (except in demo mode).
-- Segmented networks (DMZ, OT, branch sites): run the engine where it can route to each device's management
-  interface, or one engine per segment.
+- Segmented networks (DMZ, OT, branch sites): run a [remote runner](/docs/runners) in each segment. It
+  connects out to the engine over HTTPS and reaches the devices there, so one engine keeps one inventory.
 
 ## Upgrading
 

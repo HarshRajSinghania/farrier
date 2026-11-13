@@ -293,6 +293,8 @@ async function serveDemo(req: NextRequest, path: string[], project: string | nul
           return demo.tick();
         case "POST discover":
           return demo.discover(String((await body()).targets ?? ""));
+        case "GET runners":
+          return []; // demo: no remote networks
         case "GET discover/:id":
           if (rawId !== "ct") throw new demo.DemoError(404, "Not found");
           return demo.ctNames(q.get("domain") ?? "");

@@ -310,6 +310,30 @@ def _m8_projects(d: Dialect) -> list[str]:
     ]
 
 
+def _m9_runner_jobs(d: Dialect) -> list[str]:
+    """Work for remote runners (farrier.core.runners): an endpoint whose connector_config names a runner
+    group is reached only through jobs that a runner inside its network claims over HTTPS. ``payload`` is
+    sealed under the master key (deploy jobs carry the new private key). ``status`` is queued | leased |
+    done | failed | consumed; ``lease_until`` is when a leased job counts as abandoned."""
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE runner_jobs (
+  id {d.pk},
+  runner_group {d.key} NOT NULL,
+  kind {d.key} NOT NULL,
+  renewal_id {d.ref} NULL,
+  payload {d.text} NOT NULL,
+  status {d.key} NOT NULL,
+  lease_until {d.key},
+  result {d.text},
+  created_at {d.key} NOT NULL,
+  updated_at {d.key} NOT NULL
+){s}""",
+        d.create_index("runner_job_queue", "runner_jobs", "runner_group, status"),
+        d.create_index("runner_job_renewal", "runner_jobs", "renewal_id"),
+    ]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
@@ -319,6 +343,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (6, "agentless SSH inventory", _m6_ssh),
     (7, "ITSM tickets", _m7_itsm_tickets),
     (8, "teams and projects", _m8_projects),
+    (9, "remote runner jobs", _m9_runner_jobs),
 ]
 
 

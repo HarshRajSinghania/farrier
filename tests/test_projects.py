@@ -69,7 +69,7 @@ def test_migration_8_backfills_the_default_project(tmp_path, monkeypatch):
     s.close()
     monkeypatch.undo()
     s = Store(tmp_path)
-    assert s.migrated == [8]
+    assert s.migrated[0] == 8                      # then any later migrations
     d = s.project("default")
     assert d and d["id"] == s.default_project_id() == 1
     for t in ("endpoints", "ssh_hosts", "ssh_keys", "crypto_assets"):

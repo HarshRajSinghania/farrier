@@ -18,6 +18,7 @@ export const DOCS_NAV: DocsGroup[] = [
       { href: "/docs/databases", label: "Databases and HA" },
       { href: "/docs/enterprise", label: "Enterprise and cloud" },
       { href: "/docs/deploy", label: "Deployment reference" },
+      { href: "/docs/runners", label: "Remote runners" },
     ],
   },
   {

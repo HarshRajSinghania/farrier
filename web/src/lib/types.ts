@@ -278,6 +278,18 @@ export interface DnsProviderInfo {
   label: string;
   fields: CatalogField[];
 }
+/** A remote runner group (farrier.core.runners): its endpoints are reached only through its runners. */
+export interface RunnerGroup {
+  group: string;
+  token: boolean;
+  created_at: string | null;
+  last_seen: string | null;
+  version: string | null;
+  pending_jobs: number;
+  endpoints: number;
+  /** polled the engine in the last five minutes */
+  online: boolean;
+}
 /** A name with a valid public certificate, from Certificate Transparency logs. */
 export interface CtName {
   name: string;

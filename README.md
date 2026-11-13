@@ -51,6 +51,7 @@ switches over and keeps the old one, so a failed check rolls back by itself.
 | | |
 |---|---|
 | **Connectors** | F5 BIG-IP, FortiGate, Palo Alto PAN-OS, Citrix ADC, IIS (over OpenSSH), Kubernetes TLS Secrets, Java keystores, files over SSH. Everything else gets a change pack (PEM, PFX, runbook) and a ticket, and closes itself when the scanner sees the new certificate. |
+| **Remote runners** | For DMZ, OT and branch networks: a runner inside the segment connects out over HTTPS and deploys, verifies and rolls back there. Device credentials can stay on the runner. |
 | **Any CA** | Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo, AWS Certificate Manager over ACME (with External Account Binding), or the built-in private CA. |
 | **29 DNS providers** | Cloudflare, Route 53, Azure DNS, Cloud DNS, RFC 2136 and more, several accounts each, with CNAME delegation. Records are verified on every authoritative nameserver and always cleaned up. |
 | **Deployment verification** | Done only when the fingerprint, chain, names and every listed VIP check out. |

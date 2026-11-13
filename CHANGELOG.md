@@ -36,6 +36,10 @@ a tag that doesn't match both versions and this file.
   optional rollout restart) and IIS (OpenSSH and PowerShell).
 - Issuance policy in `settings.json`: allowed names, issuers and key types per project, checked before
   any request to a CA.
+- Remote runners for segmented networks: `farrier runner start` inside a DMZ, OT or branch network
+  connects out over HTTPS and runs that group's observe, deploy, verify and rollback jobs with the
+  same connectors; device credentials can stay on the runner. Group tokens from `farrier runner token`
+  or **Settings → Remote runners** (schema migration 9).
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 
