@@ -296,6 +296,11 @@ async function serveDemo(req: NextRequest, path: string[], project: string | nul
         case "GET cloud/:id":
           if (rawId !== "certificates") throw new demo.DemoError(404, "Not found");
           return { configured: false, certificates: [], errors: [], listed_at: null };
+        case "GET audit/:id":
+          if (rawId !== "verify") throw new demo.DemoError(404, "The audit export isn't generated in demo mode.");
+          return { ok: true, sealed: 0, unsealed: 0, head: null, first_bad_id: null };
+        case "GET reports/:id":
+          throw new demo.DemoError(404, "Reports aren't generated in demo mode.");
         case "GET runners":
           return []; // demo: no remote networks
         case "GET discover/:id":

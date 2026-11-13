@@ -47,6 +47,9 @@ a tag that doesn't match both versions and this file.
   them in the dashboard or API, or until a ServiceNow change request is approved.
 - Change windows take a time zone (`"tz": "Europe/Berlin"`), following daylight saving; invalid windows
   are refused when an endpoint is saved. New dependency: `tzdata`.
+- Tamper-evident activity log: events are sealed in a SHA-256 hash chain each cycle (schema migration
+  10); `farrier audit verify|export|check`, `/api/audit/*`, and an integrity badge and signed export in
+  Activity. Compliance report: `farrier report`, `/api/reports/compliance` (JSON or CSV).
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 

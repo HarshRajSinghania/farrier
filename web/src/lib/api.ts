@@ -137,6 +137,9 @@ export const useCatalog = () => useSWR<IntegrationCatalog>("/integrations/catalo
 export const useSecrets = () => useSWR<SecretInfo[]>("/secrets", fetcher);
 export const useIssuers = () => useSWR<Issuer[]>("/issuers", fetcher);
 export const useCloudCertificates = () => useSWR<CloudInventory>("/cloud/certificates", fetcher, { revalidateOnFocus: false });
+export const useAuditStatus = () =>
+  useSWR<{ ok: boolean; sealed: number; unsealed: number; head: string | null; first_bad_id: number | null }>(
+    "/audit/verify", fetcher, { revalidateOnFocus: false });
 export const useRunners = () => useSWR<RunnerGroup[]>("/runners", fetcher, live);
 export const useDnsAccounts = () => useSWR<DnsAccount[]>("/dns-accounts", fetcher);
 export const useNotifiers = () => useSWR<NotifierChannel[]>("/notifiers", fetcher);
@@ -184,6 +187,8 @@ export const api = {
   ctNames: (domain: string) => request<CtName[]>(`/discover/ct?domain=${encodeURIComponent(domain)}`),
   runbook: (id: number) => request<{ markdown: string }>(`/renewals/${id}/runbook`),
   packUrl: (id: number) => `${BASE}/renewals/${id}/pack`,
+  auditExportUrl: () => `${BASE}/audit/export`,
+  complianceCsvUrl: () => `${BASE}/reports/compliance?format=csv`,
 
   // integrations: names are path segments, so they stay [A-Za-z0-9_-]
   putSecret: (name: string, value: string) =>

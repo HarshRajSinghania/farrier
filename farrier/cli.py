@@ -332,6 +332,39 @@ def cmd_ct(args):
                                                     + " ".join(hosts[:5]) + (" ..." if len(hosts) > 5 else "")])
 
 
+def cmd_audit(args):
+    from farrier.monitoring import audit
+    eng = _engine(args)
+    if args.audit_cmd == "export":
+        audit.seal(eng.store, limit=10**9)
+        data = audit.export(eng.store)
+        (Path(args.output).write_bytes(data) if args.output else sys.stdout.buffer.write(data))
+        return
+    if args.audit_cmd == "check":
+        res = audit.check_export(eng.store, Path(args.file).read_bytes())
+    else:
+        res = audit.verify(eng.store)
+    _emit(args, res, lambda: [("intact" if res["ok"] else f"BROKEN at event {res['first_bad_id']}")
+                              + (f": {res.get('sealed', res.get('rows'))} events, head {res.get('head')}" if res["ok"] else "")])
+    if not res["ok"]:
+        sys.exit(1)
+
+
+def cmd_report(args):
+    from farrier.monitoring.audit import compliance
+    rep = compliance(_engine(args))
+
+    def text():
+        yield f"compliance report, {rep['generated_at']} (public maximum today: {rep['max_public_lifetime_days']} days)"
+        for name, p in rep["projects"].items():
+            yield (f"{name:<20}{p['endpoints']:>5} endpoints  {p['automated_pct']:>5}% automated  "
+                   f"{p.get('expired', 0)} expired  {p.get('expiring_30d', 0)} within 30d  "
+                   f"{p.get('failed_renewals_30d', 0)} failed (30d)  {p.get('longer_than_public_maximum', 0)} too long")
+        a = rep["audit"]
+        yield f"audit log: {'intact' if a['ok'] else 'BROKEN at event ' + str(a['first_bad_id'])}, {a['sealed']} sealed"
+    _emit(args, rep, text)
+
+
 def cmd_runner(args):
     if args.runner_cmd == "start":
         from farrier.runner import run
@@ -539,6 +572,18 @@ def main(argv=None):
     x = js(esub.add_parser("approve", help="let a discovered endpoint be renewed (logged with actor cli)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_endpoints_approve)
+
+    s = sub.add_parser("audit", help="the tamper-evident activity log: verify, export, check an export")
+    asub2 = s.add_subparsers(dest="audit_cmd", required=True)
+    js(asub2.add_parser("verify", help="recompute the hash chain (exit 1 if broken)")).set_defaults(fn=cmd_audit)
+    x = asub2.add_parser("export", help="JSON lines of every event, ending with the signed chain head")
+    x.add_argument("-o", "--output", help="write to this file instead of stdout")
+    x.set_defaults(fn=cmd_audit)
+    x = js(asub2.add_parser("check", help="verify an export file: every link and the signature"))
+    x.add_argument("file")
+    x.set_defaults(fn=cmd_audit)
+    js(sub.add_parser("report", help="compliance report: coverage, expiry risk, failures, 47-day readiness, audit"
+                      )).set_defaults(fn=cmd_report)
 
     s = sub.add_parser("runner", help="remote runners: Farrier's hands inside segmented networks (outbound HTTPS only)")
     rsub = s.add_subparsers(dest="runner_cmd", required=True)

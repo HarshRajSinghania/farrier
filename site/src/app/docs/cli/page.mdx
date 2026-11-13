@@ -12,6 +12,8 @@ export const metadata = {
 | `farrier serve [--host --port --tick]` | Run the engine API (OpenAPI at `/docs`) and the renewal loop. The dashboard is the web app: `docker compose up` runs both, or `cd web && FARRIER_API_URL=http://127.0.0.1:8740 npm run dev` |
 | `farrier demo` | A simulated estate of real TLS endpoints, with the API running against it |
 | `farrier scan <targets> [--register]` | Handshake with TLS targets and list the certificates they serve; `--register` adds unknown ones as `discovered` |
+| `farrier audit verify\|export [-o file]\|check <file>` | The hash-chained activity log: verify it, export it signed, check an export ([security](/docs/security#tamper-evident-audit-log)) |
+| `farrier report [--json]` | Compliance report per project: coverage, expiry risk, failures, 47-day readiness, audit integrity |
 | `farrier cloud-certs [--json]` | Certificates in AWS ACM, Azure Key Vault and Google Certificate Manager ([settings](/docs/configuration#cloud-certificate-inventory)); exits 1 if a source failed |
 | `farrier runner start\|token\|list` | [Remote runners](/docs/runners) for segmented networks |
 | `farrier ct <domain> [--json]` | Names with a valid public certificate under the domain, from Certificate Transparency logs (crt.sh), with expiry and issuer; feed them to `farrier scan`. The dashboard's **Discovery** page does the same with **Find names** |

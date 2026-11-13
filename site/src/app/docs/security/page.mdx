@@ -129,3 +129,25 @@ Command fields are refused over the API unless `FARRIER_ALLOW_API_COMMANDS` is s
 ## Reporting a vulnerability
 
 Please report vulnerabilities **privately** through [GitHub security advisories](https://github.com/gagankarthik/farrier/security/advisories/new) on the repository. Don't open a public issue. Include steps to reproduce, the affected version or commit, and the impact you expect. We'll acknowledge the report, agree a fix and disclosure timeline with you, and credit you in the advisory unless you'd rather we didn't.
+
+## Tamper-evident audit log
+
+Every event in **Activity** (scans, issuances, deploys, rollbacks, approvals, configuration changes, with who
+did them) is sealed into a SHA-256 hash chain at the end of each renewal cycle. Changing or deleting a sealed
+event breaks the chain from that event on:
+
+- **Activity** shows whether the log is intact, and **Audit log** downloads it.
+- `farrier audit verify` recomputes the chain and exits 1 if it is broken, naming the first bad event.
+- `farrier audit export -o audit.jsonl` (or `GET /api/audit/export`) writes every event as JSON lines, ending
+  with the chain head signed under a key derived from the master key. `farrier audit check audit.jsonl` verifies
+  a copy on its own.
+
+Ship exports regularly to storage Farrier can't change (a SIEM, an object-locked bucket). A database edited
+behind Farrier's back then no longer matches the head you kept, even if the end of the log was cut off.
+
+## Compliance report
+
+`farrier report`, `GET /api/reports/compliance` (`?format=csv` for a spreadsheet) and **Compliance report**
+in Activity give, per project: endpoints and the share renewed automatically, expired and expiring
+certificates, failed renewals in the last 30 days, certificates longer than today's public maximum (47-day
+readiness), crypto and PQC status, and the audit log's integrity.

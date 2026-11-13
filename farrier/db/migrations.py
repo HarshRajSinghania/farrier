@@ -334,6 +334,12 @@ def _m9_runner_jobs(d: Dialect) -> list[str]:
     ]
 
 
+def _m10_audit_chain(d: Dialect) -> list[str]:
+    """Tamper evidence for the activity log (farrier.monitoring.audit): ``chain`` is SHA-256 over the previous
+    row's chain and this row, filled in id order by the leader. NULL means not sealed yet."""
+    return [f"ALTER TABLE events ADD COLUMN chain {d.key} NULL"]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
@@ -344,6 +350,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (7, "ITSM tickets", _m7_itsm_tickets),
     (8, "teams and projects", _m8_projects),
     (9, "remote runner jobs", _m9_runner_jobs),
+    (10, "audit log hash chain", _m10_audit_chain),
 ]
 
 

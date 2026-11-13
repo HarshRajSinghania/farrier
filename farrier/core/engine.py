@@ -873,4 +873,9 @@ class Engine:
         if alerts:
             out["alerts"] = alerts
         self.itsm.tick(now)                     # ticket retries, Datadog metrics, Splunk inventory; never raises
+        try:
+            from farrier.monitoring.audit import seal
+            seal(self.store)                    # tamper evidence for everything logged so far
+        except Exception as e:  # noqa: BLE001
+            self.store.log(f"sealing the audit log failed: {type(e).__name__}: {e}"[:500], level="error")
         return out

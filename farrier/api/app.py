@@ -416,6 +416,36 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             except ValueError as e:
                 raise HTTPException(409, str(e))
 
+    @app.get("/api/audit/verify", dependencies=whole_install)
+    def audit_verify():
+        """Recompute the activity log's hash chain: ok, how many rows are sealed, the head, the first bad row."""
+        from farrier.monitoring.audit import verify
+        return verify(S)
+
+    @app.get("/api/audit/export", dependencies=whole_install)
+    def audit_export():
+        """Every sealed event as JSON lines, ending with the signed chain head. Keep copies outside Farrier."""
+        from fastapi.responses import Response
+
+        from farrier.monitoring.audit import export
+        return Response(export(S), media_type="application/x-ndjson",
+                        headers={"Content-Disposition": 'attachment; filename="farrier-audit.jsonl"'})
+
+    @app.get("/api/reports/compliance", dependencies=whole_install)
+    def compliance_report(format: str = "json"):
+        """Per project: automation coverage, expiry risk, failed renewals, 47-day readiness; crypto; audit."""
+        from farrier.monitoring.audit import compliance
+        rep = compliance(engine)
+        if format != "csv":
+            return rep
+        from fastapi.responses import Response
+        cols = ["endpoints", "automated", "automated_pct", "expired", "expiring_7d", "expiring_30d",
+                "failed_renewals_30d", "longer_than_public_maximum", "no_certificate_seen"]
+        lines = ["project," + ",".join(cols)] + [
+            f"{name}," + ",".join(str(p.get(c, 0)) for c in cols) for name, p in rep["projects"].items()]
+        return Response("\n".join(lines) + "\n", media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="farrier-compliance.csv"'})
+
     @app.get("/api/approvals", dependencies=[Depends(auth)])
     def approvals_pending(request: Request):
         """Renewals waiting for approval, with how they are gated (and the ServiceNow change, if any)."""
