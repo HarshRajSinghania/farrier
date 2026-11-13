@@ -111,7 +111,7 @@ Nothing reaches the engine except the web app and your metrics scraper. The engi
 7. Allowlist egress to your CA, your DNS API, device management addresses and your ticketing and notification hosts.
 8. Scrape `/metrics`, alert on `farrier_cert_expires_in_seconds < 7 * 86400` and on `farrier_renewals{state=~"failed|rolled_back"} > 0`, and add a Slack or Teams notifier.
 9. Back up daily (`farrier backup`, or the data directory on SQLite), let only Farrier write the backup bucket, and test a restore.
-10. Try every connector against a lab device and your CA's staging endpoint before production.
+10. Run the [pilot checklist](/docs/pilot) on one endpoint per device type, with your CA's staging endpoint, before production.
 
 ## Threat model notes
 
