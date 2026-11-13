@@ -49,7 +49,7 @@ app's identity.
 | `name` | `farrier` | ≤ 12 characters (Key Vault and storage names derive from it) |
 | `location` | `westeurope` | |
 | `resource_group_name` | `""` | Existing group, or create `<name>-rg` |
-| `farrier_version` | `0.1.0` | |
+| `farrier_version` | `0.2.0` | |
 | `engine_image`, `web_image` | `""` | Mirror or digest pin |
 | `admin_allowed_ips` | `[]` | Terraform runner IPs allowed through the Key Vault firewalls |
 | `create_vnet`, `vnet_id`, `container_apps_subnet_id`, `postgres_subnet_id`, `private_endpoint_subnet_id` | | Bring your own network |

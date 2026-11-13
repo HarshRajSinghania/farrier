@@ -45,6 +45,9 @@ const CA_LOGO: Record<string, string> = {
   sslcom: "/assets/icons/ca-ssl.png",
   digicert: "/assets/icons/ca-digicert.png",
   sectigo: "/assets/icons/ca-sectigo.png",
+  "aws-acm": "/assets/icons/cert.svg",
+  aws_pca: "/assets/icons/cert.svg",
+  gcp_cas: "/assets/icons/google-cloud.svg",
   local_ca: "/assets/icons/cert.svg",
 };
 
@@ -67,8 +70,11 @@ const hostOf = (url: string | null) => {
   }
 };
 
+const CLOUD_CA: Record<string, string> = { aws_pca: "AWS Private CA", gcp_cas: "Google CAS" };
+
 function presetLabel(i: Issuer, presets: CaPreset[]) {
   if (i.type === "local_ca" && !i.preset) return "Built-in private CA";
+  if (CLOUD_CA[i.type]) return CLOUD_CA[i.type];
   const p = presets.find((x) => x.id === i.preset);
   if (p) return p.label.replace(/\s*\(staging\)$/i, "");
   return i.preset ?? "Custom ACME";
@@ -112,6 +118,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
   const needsEab = !!preset?.eab;
   const showEab = needsEab || custom;
   const needsDirectory = custom || !!preset?.needs_directory_url;
+  const prevalidated = !!preset?.prevalidated; // e.g. AWS ACM validates domains on the endpoint: no DNS-01
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -133,7 +140,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
     if (!local) {
       Object.assign(body, {
         email: email.trim() || undefined,
-        dns,
+        dns: prevalidated ? undefined : dns,
         profile: base === "letsencrypt" ? profile || undefined : undefined,
         preferred_chain: chain.trim() || undefined,
         directory_url: needsDirectory ? directory.trim() : undefined,
@@ -213,7 +220,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
       ) : (
         <>
           {needsDirectory && (
-            <Field id="issuer-dir" label="ACME directory URL" error={errors.directory} hint="From your CA's ACME settings page.">
+            <Field id="issuer-dir" label="ACME directory URL" error={errors.directory} hint={prevalidated ? "The endpoint's URL: farrier acm endpoint show <arn>. Key ID and HMAC: farrier acm eab credentials <arn>." : "From your CA's ACME settings page."}>
               <Input
                 id="issuer-dir"
                 value={directory}
@@ -229,7 +236,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
             <Field id="issuer-email" label="Account email" optional error={errors.email} hint="The CA's contact for this account.">
               <Input id="issuer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pki@example.com" aria-invalid={!!errors.email} />
             </Field>
-            <Field
+            {!prevalidated && <Field
               id="issuer-dns"
               label="DNS for validation"
               hint={
@@ -250,7 +257,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
                   ...(dnsAccounts ?? []).map((a) => ({ value: a.name, label: a.name, description: a.provider })),
                 ]}
               />
-            </Field>
+            </Field>}
           </div>
 
           {showEab && (
@@ -361,8 +368,14 @@ export function AuthoritiesView() {
                         {i.preset?.endsWith("-staging") && <Badge tone="warning">Staging</Badge>}
                       </span>
                     </TD>
-                    <TD className="font-mono text-xs text-muted-foreground">{i.type === "local_ca" ? "—" : hostOf(i.directory_url) ?? "—"}</TD>
-                    <TD className="text-muted-foreground">{i.type === "local_ca" ? "—" : !i.dns || i.dns === "auto" ? "Automatic" : i.dns}</TD>
+                    <TD className="max-w-56 truncate font-mono text-xs text-muted-foreground" title={i.cloud_ref ?? undefined}>
+                      {i.type === "local_ca" ? "—" : i.cloud_ref ? i.cloud_ref.split("/").pop() : hostOf(i.directory_url) ?? "—"}
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {i.type === "local_ca" || i.cloud_ref || presets.find((p) => p.id === i.preset)?.prevalidated
+                        ? "—"
+                        : !i.dns || i.dns === "auto" ? "Automatic" : i.dns}
+                    </TD>
                     <TD className="text-muted-foreground">{i.profile ?? "—"}</TD>
                     <TD>
                       <SourceBadge source={i.source} file="issuers.json" />
@@ -373,6 +386,7 @@ export function AuthoritiesView() {
                         canWrite={canWrite}
                         canTest={canTest}
                         readOnly={i.source === "file"}
+                        editable={!i.cloud_ref}
                         testing={result === "running"}
                         onTest={() => tests.run(i.name, () => api.testIssuer(i.name))}
                         onEdit={() => setEditing(i)}

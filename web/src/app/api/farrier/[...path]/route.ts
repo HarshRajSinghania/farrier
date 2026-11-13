@@ -41,7 +41,7 @@ function guard(identity: Identity): NextResponse | null {
   if (UPSTREAM && process.env.NODE_ENV === "production" && identity.auth === "none") {
     return err(
       503,
-      "No sign-in is configured. Set FARRIER_OIDC_ISSUER (single sign-on) or FARRIER_DASHBOARD_PASSWORD before pointing a production dashboard at a live Farrier API.",
+      "No sign-in is configured. Set FARRIER_OIDC_ISSUER or FARRIER_SAML_IDP_METADATA_URL (single sign-on) or FARRIER_DASHBOARD_PASSWORD before pointing a production dashboard at a live Farrier API.",
     );
   }
   return null;
@@ -293,6 +293,21 @@ async function serveDemo(req: NextRequest, path: string[], project: string | nul
           return demo.tick();
         case "POST discover":
           return demo.discover(String((await body()).targets ?? ""));
+        case "GET cloud/:id":
+          if (rawId !== "certificates") throw new demo.DemoError(404, "Not found");
+          return { configured: false, certificates: [], errors: [], listed_at: null };
+        case "GET audit/:id":
+          if (rawId !== "verify") throw new demo.DemoError(404, "The audit export isn't generated in demo mode.");
+          return { ok: true, sealed: 0, unsealed: 0, head: null, first_bad_id: null };
+        case "GET reports/:id":
+          throw new demo.DemoError(404, "Reports aren't generated in demo mode.");
+        case "POST replace":
+          throw new demo.DemoError(400, "Replacing certificates isn't available in demo mode.");
+        case "GET runners":
+          return []; // demo: no remote networks
+        case "GET discover/:id":
+          if (rawId !== "ct") throw new demo.DemoError(404, "Not found");
+          return demo.ctNames(q.get("domain") ?? "");
         case "POST notifiers/:id":
           if (rawId !== "test") throw new demo.DemoError(404, "Not found");
           return { sent: demo.listNotifiers().length }; // demo: pretend every channel's test went out

@@ -57,7 +57,7 @@ module "farrier" {
 
   name            = "farrier"
   location        = "westeurope"
-  farrier_version = "0.1.0"
+  farrier_version = "0.2.0"
 
   # admin_allowed_ips: your Terraform runner's egress IP, for the Key Vault firewalls.
   create_vnet       = true

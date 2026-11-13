@@ -111,7 +111,7 @@ Nothing reaches the engine except the web app and your metrics scraper. The engi
 7. Allowlist egress to your CA, your DNS API, device management addresses and your ticketing and notification hosts.
 8. Scrape `/metrics`, alert on `farrier_cert_expires_in_seconds < 7 * 86400` and on `farrier_renewals{state=~"failed|rolled_back"} > 0`, and add a Slack or Teams notifier.
 9. Back up daily (`farrier backup`, or the data directory on SQLite), let only Farrier write the backup bucket, and test a restore.
-10. Try every connector against a lab device and your CA's staging endpoint before production.
+10. Run the [pilot checklist](/docs/pilot) on one endpoint per device type, with your CA's staging endpoint, before production.
 
 ## Threat model notes
 
@@ -129,3 +129,44 @@ Command fields are refused over the API unless `FARRIER_ALLOW_API_COMMANDS` is s
 ## Reporting a vulnerability
 
 Please report vulnerabilities **privately** through [GitHub security advisories](https://github.com/gagankarthik/farrier/security/advisories/new) on the repository. Don't open a public issue. Include steps to reproduce, the affected version or commit, and the impact you expect. We'll acknowledge the report, agree a fix and disclosure timeline with you, and credit you in the advisory unless you'd rather we didn't.
+
+## Tamper-evident audit log
+
+Every event in **Activity** (scans, issuances, deploys, rollbacks, approvals, configuration changes, with who
+did them) is sealed into a SHA-256 hash chain at the end of each renewal cycle. Changing or deleting a sealed
+event breaks the chain from that event on:
+
+- **Activity** shows whether the log is intact, and **Audit log** downloads it.
+- `farrier audit verify` recomputes the chain and exits 1 if it is broken, naming the first bad event.
+- `farrier audit export -o audit.jsonl` (or `GET /api/audit/export`) writes every event as JSON lines, ending
+  with the chain head signed under a key derived from the master key. `farrier audit check audit.jsonl` verifies
+  a copy on its own.
+
+Ship exports regularly to storage Farrier can't change (a SIEM, an object-locked bucket). A database edited
+behind Farrier's back then no longer matches the head you kept, even if the end of the log was cut off.
+
+## Compliance report
+
+`farrier report`, `GET /api/reports/compliance` (`?format=csv` for a spreadsheet) and **Compliance report**
+in Activity give, per project: endpoints and the share renewed automatically, expired and expiring
+certificates, failed renewals in the last 30 days, certificates longer than today's public maximum (47-day
+readiness), crypto and PQC status, and the audit log's integrity.
+
+## Replace and revoke (incident drill)
+
+When a key may be compromised or a CA is distrusted, replace every affected certificate at once:
+
+```bash
+farrier replace --ca "R10" --dry-run                      # what matches
+farrier replace --ca "R10" --reason keyCompromise --revoke
+```
+
+Or **Certificates → Replace…** in the dashboard, which always previews the matches first. Match by the
+certificate's CA (`--ca`), a Farrier issuer (`--issuer`), key type, project, tag or endpoint ids. Matching
+endpoints are renewed now, outside change windows, as **Renew now** does; discovered endpoints nobody approved
+are skipped.
+
+With `--revoke`, each old certificate is revoked once **nothing serves it any more**: one certificate on many
+VIPs is revoked only after the last of them moved, so revocation never breaks a site that hasn't switched.
+ACME CAs (RFC 8555) and AWS Private CA revoke through Farrier; for other CAs, Activity says which
+certificates to revoke by hand.

@@ -1082,6 +1082,47 @@
                   "$ref": "#/definitions/objectList"
                 }
               }
+            },
+            "prometheusRule": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "expiringDays": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 365
+                },
+                "labels": {
+                  "$ref": "#/definitions/stringMap"
+                },
+                "additionalRules": {
+                  "$ref": "#/definitions/objectList"
+                }
+              }
+            },
+            "grafanaDashboard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "labels": {
+                  "$ref": "#/definitions/stringMap"
+                },
+                "annotations": {
+                  "$ref": "#/definitions/stringMap"
+                }
+              }
             }
           }
         }
@@ -1136,8 +1177,60 @@
             "mode": {
               "enum": [
                 "basic",
-                "oidc"
+                "oidc",
+                "saml"
               ]
+            },
+            "saml": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "idpMetadataUrl": {
+                  "type": "string",
+                  "pattern": "^$|^https://"
+                },
+                "idpSsoUrl": {
+                  "type": "string",
+                  "pattern": "^$|^https://"
+                },
+                "idpCert": {
+                  "type": "string"
+                },
+                "idpEntityId": {
+                  "type": "string"
+                },
+                "spEntityId": {
+                  "type": "string"
+                },
+                "groupsAttribute": {
+                  "$ref": "#/definitions/nonEmptyString"
+                },
+                "emailAttribute": {
+                  "$ref": "#/definitions/nonEmptyString"
+                },
+                "nameAttribute": {
+                  "$ref": "#/definitions/nonEmptyString"
+                },
+                "adminGroups": {
+                  "type": "string"
+                },
+                "operatorGroups": {
+                  "type": "string"
+                },
+                "allowedGroups": {
+                  "type": "string"
+                },
+                "sessionIdleMinutes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1440
+                },
+                "sessionMaxHours": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 720
+                }
+              }
             },
             "basic": {
               "type": "object",

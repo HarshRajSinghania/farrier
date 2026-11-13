@@ -16,6 +16,83 @@ a tag that doesn't match both versions and this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
+### Upgrading from 0.1.0
+
+- Schema migrations 9 to 11 (runner jobs, audit hash chain, ACME server tables) run by themselves at
+  start-up, under a lock. Back up first (`farrier backup`).
+- The activity log is sealed into its hash chain on the first cycle after the upgrade; events from
+  before the upgrade are sealed too.
+- New Python dependency: `tzdata` (the images include it).
+- The root `docker-compose.yml` now runs the release images; add `--build` to keep building from source.
+- Setting both OIDC and SAML in the dashboard now fails closed: choose one.
+- Nothing else changes until you opt in: runners, approvals, issuance policy, the ACME server, cloud
+  inventory and the new connectors are all off until configured.
+
+### Added
+
+- AWS Certificate Manager managed ACME: the `aws-acm` issuer preset (no DNS-01; with `acm_eab_arn` the
+  directory URL and EAB key come from ACM through IAM) and `farrier acm` commands to create endpoints,
+  prevalidate domains and manage External Account Bindings. Terraform: `acm_acme_endpoint_arns`.
+- AWS Private CA (`aws_pca`) and Google Certificate Authority Service (`gcp_cas`) issuers, with a
+  dashboard **Test** that checks the engine can reach the CA.
+- One-command install: `install.sh` writes a `.env` with a random token and password, pulls the signed
+  images and starts them; `FARRIER_MODE=demo` runs the simulated estate in Docker (`farrier demo --host`).
+  The root `docker-compose.yml` now uses the release images (`--build` still builds from source).
+- Nightly live checks against Let's Encrypt staging and AWS ACM (`.github/workflows/live.yml`), enabled
+  by repository secrets.
+- Dashboard: four sidebar sections (Overview, Certificates, Security, Setup) with each section's pages
+  as tabs; every page keeps its URL.
+- Website: solution pages for F5, FortiGate, PAN-OS, the 47-day schedule, AWS ACM, cloud private CAs and
+  open-source CLM, with schema.org FAQ, breadcrumb and software data, and canonical URLs.
+- Connectors for Citrix ADC / NetScaler (NITRO), Kubernetes TLS Secrets (with an in-cluster backup and
+  optional rollout restart) and IIS (OpenSSH and PowerShell).
+- Issuance policy in `settings.json`: allowed names, issuers and key types per project, checked before
+  any request to a CA.
+- Remote runners for segmented networks: `farrier runner start` inside a DMZ, OT or branch network
+  connects out over HTTPS and runs that group's observe, deploy, verify and rollback jobs with the
+  same connectors; device credentials can stay on the runner. Group tokens from `farrier runner token`
+  or **Settings → Remote runners** (schema migration 9).
+- Cloud certificate inventory: **Certificates → Cloud**, `farrier cloud-certs` and
+  `GET /api/cloud/certificates` list certificates in AWS ACM, Azure Key Vault and Google Certificate
+  Manager (settings `cloud_inventory`).
+- Approval gates: `approvals` in `settings.json` holds renewals before issuance until an admin approves
+  them in the dashboard or API, or until a ServiceNow change request is approved.
+- Change windows take a time zone (`"tz": "Europe/Berlin"`), following daylight saving; invalid windows
+  are refused when an endpoint is saved. New dependency: `tzdata`.
+- Tamper-evident activity log: events are sealed in a SHA-256 hash chain each cycle (schema migration
+  10); `farrier audit verify|export|check`, `/api/audit/*`, and an integrity badge and signed export in
+  Activity. Compliance report: `farrier report`, `/api/reports/compliance` (JSON or CSV).
+- Replace and revoke: `farrier replace`, `POST /api/replace` and **Certificates → Replace…** renew every
+  certificate matching a CA, issuer, key type, project or tag now, and optionally revoke the old ones
+  (ACME, AWS Private CA) once nothing serves them.
+- ACME server (RFC 8555): certbot, cert-manager, lego, acme.sh and win-acme get internal certificates
+  from a Farrier issuer at `/acme/<profile>/directory` (settings `acme_server`). Accounts need an EAB
+  key (`farrier acme-server eab create`); names are authorized by the profile, the key and the issuance
+  policy; every certificate is logged with its account (schema migration 11).
+- Connectors `aws_acm` (re-import in place, or import and switch an ELBv2 listener with exact
+  rollback), `azure_keyvault` (new certificate version, optional Application Gateway and Front Door
+  refresh) and `gcp_certificate_manager` (Certificate Manager and classic HTTPS proxies).
+- Cross-account AWS: a shared, cached `sts:AssumeRole` (with ExternalId) for connectors, inventory
+  (`cloud_inventory.aws_accounts`) and Route 53; Terraform `assumable_role_arns`.
+- SAML 2.0 single sign-on for the dashboard (`FARRIER_SAML_*`, Helm `web.auth.mode=saml`), with the
+  same roles, projects and session as OIDC. Setting both OIDC and SAML fails closed.
+- Renewals carry a `reason_code` and a one-line `hint`; `farrier explain <endpoint>` and
+  `GET /api/endpoints/{id}/explain` say why the next renewal is when it is. New metrics for planned
+  renewals, failures by reason, approvals, runner groups and audit integrity; opt-in Helm
+  PrometheusRule alerts and Grafana dashboard. Troubleshooting guide.
+- Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
+  the Discovery page list every name with a valid public certificate.
+
+### Fixed
+
+- The ServiceMonitor keeps Farrier's `endpoint` label (`honorLabels: true`).
+
+- A failing CA, DNS provider or device is no longer retried every tick. Issuance attempts back off
+  (5, 10, 20, 40 min, or the CA's `Retry-After`), and after a failed or rolled-back renewal the next
+  one waits 1 h, doubling up to 32 h. "Renew now" still starts at once.
+
 ## [0.1.0] - 2026-11-12
 
 First public release.

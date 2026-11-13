@@ -4,6 +4,7 @@ from datetime import timedelta
 from farrier.core import policy
 from farrier.core.discovery import fetch_cert, scan
 from farrier.core.x509util import parse_pem
+from farrier.db.store import parse_dt
 
 
 def _endpoint(engine, port, connector, cfg, **kw):
@@ -278,3 +279,83 @@ def test_exported_keys_are_deleted_after_the_retention_window(engine, monkeypatc
     engine.tick(policy.utcnow() + timedelta(hours=25), scan=False)
     assert engine.secrets.backend.get(f"keys/{rid}") is None
     assert not engine.store.q("SELECT * FROM config_items WHERE kind='exported_key'")
+
+
+def test_failed_issuance_backs_off_instead_of_retrying_every_tick(engine, served, monkeypatch):
+    """cert-manager-style backoff: attempts spread out, then failed renewals 1 h, 2 h, 4 h ... apart."""
+    from farrier.core.engine import Engine
+    from farrier.issuers.acme import AcmeError
+    s, srv = served
+    calls = []
+
+    class Down:
+        def issue(self, csr, names, **kw):
+            calls.append(1)
+            raise AcmeError(429, "rateLimited", retry_after=900 if len(calls) == 1 else None)
+
+    monkeypatch.setattr(Engine, "issuers", property(lambda self: {"default": Down()}))
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    now = _due_now(engine, eid)
+    for i in range(12 * 24):                         # one day of 5-minute ticks
+        engine.tick(now=now + timedelta(minutes=5 * i), scan=False)
+    rs = sorted(engine.store.renewals(limit=100), key=lambda r: r["id"])
+    # without backoff: 288 attempts and ~58 renewals; with it: 1+2+4+8 h gaps after ~75 min of attempts each
+    assert len(calls) <= 30 and len(rs) <= 6, (len(calls), len(rs))
+    assert rs[0]["state"] == "failed" and "retry after 1 failed renewal" in rs[1]["reason"]
+    gap = parse_dt(rs[1]["scheduled_for"]) - parse_dt(rs[0]["scheduled_for"])
+    assert gap >= timedelta(hours=1)
+    first = engine.store.q("SELECT message FROM events WHERE message LIKE 'issuance attempt 1 failed%'")
+    assert first and "next attempt in 15 min" in first[0]["message"]   # Retry-After (900 s) beat the 5 min step
+    assert engine.force_renewal(eid) == rs[-1]["id"] or engine.store.open_renewal(eid)   # "renew now" still works
+
+
+def test_backoff_counts_from_the_failure_and_retry_after_stops_at_the_deadline(engine, served, monkeypatch):
+    from farrier.core.engine import Engine
+    from farrier.issuers.acme import AcmeError
+    s, srv = served
+
+    class Limited:
+        def issue(self, csr, names, **kw):
+            raise AcmeError(429, "rateLimited", retry_after=30 * 86400)   # "come back in a month"
+
+    monkeypatch.setattr(Engine, "issuers", property(lambda self: {"default": Limited()}))
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    now = _due_now(engine, eid) - timedelta(days=10)          # well before the deadline
+    engine.store.create_renewal(eid, now.isoformat(), (now + timedelta(days=2)).isoformat(), None, "test")
+    rid = engine.store.open_renewal(eid)["id"]
+    engine.advance(rid, now)
+    nxt = parse_dt(engine.store.renewal(rid)["scheduled_for"])
+    assert nxt <= now + timedelta(days=2)                     # capped at the deadline, not a month out
+
+    # a renewal that failed long after its planned start backs off from the failure
+    engine.store.x("UPDATE renewals SET state='rolled_back', scheduled_for=?, updated_at=? WHERE id=?",
+                   ((now - timedelta(hours=5)).isoformat(), now.isoformat(), rid))
+    until, n = engine._failure_backoff(eid)
+    assert n == 1 and until == now + timedelta(hours=1)
+
+
+def test_issuance_policy_blocks_names_issuers_and_key_types(engine, served, data_dir):
+    from farrier.core import issuance_policy as ip
+    rules = {"allowed_names": ["*.internal.test"], "allowed_issuers": ["default"], "key_types": ["ec256"]}
+    assert ip.violations(rules, ["app.internal.test", "a.b.internal.test"], "default", "ec256") == []
+    assert ip.violations(rules, ["internal.test"], "default", "ec256") == ["names not allowed: internal.test"]
+    assert "issuer 'le' not allowed" in ip.violations(rules, ["x.internal.test"], "le", "ec256")[0]
+    assert "key type rsa2048" in ip.violations(rules, ["x.internal.test"], "default", "rsa2048")[0]
+    assert ip.rules_for({"default": rules}, "payments") == rules and ip.rules_for(None, "x") is None
+
+    s, srv = served
+    engine.settings["policy"] = {"default": {"allowed_names": ["*.example.com"]}}
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    engine.tick(now=_due_now(engine, eid), scan=False)
+    r = engine.store.renewals()[0]
+    assert r["state"] == "failed" and r["error"].startswith("policy: names not allowed: app.internal.test")
+
+    import json
+    import pytest
+    from farrier.core.engine import Engine
+    (data_dir / "settings.json").write_text(json.dumps({"policy": {"default": {"allowed_names": "*.x"}}}))
+    with pytest.raises(ValueError, match="list of strings"):
+        Engine(data_dir)

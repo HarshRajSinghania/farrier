@@ -1,0 +1,90 @@
+export const metadata = {
+  title: "Remote runners",
+  description: "Reach devices in segmented networks (DMZ, OT, branch sites, another cloud) through a runner that connects out over HTTPS.",
+};
+
+# Remote runners
+
+The engine normally reaches every device itself. In a segmented network it can't: firewall teams don't open
+a path from the engine's network into the DMZ, an OT zone or a branch site. A **runner** solves that. It runs
+inside the segment, connects **out** to the engine over HTTPS, and does that segment's work there: scans,
+deploys, verification and rollbacks. Nothing in the segment listens, and no inbound rule is needed.
+
+```
+engine (your platform network)                 DMZ / OT / branch
+  plans, issues, keeps the inventory    ◀────   farrier runner start          ──▶ F5, FortiGate, IIS,
+  queues jobs for group "dmz"           HTTPS   claims "dmz" jobs, runs them        nginx, keystores...
+                                        (out)   with the same connectors
+```
+
+## How it works
+
+- An endpoint whose `connector_config` has `"runner": "<group>"` is never contacted by the engine. Each
+  action becomes a job for that group: **observe** (the certificate it serves), **deploy**, **verify** and
+  **rollback**.
+- A runner of the group claims jobs every few seconds, runs them with Farrier's own connectors, and posts
+  the results. Renewals, change windows, policy, tickets and alerts behave exactly as for direct endpoints.
+- **Device credentials can stay in the segment.** The connector config travels as written, so `env:` and
+  `file:` references (and cloud secret references) are resolved on the runner host. The engine never needs
+  the F5 password.
+- The new private key travels to the runner over TLS, sealed at rest in the engine's database, and is wiped
+  from the job once the deploy is recorded.
+- A runner that disappears mid-deploy is not replaced by a second deploy: the engine asks for a
+  verification of what the device serves, as it does after its own crash. Observe and verify jobs move to
+  another runner of the group after 10 minutes.
+
+## Set it up
+
+**1. Create a token for the group**, on the engine (or **Settings → Remote runners** in the dashboard):
+
+```bash
+farrier runner token dmz-frankfurt
+```
+
+The token is shown once. It opens only the two runner routes, for that group's jobs.
+
+**2. Let the runner reach the engine.** Publish only `/api/runner/` from the engine to the segment, for
+example with an ingress or reverse-proxy rule, behind TLS. The rest of the API stays private.
+
+**3. Start a runner** on a host inside the segment. It needs Python 3.11+ (`pip install farrier-tls`) or the
+engine's image:
+
+```bash
+docker run -d --restart unless-stopped --name farrier-runner \
+  -e FARRIER_RUNNER_TOKEN=frn.dmz-frankfurt.... \
+  -e F5_PASSWORD=...   # credentials the endpoints reference, if they live here
+  ghcr.io/gagankarthik/farrier:0.2.0 \
+  farrier runner start --url https://farrier-gw.example.com
+```
+
+Run two or more per group for high availability: they share the group's jobs.
+
+**4. Point endpoints at the group:**
+
+```json
+{
+  "name": "dmz-bigip-app1",
+  "host": "10.40.0.10",
+  "connector": "f5",
+  "connector_config": {
+    "runner": "dmz-frankfurt",
+    "url": "https://10.40.0.5",
+    "username": "farrier",
+    "password": "env:F5_PASSWORD",
+    "profile": "/Common/clientssl_app1"
+  }
+}
+```
+
+## Operate
+
+- **Settings → Remote runners** and `farrier runner list` show each group's endpoints, pending jobs and
+  when a runner last connected. A group with endpoints and no runner online for five minutes shows red.
+- A deploy no runner picks up before the renewal's deadline fails with "no runner of group … picked up the
+  deploy", so a stopped runner raises the normal failed-renewal alert in time.
+- Revoke a token with `DELETE /api/runners/{group}/token` or the dashboard; its runners stop at their next
+  poll.
+- `farrier runner start --once` runs whatever is queued and exits, for troubleshooting.
+
+Limits today: crypto/PQC re-probes and domain health checks don't run through runners yet, and runners
+poll every 5 seconds (`--interval`) rather than holding a long poll.

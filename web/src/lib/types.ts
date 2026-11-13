@@ -156,6 +156,11 @@ export interface Renewal {
   connector: string;
   host: string;
   port: number;
+  /** present while the renewal waits at an approval gate (settings approvals) */
+  approval?: { mode: string; ticket: { ref: string; url: string | null } | null; overdue: boolean };
+  /** why it is stuck or failed (farrier/core/reasons.py), with one line on what to do; null when all is well */
+  reason_code?: string | null;
+  hint?: string | null;
 }
 
 export interface FarrierEvent {
@@ -278,6 +283,44 @@ export interface DnsProviderInfo {
   label: string;
   fields: CatalogField[];
 }
+/** A certificate held in a cloud certificate store (farrier.monitoring.cloud_inventory). */
+export interface CloudCertificate {
+  source: "aws-acm" | "azure-keyvault" | "gcp-certificate-manager";
+  location: string;
+  name: string;
+  id: string;
+  domains: string[];
+  not_after: string | null;
+  days_left: number | null;
+  in_use: boolean | null;
+  managed: boolean | null;
+  status: string | null;
+}
+export interface CloudInventory {
+  configured: boolean;
+  certificates: CloudCertificate[];
+  errors: { source: string; location: string; error: string }[];
+  listed_at: string | null;
+}
+/** A remote runner group (farrier.core.runners): its endpoints are reached only through its runners. */
+export interface RunnerGroup {
+  group: string;
+  token: boolean;
+  created_at: string | null;
+  last_seen: string | null;
+  version: string | null;
+  pending_jobs: number;
+  endpoints: number;
+  /** polled the engine in the last five minutes */
+  online: boolean;
+}
+/** A name with a valid public certificate, from Certificate Transparency logs. */
+export interface CtName {
+  name: string;
+  not_after: string | null;
+  issuer: string | null;
+  wildcard: boolean;
+}
 export interface CaPreset {
   id: string;
   label: string;
@@ -285,6 +328,8 @@ export interface CaPreset {
   needs_directory_url: boolean;
   /** true for a staging/test directory */
   staging: boolean | string | null;
+  /** the CA authorizes names out of band (AWS ACM): no DNS-01 */
+  prevalidated?: boolean;
 }
 export interface NotifierTypeInfo {
   id: string;
@@ -310,6 +355,8 @@ export interface Issuer {
   preferred_chain: string | null;
   eab_kid: string | null;
   eab_hmac_key: SecretRef | null;
+  /** AWS Private CA ARN, Google CAS pool or ACM binding ARN; such issuers are edited in issuers.json or the API */
+  cloud_ref?: string | null;
 }
 export interface IssuerInput {
   preset?: string;

@@ -229,7 +229,8 @@ def test_issuer_round_trip_and_eab_refs(env):
     view = r.json()
     assert view == {"name": "zerossl", "source": "ui", "type": "acme", "preset": "zerossl",
                     "directory_url": "https://acme.zerossl.com/v2/DV90", "email": "pki@example.com", "dns": "auto",
-                    "profile": None, "preferred_chain": None, "eab_kid": "vault:zs-kid", "eab_hmac_key": "vault:zs-hmac"}
+                    "profile": None, "preferred_chain": None, "eab_kid": "vault:zs-kid", "eab_hmac_key": "vault:zs-hmac",
+                    "cloud_ref": None}
     listed = {i["name"]: i for i in c.get("/api/issuers", headers=ADMIN).json()}
     assert listed["default"]["source"] == "builtin" and listed["zerossl"] == view
     used = {s["name"]: s["used_by"] for s in c.get("/api/secrets", headers=ADMIN).json()}
@@ -484,8 +485,38 @@ def test_catalog_shape(env):
     assert req == {"access_key_id", "secret_access_key"}
     assert {"hosted_zone_id", "role_arn"} <= {f["key"] for f in r53["fields"] if not f["secret"]}
     zs = next(p for p in cat["ca_presets"] if p["id"] == "zerossl")
-    assert zs == {"id": "zerossl", "label": "ZeroSSL", "eab": True, "needs_directory_url": False, "staging": False}
+    assert zs == {"id": "zerossl", "label": "ZeroSSL", "eab": True, "needs_directory_url": False, "staging": False,
+                  "prevalidated": False}
     assert next(p for p in cat["ca_presets"] if p["id"] == "digicert")["needs_directory_url"] is True
     slack = next(t for t in cat["notifier_types"] if t["id"] == "slack")
     assert next(f for f in slack["fields"] if f["key"] == "url")["secret"] is True
     assert [t["id"] for t in cat["alert_rule_types"]] == ["event", "expiring", "health", "zombie", "unreachable"]
+
+
+def test_aws_acm_issuer_needs_no_dns(env, monkeypatch):
+    _, c = env
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")
+    arn = "arn:aws:acm:eu-west-1:123456789012:acme-endpoint/ep/acme-external-account-binding/b"
+    r = put(c, "/api/issuers/acm", {"preset": "aws-acm", "acm_eab_arn": arn})
+    assert r.status_code == 200, r.text
+    put(c, "/api/secrets/acm-hmac", {"value": "bWFj"})
+    r = put(c, "/api/issuers/acm2", {"preset": "aws-acm", "directory_url": "https://acm-acme-enroll.eu-west-1.api.aws/x/directory",
+                                     "eab_kid": "kid", "eab_hmac_key": "vault:acm-hmac"})
+    assert r.status_code == 400 and "eab_kid" in r.json()["detail"]   # every EAB value must be a reference
+    put(c, "/api/secrets/acm-kid", {"value": "kid"})
+    r = put(c, "/api/issuers/acm2", {"preset": "aws-acm", "directory_url": "https://acm-acme-enroll.eu-west-1.api.aws/x/directory",
+                                     "eab_kid": "vault:acm-kid", "eab_hmac_key": "vault:acm-hmac"})
+    assert r.status_code == 200, r.text
+
+
+def test_cloud_issuers_listed_with_their_reference(env, monkeypatch):
+    _, c = env
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")
+    arn = "arn:aws:acm-pca:eu-west-1:123456789012:certificate-authority/11111111-2222-3333-4444-555555555555"
+    assert put(c, "/api/issuers/pca", {"type": "aws_pca", "ca_arn": arn}).status_code == 200
+    listed = {i["name"]: i for i in c.get("/api/issuers", headers=ADMIN).json()}
+    assert listed["pca"]["type"] == "aws_pca" and listed["pca"]["cloud_ref"] == arn and listed["pca"]["dns"] is None
+    presets = {p["id"]: p for p in c.get("/api/integrations/catalog", headers=ADMIN).json()["ca_presets"]}
+    assert presets["aws-acm"]["prevalidated"] is True
+    r = put(c, "/api/issuers/bad", {"type": "aws_pca", "ca_arn": arn, "dns": "auto"})
+    assert r.status_code == 400 and "unknown keys" in r.json()["detail"]

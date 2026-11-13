@@ -21,10 +21,13 @@ TABLES = ("projects",                                       # migration 8; "defa
           "endpoints", "observations", "renewals", "events",   # in foreign-key order
           "certificates", "crypto_assets", "crypto_scans",  # migration 5
           "ssh_hosts", "ssh_keys",                          # migration 6
-          "itsm_tickets")                                   # migration 7
+          "itsm_tickets",                                   # migration 7
+          "runner_jobs",                                    # migration 9
+          "acme_accounts", "acme_orders")                   # migration 11 (acme_nonces is never copied)
 # Dashboard configuration (migration 4): keyed tables without an id, copied as is (secrets stay sealed)
 CONFIG_TABLES = ("secrets", "secret_values", "config_items", "alert_state", "health_results",
-                 "ssh_host_pins", "ssh_runs")  # keyed, no id: trusted host keys must survive a move
+                 "ssh_host_pins", "ssh_runs",  # keyed, no id: trusted host keys must survive a move
+                 "acme_eab")                   # migration 11: HMAC keys stay sealed
 
 OPEN_STATES = ("planned", "issued", "deploying", "verifying", "awaiting_manual")
 JSON_COLS = {"sans", "connector_config", "window", "tags", "rollback", "members"}

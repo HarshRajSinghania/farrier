@@ -66,6 +66,7 @@ Details worth knowing:
 - A manual renewal past its `deadline` is flagged `OVERDUE` in its error field and logged as an error. It stays open, so it can still close if the certificate is installed late.
 - `cancelled` is only reached through the API (`POST /api/renewals/{id}/cancel`).
 - **Renew now** (`POST /api/endpoints/{id}/renew`) creates a renewal scheduled for now, or pulls an existing `planned` one forward, and advances it immediately.
+- A renewal that is stuck or failed carries a [reason code](/docs/troubleshooting#reason-codes) with one line on what to do; `farrier explain <endpoint>` shows how its next renewal was scheduled.
 
 ## Renewal timing
 
@@ -84,17 +85,35 @@ A renewal is only created once `due` is within `horizon_days` (default 14) of no
 
 ## Change windows
 
-Each endpoint can carry a maintenance window, in **UTC**:
+Each endpoint can carry a maintenance window. Add `tz` (an IANA name) to read days and times in that zone;
+without it they are UTC:
 
 ```json
-{ "days": ["sat", "sun"], "start": "02:00", "hours": 4 }
+{ "days": ["sat", "sun"], "start": "02:00", "hours": 4, "tz": "Europe/Berlin" }
 ```
 
-An empty window (`{}`) means "any time", which suits hitless reloads. If `days` is omitted, every day is allowed; `hours` defaults to 24.
+That window opens at 02:00 Berlin time all year: 01:00 UTC in winter, 00:00 UTC in summer. An empty window
+(`{}`) means "any time", which suits hitless reloads. If `days` is omitted, every day is allowed; `hours`
+defaults to 24. A window that can never open (an unknown zone or day) is refused when the endpoint is saved.
 
-<Callout type="info">
-Windows are UTC-only for now. Timezone-aware windows are on the roadmap.
-</Callout>
+## Approvals
+
+Some changes need a person's yes first. With `approvals` in `settings.json`, a renewal waits in `planned`,
+before any key is generated or any CA is asked, until it is approved:
+
+```json
+{ "approvals": { "default": "manual", "payments": "servicenow:snow-prod", "lab": "none" } }
+```
+
+- `manual`: an admin approves or rejects it in **Renewals** (or `POST /api/renewals/{id}/approve` and
+  `/reject`). Rejecting cancels the renewal.
+- `servicenow:<channel>`: Farrier opens a change request through that ServiceNow channel and goes ahead when
+  its approval field reads **approved**; **rejected** cancels the renewal. An admin can still approve in
+  Farrier, for example while ServiceNow itself is down; the activity log records who.
+- The endpoint tag `require-approval` asks for `manual` approval whatever its project's mode.
+
+Approved after its change window closed? The renewal moves to the next window, unless that would miss its
+deadline. A gate still closed at the deadline is logged as overdue, so an alert rule on errors catches it.
 
 ## Leveling and daily caps
 

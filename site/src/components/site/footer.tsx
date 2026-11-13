@@ -36,16 +36,12 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
               </div>
             </div>
             <pre className="min-w-0 overflow-x-auto rounded-2xl bg-[#0b1220] p-6 font-mono text-[13px] leading-7 text-white/70 shadow-[0_24px_48px_-12px_rgba(11,18,32,0.5)]">
-              <span className="text-white/40">$</span> <span className="text-white">git clone {site.github}</span>
-              {"\n"}
-              <span className="text-white/40">$</span> <span className="text-white">pip install -e ./farrier</span>
-              {"\n"}
-              <span className="text-white/40">$</span> <span className="text-white">farrier demo</span>
-              {"\n"}  demo estate: 41 endpoints, 18 automated{"\n"}
-              <span className="text-[#4ade80]">  ✔</span> nginx-01    verified live{"\n"}
-              <span className="text-[#4ade80]">  ✔</span> tomcat-03   verified live{"\n"}
-              <span className="text-[#fbbf24]">  ●</span> asa-dc1     change pack ready{"\n"}
-              <span className="text-white/40">$</span> <span className="text-white">cd farrier/web && npm i && npm run dev</span>
+              <span className="text-white/40">$</span>{" "}
+              <span className="text-white">curl -fsSL {site.github.replace("github.com", "raw.githubusercontent.com")}/main/install.sh | sh</span>
+              {"\n"}  pulling ghcr.io/gagankarthik/farrier, farrier-web{"\n"}
+              <span className="text-[#4ade80]">  ✔</span> engine started{"\n"}
+              <span className="text-[#4ade80]">  ✔</span> dashboard on http://localhost:3000/dashboard{"\n"}
+              {"  "}Sign in with the password: <span className="text-white">••••••••••••</span>{"\n"}
             </pre>
           </div>
         </section>

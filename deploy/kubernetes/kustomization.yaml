@@ -10,6 +10,6 @@ resources:
   - network-policy.yaml
 images:
   - name: ghcr.io/gagankarthik/farrier
-    newTag: "0.1.0"
+    newTag: "0.2.0"
   - name: ghcr.io/gagankarthik/farrier-web
-    newTag: "0.1.0"
+    newTag: "0.2.0"

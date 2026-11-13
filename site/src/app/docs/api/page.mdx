@@ -174,6 +174,16 @@ Renew now. Creates a renewal scheduled for now, or pulls an existing `planned` o
 
 Errors: `404`; `409` for an endpoint discovery added that no admin has approved yet.
 
+### `GET /api/endpoints/{id}/explain`
+
+Why the endpoint's next renewal is when it is, computed with the planner's own maths: `certificate`, `schedule`
+(observed and capped lifetime, `renew_before_days`, `lifetime_due`, `ari_due`, `due`, `horizon_days`, `plan_from`,
+`window`, `window_tz`, `window_start` and `window_start_local`, `deadline`, `daily_cap`, `leveled`, `backoff`
+with `until` and `active`, the planner's `start` and `reason`), `open_renewal` and `last_failure` (each with
+`reason_code` and `hint`), `approval`, `policy` (`allowed`, `violations`), `runner` (group status), `blockers`
+(sentences) and `next` (`at`, `summary`). The same payload as `farrier explain --json`; see
+[Troubleshooting](/docs/troubleshooting#farrier-explain). Errors: `404`.
+
 ### `POST /api/endpoints/{id}/approve`
 
 Admin only. Approves an endpoint discovery added: removes its `discovered` tag so it can be planned and renewed. Response: `{ "ok": true }`. Errors: `404`.
@@ -218,18 +228,23 @@ Renewals ordered by `scheduled_for`, up to 500.
     "not_after": "2027-05-31T15:54:10+00:00",
     "ticket_ref": "CHG0041206",
     "attempts": 0,
-    "error": null,
+    "error": "OVERDUE: change not installed before deadline",
     "created_at": "2026-11-12T15:54:10+00:00",
     "updated_at": "2026-11-12T15:54:10+00:00",
     "name": "iis-07.corp.test",
     "connector": "manual",
     "host": "127.0.0.1",
-    "port": 61632
+    "port": 61632,
+    "reason_code": "OVERDUE_MANUAL",
+    "hint": "The manual change was not installed before the deadline: install the change pack now; the current certificate expires soon."
   }
 ]
 ```
 
-States are described in [Concepts](/docs/concepts#renewal-states).
+States are described in [Concepts](/docs/concepts#renewal-states). `reason_code` and `hint` say why a renewal is
+stuck or failed and what to do (`null` when nothing is wrong); every code is listed in
+[Troubleshooting](/docs/troubleshooting#reason-codes). A renewal held at an approval gate also has `approval`
+(`mode`, `ticket`, `overdue`).
 
 ### `POST /api/renewals/{id}/advance`
 
@@ -318,17 +333,42 @@ Prometheus text format. Needs a token (use the read-only one). Names follow x509
 | `farrier_cert_expired` | same | `1` once expired |
 | `farrier_endpoint_up` | same | `1` when the last TLS handshake succeeded |
 | `farrier_renewals` | `state` | Renewals by state |
+| `farrier_renewal_planned_timestamp_seconds` | `endpoint`, `state` | When the endpoint's open renewal is scheduled to start; absent when none is open |
+| `farrier_endpoints_failing` | `reason`, `issuer` | Endpoints whose latest finished renewal ended `failed` or `rolled_back`, by [reason code](/docs/troubleshooting#reason-codes) and issuer; stays until a retry succeeds |
+| `farrier_approvals_pending` | `overdue` | Renewals waiting at an approval gate (`overdue="true"`: past the deadline) |
+| `farrier_runner_group_online` | `group` | `1` when a runner of the group polled in the last 5 minutes |
+| `farrier_runner_group_pending_jobs` | `group` | Runner jobs queued or leased |
+| `farrier_audit_log_intact` | | `1` while the activity log's hash chain verifies (rechecked every 5 minutes) |
+| `farrier_health_check_failed` | `endpoint`, `check` | `1` when a domain health check failed at the last health run |
 | `farrier_build_info` | `version` | Always `1` |
 
+Runner and audit metrics are install-wide, so a project-scoped caller does not see them. Labels stay bounded: one
+series per endpoint, reason code, issuer or runner group. With Prometheus Operator, scrape with
+`honorLabels: true` (the Helm chart's ServiceMonitor does) so Farrier's `endpoint` label is kept.
+
 ```yaml
-# Prometheus alert rules
-- alert: FarrierCertificateExpiringSoon
-  expr: farrier_cert_expires_in_seconds < 7 * 86400
+# Prometheus alert rules (the Helm chart renders these with engine.metrics.prometheusRule.enabled)
+- alert: FarrierCertificateExpiringNoRenewal
+  expr: (farrier_cert_expires_in_seconds < 7 * 86400) unless on(endpoint) farrier_renewal_planned_timestamp_seconds
+  for: 1h
+  labels: { severity: critical }
+- alert: FarrierRenewalFailed
+  expr: farrier_endpoints_failing > 0
   labels: { severity: warning }
-- alert: FarrierRenewalNeedsAttention
-  expr: farrier_renewals{state=~"failed|rolled_back"} > 0
+- alert: FarrierApprovalsOverdue
+  expr: farrier_approvals_pending{overdue="true"} > 0
+  labels: { severity: critical }
+- alert: FarrierRunnerGroupOffline
+  expr: farrier_runner_group_online == 0
+  for: 15m
+  labels: { severity: warning }
+- alert: FarrierAuditLogBroken
+  expr: farrier_audit_log_intact == 0
   labels: { severity: critical }
 ```
+
+A Grafana dashboard for these metrics ships in the chart (`deploy/helm/farrier/dashboards/farrier.json`;
+`engine.metrics.grafanaDashboard.enabled` installs it for the Grafana sidecar).
 
 ### `GET /api/inventory`
 

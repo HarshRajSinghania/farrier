@@ -10,6 +10,9 @@ import type {
   CertificateDetail,
   CryptoAsset,
   CryptoSummary,
+  CtName,
+  RunnerGroup,
+  CloudInventory,
   ConnectorInfo,
   DiscoverResult,
   DnsAccount,
@@ -133,6 +136,11 @@ export const useConfig = () => useSWR<FarrierConfig>("/config", fetcher);
 export const useCatalog = () => useSWR<IntegrationCatalog>("/integrations/catalog", fetcher, { revalidateOnFocus: false });
 export const useSecrets = () => useSWR<SecretInfo[]>("/secrets", fetcher);
 export const useIssuers = () => useSWR<Issuer[]>("/issuers", fetcher);
+export const useCloudCertificates = () => useSWR<CloudInventory>("/cloud/certificates", fetcher, { revalidateOnFocus: false });
+export const useAuditStatus = () =>
+  useSWR<{ ok: boolean; sealed: number; unsealed: number; head: string | null; first_bad_id: number | null }>(
+    "/audit/verify", fetcher, { revalidateOnFocus: false });
+export const useRunners = () => useSWR<RunnerGroup[]>("/runners", fetcher, live);
 export const useDnsAccounts = () => useSWR<DnsAccount[]>("/dns-accounts", fetcher);
 export const useNotifiers = () => useSWR<NotifierChannel[]>("/notifiers", fetcher);
 export const useAlertRules = () => useSWR<AlertRule[]>("/alert-rules", fetcher);
@@ -167,12 +175,23 @@ export const api = {
   deleteEndpoint: (id: number) => act<{ ok: true }>(`/endpoints/${id}`, { method: "DELETE" }),
   advance: (id: number) => act<{ state: string }>(`/renewals/${id}/advance`, { method: "POST" }),
   cancel: (id: number) => act<{ state: string }>(`/renewals/${id}/cancel`, { method: "POST" }),
+  replace: (body: { filter: Record<string, unknown>; reason?: string; revoke?: boolean; dry_run?: boolean }) =>
+    act<{ matches?: { endpoint_id: number; name: string; cert_issuer: string | null }[]; renewals?: { renewal_id: number }[] }>(
+      "/replace", { method: "POST", body: JSON.stringify(body) }),
+  approveRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/approve`, { method: "POST" }),
+  rejectRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/reject`, { method: "POST" }),
   tick: () => act<{ planned: number; states: Record<string, number> }>("/tick", { method: "POST" }),
   // new endpoints, hosts and assets land in the picked project (the engine picks your only one otherwise)
   discover: (targets: string) =>
     act<DiscoverResult>("/discover", { method: "POST", body: JSON.stringify({ targets, project: currentProject() ?? undefined }) }),
+  runnerToken: (group: string) => act<{ group: string; token: string }>(`/runners/${encodeURIComponent(group)}/token`, { method: "POST" }),
+  revokeRunner: (group: string) => act<{ ok: true }>(`/runners/${encodeURIComponent(group)}/token`, { method: "DELETE" }),
+  refreshCloud: () => request<CloudInventory>("/cloud/certificates?refresh=true"),
+  ctNames: (domain: string) => request<CtName[]>(`/discover/ct?domain=${encodeURIComponent(domain)}`),
   runbook: (id: number) => request<{ markdown: string }>(`/renewals/${id}/runbook`),
   packUrl: (id: number) => `${BASE}/renewals/${id}/pack`,
+  auditExportUrl: () => `${BASE}/audit/export`,
+  complianceCsvUrl: () => `${BASE}/reports/compliance?format=csv`,
 
   // integrations: names are path segments, so they stay [A-Za-z0-9_-]
   putSecret: (name: string, value: string) =>

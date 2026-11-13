@@ -11,7 +11,7 @@ import { useProject, useStatus } from "@/lib/api";
 import type { BackendStatus } from "@/lib/types";
 import { permits, type Role } from "./roles";
 
-export type AuthKind = "oidc" | "basic" | "none";
+export type AuthKind = "oidc" | "saml" | "basic" | "none";
 
 export type AuthStatus = Omit<BackendStatus, "auth"> & { role?: Role; auth?: AuthKind };
 

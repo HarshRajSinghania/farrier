@@ -50,8 +50,9 @@ switches over and keeps the old one, so a failed check rolls back by itself.
 
 | | |
 |---|---|
-| **Appliance connectors** | F5 BIG-IP, FortiGate, Palo Alto PAN-OS, Java keystores, files over SSH. Everything else gets a change pack (PEM, PFX, runbook) and a ticket, and closes itself when the scanner sees the new certificate. |
-| **Any CA** | Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo over ACME (with External Account Binding), or the built-in private CA. |
+| **Connectors** | F5 BIG-IP, FortiGate, Palo Alto PAN-OS, Citrix ADC, IIS (over OpenSSH), Kubernetes TLS Secrets, Java keystores, files over SSH. Everything else gets a change pack (PEM, PFX, runbook) and a ticket, and closes itself when the scanner sees the new certificate. |
+| **Remote runners** | For DMZ, OT and branch networks: a runner inside the segment connects out over HTTPS and deploys, verifies and rolls back there. Device credentials can stay on the runner. |
+| **Any CA** | Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo, AWS Certificate Manager over ACME (with External Account Binding), or the built-in private CA. |
 | **29 DNS providers** | Cloudflare, Route 53, Azure DNS, Cloud DNS, RFC 2136 and more, several accounts each, with CNAME delegation. Records are verified on every authoritative nameserver and always cleaned up. |
 | **Deployment verification** | Done only when the fingerprint, chain, names and every listed VIP check out. |
 | **SSH keys** | Scans SSH hosts for host keys, key exchange, ciphers and MACs without logging in. With an access profile it reads `authorized_keys`, flags weak and unknown keys, and removes a key after showing a dry run. |
@@ -84,7 +85,7 @@ renewal loop, never exposed), which talks to your devices, CAs and DNS. Nothing 
 | You want to | Use |
 |---|---|
 | See it work on your laptop | `farrier demo` (above) |
-| Run it for one team on one server | `docker compose up -d` with a two-line `.env` |
+| Run it for one team on one server | `install.sh` (one command, below) |
 | Run it in production on one server | `deploy/compose/production.yml` (PostgreSQL, object storage, file secrets) |
 | Run it on your Kubernetes | `helm install farrier deploy/helm/farrier` |
 | Run it on EKS, GKE or AKS | `deploy/terraform/{eks,gke,aks}` + `examples/values-{eks,gke,aks}.yaml` |
@@ -95,11 +96,11 @@ Copy-paste steps for each, and how to grow from one server to many teams without
 **[Install guide](https://farrier-erc1.vercel.app/docs/install/)**.
 
 ```bash
-cat > .env <<EOF
-FARRIER_API_TOKEN=$(openssl rand -hex 32)
-FARRIER_DASHBOARD_PASSWORD=choose-a-long-password
-EOF
-docker compose up -d             # http://localhost:3000
+# any machine with Docker: writes a .env with a random token and password, pulls the images, starts both
+curl -fsSL https://raw.githubusercontent.com/gagankarthik/farrier/main/install.sh | sh
+
+# or try a simulated estate of 41 endpoints first
+curl -fsSL https://raw.githubusercontent.com/gagankarthik/farrier/main/install.sh | FARRIER_MODE=demo sh
 ```
 
 Images are multi-arch and signed with cosign: `ghcr.io/gagankarthik/farrier` and `farrier-web`.
@@ -113,16 +114,20 @@ Images are multi-arch and signed with cosign: `ghcr.io/gagankarthik/farrier` and
 
 Report vulnerabilities privately through GitHub's security advisories. See the [security model](https://farrier-erc1.vercel.app/docs/security/).
 
-## Status
+## Status and verification
 
-236 engine tests (plus 160 for the cloud functions) cover the renewal state machine, rollback, the ACME client
-against an in-process RFC 8555 server, the appliance connectors against mock management APIs, DNS providers,
-database backends and leader election, signed backups, SSO roles, the MCP server, health checks, SSH key
-inventory, PQC readiness probes, the ServiceNow and Jira integrations, and the guardrails.
+| What | How it is verified |
+|---|---|
+| Renewal engine: plan, issue, deploy, verify, roll back, backoff | 290+ engine tests, every commit |
+| ACME (RFC 8555, EAB, ARI, profiles) | Pebble, Let's Encrypt's own ACME test server, every commit; Let's Encrypt staging and AWS ACM nightly ([live workflow](.github/workflows/live.yml)) |
+| F5, FortiGate, PAN-OS, Citrix ADC, Kubernetes, IIS connectors | Contract tests against each vendor's documented management API |
+| 29 DNS providers | Contract tests per provider API; the dashboard's **Test** button proves a live account end to end |
+| AWS, Azure and Google integrations | Contract tests per API, plus `terraform validate` for every reference deployment |
+| PostgreSQL, MySQL, SQLite | Schema migrations and leader election, every commit |
 
-**Not yet run against real hardware, live CAs or live provider accounts.** Try the F5, FortiGate and PAN-OS
-connectors on a lab device first, ACME against Let's Encrypt staging, and each DNS provider with a staging
-certificate. PostgreSQL and MySQL are tested against a mocked driver. Change windows are UTC only.
+Before Farrier changes production, run the [pilot checklist](https://farrier-erc1.vercel.app/docs/pilot/) on one
+low-risk endpoint per device type: every enterprise CLM rollout starts this way. Results from your devices
+(model and OS version) are welcome as issues; confirmed versions are listed in the docs.
 
 ## Repository
 

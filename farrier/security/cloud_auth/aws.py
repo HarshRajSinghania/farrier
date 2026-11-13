@@ -12,6 +12,9 @@ Credentials, first match wins (platform identity first; long-lived keys only whe
   4. EC2 instance profile through IMDSv2 (AWS_EC2_METADATA_DISABLED=true skips it)
 
 Temporary credentials are cached until 5 minutes before they expire.
+
+Another account: ``assume_role(role_arn, external_id)`` layers sts:AssumeRole on top of that chain (or
+``AssumeRoleProvider(..., base=...)`` on other credentials); pass it as ``creds=``.
 """
 from __future__ import annotations
 
@@ -210,6 +213,62 @@ def default_provider() -> AwsCredentialProvider:
         return _default
 
 
+class AssumeRoleProvider:
+    """Credentials for another role, often in another AWS account: sts:AssumeRole signed with ``base`` (default:
+    the chain above), with an optional ExternalId. Same ``get()`` as AwsCredentialProvider, so it can be passed
+    wherever ``creds=`` is taken; cached until 5 minutes before the session expires."""
+
+    def __init__(self, role_arn: str, external_id: str | None = None, session_name: str = "farrier",
+                 base: AwsCredentialProvider | None = None, http=None, duration: int = 3600):
+        if not ROLE_ARN.match(role_arn or ""):
+            raise CloudConfigError(f"role_arn={role_arn!r} is not an IAM role ARN (arn:aws:iam::<account>:role/<name>)")
+        self.role_arn, self.external_id, self.session_name = role_arn, external_id, session_name
+        self.base, self.http, self.duration = base, http, duration
+        self._cache = TokenCache(margin=300)
+
+    @property
+    def account(self) -> str:
+        return self.role_arn.split(":")[4]
+
+    def get(self) -> AwsCredentials:
+        return self._cache.get("creds", self._resolve)
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+    def _resolve(self) -> tuple[AwsCredentials, float | None]:
+        form = {"Action": "AssumeRole", "Version": "2011-06-15", "RoleArn": self.role_arn,
+                "RoleSessionName": self.session_name, "DurationSeconds": str(self.duration)}
+        if self.external_id:
+            form["ExternalId"] = self.external_id
+        what = f"STS AssumeRole {self.role_arn}"
+        # shortcut: the global STS endpoint (aws partition only); add a regional/partition option when needed
+        r = signed_request("POST", "https://sts.amazonaws.com/", service="sts", region="us-east-1", what=what,
+                           body=urlencode(form).encode(), creds=self.base, http=self.http,
+                           headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/xml"})
+        c = ET.fromstring(r.content).find(".//s:Credentials", STS_NS)
+        if c is None:
+            raise CloudError(f"{what} returned no credentials")
+        get = lambda k: c.findtext(f"s:{k}", namespaces=STS_NS)  # noqa: E731
+        creds = AwsCredentials(get("AccessKeyId"), get("SecretAccessKey"), get("SessionToken"),
+                               _epoch(get("Expiration")), "assume-role")
+        return creds, creds.expires
+
+
+ROLE_ARN = re.compile(r"^arn:aws[a-z-]*:iam::\d{12}:role/[\w+=,.@/-]+$")
+_assumed: dict[tuple, AssumeRoleProvider] = {}
+
+
+def assume_role(role_arn: str, external_id: str | None = None, session_name: str = "farrier") -> AssumeRoleProvider:
+    """The shared provider for a role on top of the default chain: every connector and inventory pass that
+    names the same role re-uses one cached session."""
+    key = (role_arn, external_id, session_name)
+    with _default_lock:
+        if key not in _assumed:
+            _assumed[key] = AssumeRoleProvider(role_arn, external_id, session_name)
+        return _assumed[key]
+
+
 def region_for(setting: str, value: str | None, env=None) -> str:
     """The configured region, else AWS_REGION / AWS_DEFAULT_REGION; an error names ``setting``."""
     env = os.environ if env is None else env
@@ -232,9 +291,10 @@ def signed_request(method: str, url: str, *, service: str, region: str, what: st
 
 def json_call(service: str, target: str, payload: dict, *, region: str, what: str, endpoint: str | None = None,
               creds: AwsCredentialProvider | None = None, http=None, allow=()) -> dict:
-    """An AWS JSON-1.1 protocol call (Secrets Manager, KMS, EventBridge). Raises CloudError with ``code``."""
+    """An AWS JSON-1.1 protocol call (Secrets Manager, KMS, EventBridge, ACM, Private CA). Raises CloudError with ``code``."""
     url = endpoint or f"https://{service}.{region}.amazonaws.com/"
-    prefix = {"secretsmanager": "secretsmanager", "kms": "TrentService", "events": "AWSEvents"}[service]
+    prefix = {"secretsmanager": "secretsmanager", "kms": "TrentService", "events": "AWSEvents",
+              "acm": "CertificateManager", "acm-pca": "ACMPrivateCA"}[service]
     body = json.dumps(payload).encode()
     r = signed_request("POST", url, service=service, region=region, what=what, body=body, creds=creds, http=http,
                        headers={"Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": f"{prefix}.{target}"},

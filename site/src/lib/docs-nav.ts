@@ -18,6 +18,7 @@ export const DOCS_NAV: DocsGroup[] = [
       { href: "/docs/databases", label: "Databases and HA" },
       { href: "/docs/enterprise", label: "Enterprise and cloud" },
       { href: "/docs/deploy", label: "Deployment reference" },
+      { href: "/docs/runners", label: "Remote runners" },
     ],
   },
   {
@@ -28,6 +29,7 @@ export const DOCS_NAV: DocsGroup[] = [
       { href: "/docs/connectors", label: "Connectors" },
       { href: "/docs/sso", label: "Single sign-on and roles" },
       { href: "/docs/projects", label: "Teams and projects" },
+      { href: "/docs/acme-server", label: "ACME server" },
     ],
   },
   {
@@ -53,6 +55,7 @@ export const DOCS_NAV: DocsGroup[] = [
     items: [
       { href: "/docs/security", label: "Security and hosting" },
       { href: "/docs/pilot", label: "Pilot checklist" },
+      { href: "/docs/troubleshooting", label: "Troubleshooting" },
     ],
   },
   {

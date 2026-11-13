@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { BellRing, CheckCircle2, ChevronRight, CircleDashed, FolderKanban, Globe, Landmark, Save, XCircle } from "lucide-react";
+import { RunnersCard } from "@/components/dashboard/runners-card";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -219,6 +220,8 @@ export default function SettingsPage() {
         <Policy />
 
         <IntegrationsCard />
+
+        <RunnersCard />
 
         <Card>
           <CardHeader>

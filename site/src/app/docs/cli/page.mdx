@@ -12,9 +12,19 @@ export const metadata = {
 | `farrier serve [--host --port --tick]` | Run the engine API (OpenAPI at `/docs`) and the renewal loop. The dashboard is the web app: `docker compose up` runs both, or `cd web && FARRIER_API_URL=http://127.0.0.1:8740 npm run dev` |
 | `farrier demo` | A simulated estate of real TLS endpoints, with the API running against it |
 | `farrier scan <targets> [--register]` | Handshake with TLS targets and list the certificates they serve; `--register` adds unknown ones as `discovered` |
+| `farrier audit verify\|export [-o file]\|check <file>` | The hash-chained activity log: verify it, export it signed, check an export ([security](/docs/security#tamper-evident-audit-log)) |
+| `farrier replace [--ca\|--issuer\|--key-type\|--project\|--tag\|--endpoint] [--revoke] [--reason] [--dry-run]` | Incident drill: renew every match now; revoke old certificates once nothing serves them ([security](/docs/security#replace-and-revoke-incident-drill)) |
+| `farrier report [--json]` | Compliance report per project: coverage, expiry risk, failures, 47-day readiness, audit integrity |
+| `farrier cloud-certs [--json]` | Certificates in AWS ACM, Azure Key Vault and Google Certificate Manager ([settings](/docs/configuration#cloud-certificate-inventory)); exits 1 if a source failed |
+| `farrier runner start\|token\|list` | [Remote runners](/docs/runners) for segmented networks |
+| `farrier ct <domain> [--json]` | Names with a valid public certificate under the domain, from Certificate Transparency logs (crt.sh), with expiry and issuer; feed them to `farrier scan`. The dashboard's **Discovery** page does the same with **Find names** |
+| `farrier acm endpoint\|domain\|eab ...` | AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings ([guide](/docs/configuration#aws-certificate-manager-managed-acme)) |
+| `farrier acme-server eab create <profile> [--names]\|list\|delete <kid>` | EAB keys for Farrier's [ACME server](/docs/acme-server): each registers one ACME account; deleting a key revokes its account. **json** |
+| `farrier acme-server certs` | Certificates issued over ACME: profile, names, account, EAB key, expiry, revoked. **json** |
 | `farrier tick` | Run one scan, plan and advance cycle and print the result |
 | `farrier import <file.json>` | Import endpoints from a JSON inventory |
 | `farrier endpoints approve <name or id>` | Let a discovered endpoint be renewed (logged with actor `cli`). **json** |
+| `farrier explain <name or id>` | Why the next renewal is when it is: lifetime maths, ARI, change window and time zone, daily cap, backoff, approval, issuance policy, runner group, and the last failure with its [reason code](/docs/troubleshooting#reason-codes). Exits 4 if there is no such endpoint. **json** |
 | `farrier certs show <name or id>` | Certificate details: subject, SANs, issuer, key, chain, renewals, health. Exits 4 if there is no such endpoint. **json** |
 | `farrier ssh scan <targets>` | Probe SSH hosts without logging in: banner, host keys, PQC key exchange, findings. Results are stored. **json** |
 | `farrier ssh keys` | Collected authorized keys and their findings. **json** |

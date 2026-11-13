@@ -42,7 +42,7 @@ The device never talks to a CA. Farrier completes ACME DNS-01 validation through
 Infrastructure, network, PKI and security teams who own a mixed estate of appliances, servers and legacy services, and who need machine identities handled in a way that respects change control instead of bypassing it.
 
 <Callout type="warning" title="Project status">
-The engine is covered by tests, including an in-process RFC 8555 ACME server and mock appliance APIs. The F5, FortiGate and PAN-OS connectors follow the vendors' documented APIs but have **not yet been run against real hardware**. Try them on a lab device, and use Let's Encrypt staging, before production.
+Every commit runs the renewal engine's tests, each connector against its vendor's documented management API, and the ACME client against Let's Encrypt's Pebble test CA; Let's Encrypt staging and AWS ACM run nightly. Before Farrier changes production, run the [pilot checklist](/docs/pilot) on one endpoint per device type, as with any certificate automation rollout.
 </Callout>
 
 ## How these docs are organised

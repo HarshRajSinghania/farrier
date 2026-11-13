@@ -3,6 +3,7 @@
  *
  * Clears the session cookie, then ends the provider session through its
  * end_session_endpoint when it has one (RP-Initiated Logout), else returns to /auth/signin.
+ * SAML: clears the session only (no Single Logout); the IdP session lives on until it ends there.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { authMode, oidcConfig } from "@/lib/auth/config";
@@ -12,6 +13,11 @@ import { discover, endSessionUrl } from "@/lib/auth/oidc";
 import { allowedOrigins, clearSession, readSession } from "@/lib/auth/session";
 
 async function logout(req: NextRequest) {
+  if (authMode() === "saml") {
+    const res = toSignin(req, "signed_out");
+    clearSession(res);
+    return noStore(res);
+  }
   if (authMode() !== "oidc") return noStore(NextResponse.redirect(new URL("/", req.url), 303));
   const cfg = oidcConfig();
   if (!cfg.ok) {

@@ -70,7 +70,7 @@ again in every new terminal.
 Check it works:
 
 ```bash
-farrier --version                   # farrier 0.1.0
+farrier --version                   # farrier 0.2.0
 python -m pytest -q                 # runs every engine test; takes about a minute
 ```
 

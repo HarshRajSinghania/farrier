@@ -82,6 +82,12 @@ export const CONNECTOR_LABEL: Record<string, string> = {
   f5: "F5 BIG-IP",
   fortigate: "FortiGate",
   panos: "PAN-OS",
+  citrix: "Citrix ADC",
+  kubernetes: "Kubernetes Secret",
+  iis: "IIS",
+  azure_keyvault: "Azure Key Vault",
+  gcp_certificate_manager: "Google Certificate Manager",
+  aws_acm: "AWS ACM",
   manual: "Manual",
 };
 

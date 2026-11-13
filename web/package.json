@@ -1,15 +1,16 @@
 {
   "name": "web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/auth/auth.test.mjs src/lib/health.test.mjs src/lib/docs.test.mjs"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/auth/auth.test.mjs src/lib/auth/saml.test.mjs src/lib/health.test.mjs src/lib/docs.test.mjs"
   },
   "dependencies": {
+    "@node-saml/node-saml": "5.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jose": "^6.2.17",

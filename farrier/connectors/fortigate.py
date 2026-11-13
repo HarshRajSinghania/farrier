@@ -37,7 +37,7 @@ class FortiGateConnector(Connector):
 
     def deploy(self, b: Bundle) -> dict:
         bind = self._binding()
-        name = b.object_name[:35]  # FortiOS certificate names are limited to 35 chars
+        name = b.short_name(35)  # FortiOS certificate names are limited to 35 chars
         with self._client() as c:
             cur = check(c.get(bind["path"]), "read binding").json()
             results = cur.get("results", {})

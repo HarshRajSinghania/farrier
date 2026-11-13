@@ -1,0 +1,47 @@
+name: Live CAs
+
+# Nightly issuance from real CAs through real DNS: Let's Encrypt staging over DNS-01, and AWS Certificate
+# Manager managed ACME. Each check runs only when its repository secrets are set (see tests/test_live.py);
+# the job summary records what ran, so the README's verification table can link here.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # AWS credentials through GitHub OIDC (no stored keys)
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      FARRIER_LIVE_DOMAIN: ${{ vars.FARRIER_LIVE_DOMAIN }}
+      FARRIER_LIVE_DNS_JSON: ${{ secrets.FARRIER_LIVE_DNS_JSON }}
+      FARRIER_LIVE_DNS_TOKEN: ${{ secrets.FARRIER_LIVE_DNS_TOKEN }}   # referenced as env: from the dns.json body
+      FARRIER_LIVE_ACM_EAB_ARN: ${{ vars.FARRIER_LIVE_ACM_EAB_ARN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - if: vars.FARRIER_LIVE_AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.FARRIER_LIVE_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.FARRIER_LIVE_AWS_REGION }}
+      - name: Issue real certificates
+        run: python -m pytest tests/test_live.py -v -rs --junitxml=live.xml
+      - if: always()
+        name: Summary
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          print("| Check | Result |\n|---|---|")
+          for c in ET.parse("live.xml").iter("testcase"):
+              r = "skipped (secrets not set)" if c.find("skipped") is not None else \
+                  "FAILED" if c.find("failure") is not None or c.find("error") is not None else "passed"
+              print(f"| {c.get('name')} | {r} |")
+          EOF

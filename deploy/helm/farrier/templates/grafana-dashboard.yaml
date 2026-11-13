@@ -1,0 +1,13 @@
+{{- /* The Farrier Grafana dashboard as a ConfigMap for the Grafana sidecar, which picks it up by label. */}}
+{{- $gd := .Values.engine.metrics.grafanaDashboard }}
+{{- if $gd.enabled }}
+{{- $ctx := dict "ctx" . "component" "engine" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  {{- $name := printf "%s-dashboard" (include "farrier.componentName" $ctx) }}
+  {{- include "farrier.metadata" (merge (dict "name" $name "labels" $gd.labels "annotations" $gd.annotations) $ctx) | nindent 2 }}
+data:
+  farrier.json: |-
+    {{- .Files.Get "dashboards/farrier.json" | nindent 4 }}
+{{- end }}

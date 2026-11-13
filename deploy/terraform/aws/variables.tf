@@ -22,11 +22,11 @@ variable "tags" {
 variable "farrier_version" {
   description = "Farrier release to run. Selects ghcr.io/gagankarthik/farrier:<version> and farrier-web:<version>."
   type        = string
-  default     = "0.1.0"
+  default     = "0.2.0"
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$", var.farrier_version))
-    error_message = "farrier_version must be a SemVer version such as 0.1.0."
+    error_message = "farrier_version must be a SemVer version such as 0.2.0."
   }
 }
 
@@ -352,6 +352,18 @@ variable "log_retention_days" {
 
 variable "route53_zone_ids" {
   description = "Route 53 hosted zones the engine may write _acme-challenge TXT records in (DNS-01). Empty grants no Route 53 access."
+  type        = list(string)
+  default     = []
+}
+
+variable "acm_acme_endpoint_arns" {
+  description = "ACM managed ACME endpoints whose directory URL and EAB key the engine may read (issuers.json preset aws-acm with acm_eab_arn). Empty grants no ACM access."
+  type        = list(string)
+  default     = []
+}
+
+variable "assumable_role_arns" {
+  description = "IAM roles, usually in other accounts, the engine may sts:AssumeRole into (aws_acm connector role_arn, cloud_inventory aws_accounts). Each role must trust the engine role. Empty grants none."
   type        = list(string)
   default     = []
 }

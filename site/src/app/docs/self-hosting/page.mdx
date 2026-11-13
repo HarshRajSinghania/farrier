@@ -98,11 +98,17 @@ For a consistent SQLite copy while the engine runs, use `sqlite3 farrier.db ".ba
 
 ## Scaling
 
-- One engine instance per data directory. SQLite has a single writer, and the engine serialises ticks and API mutations with a process-local lock. Don't run two `farrier serve` processes on the same data.
-- Each tick scans enabled endpoints **one at a time**, waiting up to `scan_timeout` (default 5 s) on each. Unreachable endpoints dominate tick duration, so keep the inventory clean (disable dead endpoints) and size `--tick` above a full scan of your estate. Discovery is different: it scans up to 64 targets in parallel.
+- **SQLite** (the default) is for one engine instance: don't run two `farrier serve` processes on the same
+  data directory. For high availability, move to PostgreSQL or MySQL (`farrier db migrate`) and
+  [run several replicas](/docs/databases#run-several-replicas): one leader runs renewals, the others serve the
+  API and take over within one tick if it goes away.
+- Each tick observes enabled endpoints in parallel (up to 32 at once), waiting up to `scan_timeout` (default
+  5 s) on each. Disable endpoints that are gone for good so they don't hold workers. Discovery scans up to 64
+  targets in parallel.
 - Run the dashboard with as many replicas as you like; it is stateless (except in demo mode).
-- For segmented networks, today you run one engine per segment. A Postgres backend and a lightweight agent for segmented networks are on the [roadmap](https://github.com/gagankarthik/farrier#roadmap).
+- Segmented networks (DMZ, OT, branch sites): run a [remote runner](/docs/runners) in each segment. It
+  connects out to the engine over HTTPS and reaches the devices there, so one engine keeps one inventory.
 
 ## Upgrading
 
-Stop the engine, back up the data directory, upgrade the package (`pip install -U .` or rebuild the image), and start it again. The schema is created with `CREATE TABLE IF NOT EXISTS`. There is no migration tool yet, so read the release notes before upgrading across schema changes.
+Stop the engine, back up the data directory, upgrade the package (`pip install -U .` or rebuild the image), and start it again. Schema upgrades are numbered migrations applied automatically at start-up, under a lock so replicas starting together don't race. Read the release notes before upgrading across a major version.

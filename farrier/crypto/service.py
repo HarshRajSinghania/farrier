@@ -53,6 +53,7 @@ def rescan_due(engine, now: datetime | None = None) -> int:
     """Re-probe inventory endpoints whose crypto result is older than ``crypto_scan_hours`` (leader only:
     called from the engine tick). Only endpoints whose last TLS handshake succeeded are probed, so dead
     hosts cost nothing here. Returns how many were probed."""
+    from farrier.core.runners import runner_of
     hours = float(engine.settings.get("crypto_scan_hours", 24) or 0)
     if hours <= 0:
         return 0
@@ -61,8 +62,8 @@ def rescan_due(engine, now: datetime | None = None) -> int:
     seen = repository.last_scanned(engine.store)
     due = []
     for e in engine.store.endpoints():
-        if not e["enabled"] or not e["fingerprint"] or e["scan_error"]:
-            continue
+        if not e["enabled"] or not e["fingerprint"] or e["scan_error"] or runner_of(e):
+            continue   # behind a runner: the engine can't reach it (shortcut: no crypto probe via runners yet)
         last = parse_dt(seen.get((e["host"], e["port"], e["sni"] or "")))
         if last is None or last <= cutoff:
             due.append((last is not None, last, (e["host"], e["port"], e["sni"])))

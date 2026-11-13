@@ -10,6 +10,7 @@ import type {
   AlertRule,
   AlertWhen,
   CatalogField,
+  CtName,
   DnsAccount,
   IntegrationCatalog,
   Issuer,
@@ -41,7 +42,7 @@ import type {
 import { OPEN_STATES } from "./types";
 
 const DAY = 86_400_000;
-const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos"]);
+const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos", "citrix", "kubernetes", "iis", "azure_keyvault", "gcp_certificate_manager", "aws_acm"]);
 
 export const CONNECTORS: ConnectorInfo[] = [
   { kind: "files", automated: true, required: ["cert_path", "key_path"], doc: "nginx, HAProxy, Apache, Postfix — atomic write + backup, test_command, reload_command; local or over SSH." },
@@ -49,7 +50,13 @@ export const CONNECTORS: ConnectorInfo[] = [
   { kind: "f5", automated: true, required: ["url", "username", "password", "profile"], doc: "BIG-IP LTM client-ssl profiles via iControl REST: upload, install new objects, repoint certKeyChain, save." },
   { kind: "fortigate", automated: true, required: ["url", "api_token"], doc: "FortiGate SSL-VPN, admin GUI or any cmdb certificate reference via FortiOS REST import + bind." },
   { kind: "panos", automated: true, required: ["url", "api_key"], doc: "Palo Alto firewalls and GlobalProtect via XML API keypair import, profile update and commit." },
-  { kind: "manual", automated: false, required: [], doc: "ASA, Citrix ADC, IIS, vCenter, anything else — change pack (PEM + PFX + runbook) and optional ServiceNow/Jira ticket; closes itself on detection." },
+  { kind: "citrix", automated: true, required: ["url", "username", "password", "certkey"], doc: "Citrix ADC / NetScaler via NITRO: upload, update the certkey in place, link the intermediate, save." },
+  { kind: "kubernetes", automated: true, required: ["namespace", "secret"], doc: "A kubernetes.io/tls Secret for Ingress or Gateway API, with an in-cluster backup and optional rollout restart." },
+  { kind: "iis", automated: true, required: ["ssh", "site"], doc: "IIS over OpenSSH and PowerShell: import the PFX into LocalMachine\My and switch the https binding." },
+  { kind: "azure_keyvault", automated: true, required: ["vault", "certificate"], doc: "A new Key Vault certificate version for Application Gateway, Front Door or App Service, with optional immediate refresh." },
+  { kind: "gcp_certificate_manager", automated: true, required: ["project"], doc: "A self-managed Certificate Manager certificate and/or classic target HTTPS proxies on Google Cloud load balancers." },
+  { kind: "aws_acm", automated: true, required: ["region"], doc: "AWS Certificate Manager for ALB, NLB, CloudFront and API Gateway: re-import in place, or import and switch an ELBv2 listener; optional cross-account role." },
+  { kind: "manual", automated: false, required: [], doc: "Cisco ASA, vCenter, anything else — change pack (PEM + PFX + runbook) and optional ServiceNow/Jira ticket; closes itself on detection." },
 ];
 
 // [name, host, port, connector, owner, lifetime, days left]
@@ -80,10 +87,10 @@ const SEED: [string, string, number, string, string, number, number][] = [
   ["harbor", "registry.acme.internal", 443, "files", "devex", 200, 27],
   ["asa-dc1", "remote.acme.com", 443, "manual", "network", 200, 15],
   ["asa-dc2", "remote2.acme.com", 443, "manual", "network", 200, 74],
-  ["citrix-adc", "apps.acme.com", 443, "manual", "euc", 200, 31],
+  ["citrix-adc", "apps.acme.com", 443, "citrix", "euc", 200, 31],
   ["citrix-storefront", "store.acme.com", 443, "manual", "euc", 200, 58],
   ["iis-intranet", "intranet.acme.internal", 443, "manual", "it", 200, 3],
-  ["iis-adfs", "sts.acme.com", 443, "manual", "identity", 200, 47],
+  ["iis-adfs", "sts.acme.com", 443, "iis", "identity", 200, 47],
   ["vcenter-01", "vc01.acme.internal", 443, "manual", "infra", 200, 99],
   ["vcenter-02", "vc02.acme.internal", 443, "manual", "infra", 200, 135],
   ["idrac-r740-07", "idrac07.acme.internal", 443, "manual", "infra", 398, -4],
@@ -646,6 +653,14 @@ export function discover(targets: string) {
   return { new: 0, seen: Math.min(scanned, db().endpoints.length), scanned, with_tls: Math.min(scanned, db().endpoints.length) };
 }
 
+/** Certificate Transparency names (demo: what crt.sh would list for the demo estate's domain). */
+export function ctNames(domain: string): CtName[] {
+  const d = domain.trim().toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
+  if (!/^([a-z0-9-]+\.)+[a-z]{2,63}$/.test(d)) throw new DemoError(400, `not a domain name: ${domain}`);
+  const names = db().endpoints.map((e) => e.host).filter((h) => h === d || h.endsWith(`.${d}`));
+  return [...new Set(names)].sort().map((name) => ({ name, not_after: null, issuer: "demo", wildcard: false }));
+}
+
 export function runbook(id: number) {
   const r = db().renewals.find((x) => x.id === id);
   if (!r) throw new DemoError(404, "not found");
@@ -728,6 +743,7 @@ export const CATALOG: IntegrationCatalog = {
     { id: "sslcom", label: "SSL.com", eab: true, needs_directory_url: false, staging: false },
     { id: "digicert", label: "DigiCert", eab: true, needs_directory_url: false, staging: false },
     { id: "sectigo", label: "Sectigo", eab: true, needs_directory_url: true, staging: false },
+    { id: "aws-acm", label: "AWS Certificate Manager (ACME)", eab: true, needs_directory_url: true, staging: false, prevalidated: true },
     { id: "local_ca", label: "Built-in private CA", eab: false, needs_directory_url: false, staging: false },
   ],
   notifier_types: [

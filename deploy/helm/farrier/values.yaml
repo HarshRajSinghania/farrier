@@ -102,15 +102,15 @@ secrets:
     dashboardPassword: dashboard-password
     # -- OIDC client secret (FARRIER_OIDC_CLIENT_SECRET, web, web.auth.mode=oidc).
     oidcClientSecret: oidc-client-secret
-    # -- Session cookie encryption key, 32+ random bytes (FARRIER_SESSION_SECRET, web, oidc).
+    # -- Session cookie encryption key, 32+ random bytes (FARRIER_SESSION_SECRET, web, oidc and saml).
     sessionSecret: session-secret
 
   existingSecret:
     # -- Secret holding the engine keys (apiToken, apiReadToken, masterKey, databasePassword).
     # Required when mode=existingSecret.
     engine: ""
-    # -- Secret holding the web keys (apiToken, apiReadToken, and dashboardPassword or
-    # oidcClientSecret + sessionSecret). May be the same Secret as the engine's, but a separate
+    # -- Secret holding the web keys (apiToken, apiReadToken, and dashboardPassword,
+    # oidcClientSecret + sessionSecret, or sessionSecret for saml). May be the same Secret as the engine's, but a separate
     # one keeps the master key and database password out of the web pods' reach.
     web: ""
 
@@ -401,6 +401,25 @@ engine:
       labels: {}
       # -- Metric relabelings.
       metricRelabelings: []
+    prometheusRule:
+      # -- Render a Prometheus Operator PrometheusRule with ready-made alerts: certificate expiring with
+      # no open renewal, certificate expired, renewal failed (by reason code), approvals overdue, runner
+      # group offline, audit log broken.
+      enabled: false
+      # -- FarrierCertificateExpiringNoRenewal fires when fewer days than this are left.
+      expiringDays: 7
+      # -- Extra labels (e.g. the release label your Prometheus selects rules on).
+      labels: {}
+      # -- Extra alerting or recording rules appended to the farrier group.
+      additionalRules: []
+    grafanaDashboard:
+      # -- Ship the Farrier Grafana dashboard as a ConfigMap for the Grafana sidecar.
+      enabled: false
+      # -- Labels the Grafana sidecar selects dashboards by.
+      labels:
+        grafana_dashboard: "1"
+      # -- Annotations, e.g. {grafana_folder: Certificates} for the sidecar's folder annotation.
+      annotations: {}
 
 # ---------------------------------------------------------------------------------------------
 # Web (dashboard)
@@ -436,8 +455,8 @@ web:
   trustedProxyHops: 1
 
   auth:
-    # -- basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login) or oidc (single sign-on
-    # with viewer/operator/admin roles). A production dashboard refuses to run with neither.
+    # -- basic (FARRIER_DASHBOARD_PASSWORD, one shared admin login), oidc or saml (single sign-on
+    # with viewer/operator/admin roles). A production dashboard refuses to run with none.
     mode: basic
     basic:
       # -- FARRIER_DASHBOARD_USER.
@@ -462,6 +481,36 @@ web:
       redirectUri: ""
       # -- FARRIER_OIDC_POST_LOGOUT_REDIRECT_URI. Empty derives it from the request.
       postLogoutRedirectUri: ""
+      # -- FARRIER_SESSION_IDLE_MINUTES.
+      sessionIdleMinutes: 60
+      # -- FARRIER_SESSION_MAX_HOURS.
+      sessionMaxHours: 12
+    saml:
+      # -- FARRIER_SAML_IDP_METADATA_URL (https): the IdP's SSO URL, signing certificate and entity id.
+      # Required for saml unless idpSsoUrl and idpCert are set.
+      idpMetadataUrl: ""
+      # -- FARRIER_SAML_IDP_SSO_URL (HTTP-Redirect binding). Overrides the metadata's.
+      idpSsoUrl: ""
+      # -- FARRIER_SAML_IDP_CERT: the IdP signing certificate, PEM or base64 (public, not a secret).
+      # Overrides the metadata's.
+      idpCert: ""
+      # -- FARRIER_SAML_IDP_ENTITY_ID: the Issuer to expect. Empty uses the metadata's.
+      idpEntityId: ""
+      # -- FARRIER_SAML_SP_ENTITY_ID. Empty uses <siteUrl>/auth/saml/metadata.
+      spEntityId: ""
+      # -- FARRIER_SAML_GROUPS_ATTRIBUTE: attribute holding groups (Entra:
+      # http://schemas.microsoft.com/ws/2008/06/identity/claims/groups).
+      groupsAttribute: groups
+      # -- FARRIER_SAML_EMAIL_ATTRIBUTE. Without it, an emailAddress NameID is used.
+      emailAttribute: email
+      # -- FARRIER_SAML_NAME_ATTRIBUTE.
+      nameAttribute: displayName
+      # -- FARRIER_SAML_ADMIN_GROUPS, comma-separated.
+      adminGroups: ""
+      # -- FARRIER_SAML_OPERATOR_GROUPS, comma-separated.
+      operatorGroups: ""
+      # -- FARRIER_SAML_ALLOWED_GROUPS: refuse anyone outside these (and admin/operator) groups.
+      allowedGroups: ""
       # -- FARRIER_SESSION_IDLE_MINUTES.
       sessionIdleMinutes: 60
       # -- FARRIER_SESSION_MAX_HOURS.
@@ -624,7 +673,7 @@ web:
     # ingress controller's namespace. Empty allows any source on port 3000 only.
     ingressFrom: []
     idp:
-      # -- Allow 443 egress to the identity provider (oidc mode).
+      # -- Allow 443 egress to the identity provider (oidc and saml modes).
       enabled: true
       # -- IdP CIDRs. The default is the internet without private ranges; narrow it, or add
       # your internal IdP's range.

@@ -19,7 +19,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: web
-          image: ghcr.io/gagankarthik/farrier-web:0.1.0
+          image: ghcr.io/gagankarthik/farrier-web:0.2.0
           ports: [{ name: http, containerPort: 3000 }]
           env:
             - { name: FARRIER_API_URL, value: "http://farrier.farrier.svc.cluster.local:8740" }

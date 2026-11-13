@@ -6,13 +6,18 @@ options:     hosted_zone_id (skip discovery), role_arn (STS AssumeRole into anot
 """
 from __future__ import annotations
 
-import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 from farrier.dns.base import DnsError, RRsetProvider, Zone, norm, quote_txt, unquote_txt
-from farrier.security.cloud_auth.aws import STS_NS, signing_key, sigv4_headers
+from farrier.security.cloud_auth.aws import (
+    AssumeRoleProvider,
+    AwsCredentialProvider,
+    signing_key,
+    sigv4_headers,
+)
+from farrier.security.cloud_auth.http import CloudError
 
 ENDPOINT = "https://route53.amazonaws.com"
 NS = {"r": "https://route53.amazonaws.com/doc/2013-04-01/"}
@@ -24,31 +29,25 @@ class Route53(RRsetProvider):
     required = ("access_key_id", "secret_access_key")
     optional = ("session_token", "external_id")
     options_known = ("hosted_zone_id", "role_arn", "private_zones", "wait_insync", "endpoint")
-    _assumed: tuple[str, str, str, float] | None = None
+    _role: AssumeRoleProvider | None = None
 
     def _creds(self) -> tuple[str, str, str | None]:
+        keys = (self.secret("access_key_id"), self.secret("secret_access_key"),
+                self.secret("session_token") if self.has_secret("session_token") else None)
         role = self.opts.get("role_arn")
         if not role:
-            return (self.secret("access_key_id"), self.secret("secret_access_key"),
-                    self.secret("session_token") if self.has_secret("session_token") else None)
-        if self._assumed and self._assumed[3] > time.time() + 300:
-            return self._assumed[:3]
-        params = {"Action": "AssumeRole", "Version": "2011-06-15", "RoleArn": role,
-                  "RoleSessionName": "farrier-dns01", "DurationSeconds": "900"}
-        if self.has_secret("external_id"):
-            params["ExternalId"] = self.secret("external_id")
-        url = "https://sts.amazonaws.com/?" + urlencode(params)
-        hdrs = sigv4_headers("GET", url, {}, b"", self.secret("access_key_id"), self.secret("secret_access_key"),
-                             "us-east-1", "sts", session_token=self.secret("session_token")
-                             if self.has_secret("session_token") else None)
-        root = ET.fromstring(self.request("GET", url, headers=hdrs).content)
-        c = root.find(".//s:Credentials", STS_NS)
-        if c is None:
-            raise DnsError(f"{self.label}: AssumeRole returned no credentials")
-        ak, sk, tok = (c.findtext(f"s:{k}", namespaces=STS_NS) for k in ("AccessKeyId", "SecretAccessKey", "SessionToken"))
-        self._redact.update({sk, tok})
-        self._assumed = (ak, sk, tok, time.time() + 900)
-        return ak, sk, tok
+            return keys
+        try:
+            if self._role is None:
+                base = AwsCredentialProvider(env={"AWS_ACCESS_KEY_ID": keys[0], "AWS_SECRET_ACCESS_KEY": keys[1],
+                                                  "AWS_SESSION_TOKEN": keys[2] or ""})
+                self._role = AssumeRoleProvider(role, self.secret("external_id") if self.has_secret("external_id")
+                                                else None, "farrier-dns01", base=base, http=self.http, duration=900)
+            c = self._role.get()
+        except CloudError as e:
+            raise DnsError(f"{self.label}: {e}") from None
+        self._redact.update({c.secret_key, c.token})
+        return c.access_key, c.secret_key, c.token
 
     def _call(self, method: str, path: str, params: dict | None = None, body: bytes = b""):
         url = self.opts.get("endpoint", ENDPOINT) + path + ("?" + urlencode(params) if params else "")

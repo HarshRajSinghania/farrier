@@ -45,7 +45,7 @@ x-secret-env-entrypoint: &secret-env-entrypoint
 services:
   engine:
     <<: *app-hardening
-    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.2.0}
     entrypoint: *secret-env-entrypoint
     command: [farrier, serve, --host, 0.0.0.0, --port, "8740", --grace, "20"]
     deploy:
@@ -87,7 +87,7 @@ services:
 
   web:
     <<: *app-hardening
-    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.2.0}
     entrypoint: *secret-env-entrypoint
     command: [node, server.js]
     environment:
@@ -102,6 +102,10 @@ services:
       # FARRIER_OIDC_REDIRECT_URI (required in production: the exact URL registered with the
       # identity provider, ${NEXT_PUBLIC_SITE_URL}/auth/callback) here, and add oidc_client_secret /
       # session_secret secrets with targets FARRIER_OIDC_CLIENT_SECRET / FARRIER_SESSION_SECRET.
+      # SAML 2.0 instead: set FARRIER_SAML_IDP_METADATA_URL (or FARRIER_SAML_IDP_SSO_URL and
+      # FARRIER_SAML_IDP_CERT), FARRIER_SAML_GROUPS_ATTRIBUTE and FARRIER_SAML_ADMIN_GROUPS /
+      # FARRIER_SAML_OPERATOR_GROUPS here, and add the session_secret secret (FARRIER_SESSION_SECRET).
+      # The IdP gets ${NEXT_PUBLIC_SITE_URL}/auth/saml/metadata. One SSO method at a time.
     secrets:
       - { source: api_token, target: FARRIER_API_TOKEN }
       - { source: api_read_token, target: FARRIER_API_READ_TOKEN }

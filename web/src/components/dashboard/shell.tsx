@@ -4,18 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import {
-  Activity,
-  Atom,
-  BellRing,
   BookOpen,
-  CalendarClock,
   FileBadge,
-  Globe,
-  KeyRound,
-  Landmark,
   LayoutDashboard,
-  Plug,
-  Radar,
   Settings,
   ShieldCheck,
   X,
@@ -27,37 +18,57 @@ import { useStatus, useSummary } from "@/lib/api";
 import { site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-// Chunked into small labelled groups (Miller / Hick): operators scan 2–4 items, not 8.
-const NAV = [
+// Four sections in the sidebar; each section's pages are tabs at the top of the page, so the menu stays
+// short (Hick) while every page keeps its own URL.
+type Page = { href: string; label: string; badge?: boolean };
+const NAV: { label: string; icon: typeof LayoutDashboard; pages: Page[] }[] = [
   {
-    group: "Operate",
-    items: [
-      { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-      { href: "/dashboard/renewals", label: "Renewals", icon: CalendarClock, badge: true },
-      { href: "/dashboard/discovery", label: "Discovery", icon: Radar },
-      { href: "/dashboard/health", label: "Health", icon: ShieldCheck },
-      { href: "/dashboard/activity", label: "Activity", icon: Activity },
+    label: "Overview",
+    icon: LayoutDashboard,
+    pages: [
+      { href: "/dashboard", label: "Overview" },
+      { href: "/dashboard/activity", label: "Activity" },
     ],
   },
   {
-    group: "Inventory",
-    items: [
-      { href: "/dashboard/endpoints", label: "Certificates", icon: FileBadge },
-      { href: "/dashboard/ssh", label: "SSH keys", icon: KeyRound },
-      { href: "/dashboard/crypto", label: "Crypto & PQC", icon: Atom },
+    label: "Certificates",
+    icon: FileBadge,
+    pages: [
+      { href: "/dashboard/endpoints", label: "Inventory" },
+      { href: "/dashboard/renewals", label: "Renewals", badge: true },
+      { href: "/dashboard/discovery", label: "Discovery" },
+      { href: "/dashboard/cloud", label: "Cloud" },
     ],
   },
   {
-    group: "Setup",
-    items: [
-      { href: "/dashboard/integrations/authorities", label: "Authorities", icon: Landmark },
-      { href: "/dashboard/integrations/dns", label: "DNS accounts", icon: Globe },
-      { href: "/dashboard/integrations/alerts", label: "Alerts", icon: BellRing },
-      { href: "/dashboard/connectors", label: "Connectors", icon: Plug },
-      { href: "/dashboard/settings", label: "Settings", icon: Settings },
+    label: "Security",
+    icon: ShieldCheck,
+    pages: [
+      { href: "/dashboard/health", label: "Health" },
+      { href: "/dashboard/crypto", label: "Crypto & PQC" },
+      { href: "/dashboard/ssh", label: "SSH keys" },
+    ],
+  },
+  {
+    label: "Setup",
+    icon: Settings,
+    pages: [
+      { href: "/dashboard/integrations/authorities", label: "Authorities" },
+      { href: "/dashboard/integrations/dns", label: "DNS" },
+      { href: "/dashboard/integrations/alerts", label: "Alerts" },
+      { href: "/dashboard/connectors", label: "Connectors" },
+      { href: "/dashboard/settings", label: "Settings" },
     ],
   },
 ];
+
+const isActive = (href: string, path: string) => (href === "/dashboard" ? path === href : path.startsWith(href));
+const sectionOf = (path: string) => NAV.find((s) => s.pages.some((p) => isActive(p.href, path)));
+
+function usePending() {
+  const { data } = useSummary();
+  return (data?.awaiting_manual ?? 0) + (data?.attention ?? 0);
+}
 
 type NavProps = { onNavigate?: () => void; collapsed?: boolean };
 
@@ -78,54 +89,79 @@ function ActiveNav(props: NavProps) {
 }
 
 function NavLinks({ onNavigate, collapsed = false, path }: NavProps & { path: string }) {
-  const { data } = useSummary();
-  const pending = (data?.awaiting_manual ?? 0) + (data?.attention ?? 0);
+  const pending = usePending();
+  const current = sectionOf(path);
   return (
-    <nav className="flex flex-col gap-4" aria-label="Dashboard">
-      {NAV.map(({ group, items }) => (
-        <div key={group}>
-          {collapsed ? (
-            <div className="mx-2 mb-2 border-t" aria-hidden />
-          ) : (
-            <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">{group}</p>
-          )}
-          <div className="flex flex-col gap-1">
-            {items.map(({ href, label, icon: Icon, badge }) => {
-              const active = href === "/dashboard" ? path === href : path.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  title={collapsed ? label : undefined}
-                  aria-label={collapsed ? label : undefined}
-                  className={cn(
-                    "relative flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground lg:h-8",
-                    active &&
-                      "bg-brand-soft text-foreground",
-                    collapsed && "relative justify-center px-0",
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  {!collapsed && label}
-                  {badge && pending > 0 && collapsed && (
-                    <span className="absolute right-2 top-1 size-2 rounded-full bg-warning" aria-hidden />
-                  )}
-                  {badge && pending > 0 && !collapsed && (
-                    <span
-                      className="tabular ml-auto rounded-full bg-warning/20 px-2 text-xs text-warning-fg"
-                      aria-label={`${pending} need attention`}
-                    >
-                      {pending}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+    <nav className="flex flex-col gap-1" aria-label="Dashboard">
+      {NAV.map(({ label, icon: Icon, pages }) => {
+        const active = current?.label === label;
+        const badge = pages.some((p) => p.badge) && pending > 0;
+        return (
+          <Link
+            key={label}
+            href={pages[0].href}
+            onClick={onNavigate}
+            aria-current={active ? "true" : undefined}
+            title={collapsed ? label : undefined}
+            aria-label={collapsed ? label : undefined}
+            className={cn(
+              "relative flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground",
+              active && "bg-brand-soft text-foreground",
+              collapsed && "justify-center px-0",
+            )}
+          >
+            <Icon className="size-4 shrink-0" />
+            {!collapsed && label}
+            {badge && collapsed && <span className="absolute right-2 top-1 size-2 rounded-full bg-warning" aria-hidden />}
+            {badge && !collapsed && (
+              <span className="tabular ml-auto rounded-full bg-warning/20 px-2 text-xs text-warning-fg" aria-label={`${pending} need attention`}>
+                {pending}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** The current section's pages as tabs; hidden for a single-page section or a detail page outside the nav. */
+function SectionTabs() {
+  return (
+    <Suspense fallback={null}>
+      <SectionTabsInner />
+    </Suspense>
+  );
+}
+
+function SectionTabsInner() {
+  const path = usePathname();
+  const pending = usePending();
+  const section = sectionOf(path);
+  if (!section || section.pages.length < 2) return null;
+  return (
+    <nav aria-label={section.label} className="-mx-1 mb-6 flex gap-1 overflow-x-auto border-b px-1">
+      {section.pages.map((p) => {
+        const active = isActive(p.href, path);
+        return (
+          <Link
+            key={p.href}
+            href={p.href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "-mb-px flex h-10 shrink-0 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
+              active && "border-foreground text-foreground",
+            )}
+          >
+            {p.label}
+            {p.badge && pending > 0 && (
+              <span className="tabular rounded-full bg-warning/20 px-2 text-xs text-warning-fg" aria-label={`${pending} need attention`}>
+                {pending}
+              </span>
+            )}
+          </Link>
+        );
+      })}
     </nav>
   );
 }
@@ -232,7 +268,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
         <Topbar onMenu={() => setOpen(true)} onToggle={toggle} collapsed={collapsed} />
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:py-8">
+          <SectionTabs />
+          {children}
+        </main>
       </div>
     </div>
   );

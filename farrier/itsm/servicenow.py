@@ -207,6 +207,12 @@ class ServiceNow(TicketAdapter):
     def comment(self, t: Ticket, text: str) -> None:
         self._patch(t, {"work_notes": text})
 
+    def approval(self, table: str, ext_id: str) -> str:
+        """A change request's approval field: not requested | requested | approved | rejected."""
+        self._auth()
+        res = self.http.get(f"/api/now/table/{table}/{ext_id}", params={"sysparm_fields": "approval"}).json()
+        return str((res.get("result") or {}).get("approval") or "").lower()
+
     def resolve(self, t: Ticket, text: str) -> None:
         table = t.table or self.table
         target = self.cfg.get("resolve_state") if table == self.table else None

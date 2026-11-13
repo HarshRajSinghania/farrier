@@ -5,7 +5,7 @@ export const metadata = {
 
 # Connectors
 
-A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Five connectors are automated (deploy, verify, roll back). The sixth, `manual`, prepares everything for a human and verifies their work.
+A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Eleven connectors are automated (deploy, verify, roll back). The twelfth, `manual`, prepares everything for a human and verifies their work.
 
 Rules that apply to every connector:
 
@@ -21,10 +21,17 @@ Rules that apply to every connector:
 | `f5` | yes | `url`, `username`, `password`, `profile` |
 | `fortigate` | yes | `url`, `api_token`, `bind` |
 | `panos` | yes | `url`, `api_key`, `profile` |
+| `citrix` | yes | `url`, `username`, `password`, `certkey` |
+| `kubernetes` | yes | `namespace`, `secret` |
+| `iis` | yes | `ssh`, `site` |
+| `azure_keyvault` | yes | `vault`, `certificate` |
+| `gcp_certificate_manager` | yes | `project`, and `certificate` or `target_https_proxies` |
+| `aws_acm` | yes | `region` |
 | `manual` | no | none |
 
-<Callout type="warning">
-The `f5`, `fortigate` and `panos` connectors follow the vendors' documented APIs and are tested against mock management APIs, but have not yet been run against real hardware. Validate them on a lab device first.
+<Callout type="info">
+The appliance connectors follow each vendor's documented management API and are contract-tested on every
+commit. Run the [pilot checklist](/docs/pilot) once per device model and OS version before production.
 </Callout>
 
 ## files
@@ -158,9 +165,204 @@ Palo Alto Networks PAN-OS firewalls and GlobalProtect portals/gateways via the X
 }
 ```
 
+## citrix
+
+Citrix ADC / NetScaler via the NITRO REST API. Uploads the key, certificate and intermediate to
+`/nsconfig/ssl/`, updates the existing certkey in place (every vserver bound to it switches at once; nothing is
+unbound), links the intermediate (reusing a certkey that already holds it) and saves the config. Rollback points
+the certkey back at its previous files and link, and saves.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `url` | yes | Management address (NSIP, or a SNIP with management access) |
+| `username`, `password` | yes | A system user that may manage SSL certificates and save the config |
+| `certkey` | yes | The certkey bound to your vservers |
+| `verify_tls` | no | |
+
+```json
+{
+  "connector": "citrix",
+  "connector_config": {
+    "url": "https://adc-mgmt.example.com",
+    "username": "farrier",
+    "password": "env:ADC_PASSWORD",
+    "certkey": "storefront_cert"
+  }
+}
+```
+
+## kubernetes
+
+A `kubernetes.io/tls` Secret, for Ingress controllers, Gateway API listeners and any workload that mounts it.
+The current Secret is copied to `<secret>-farrier-previous` first, so the old key stays in the cluster rather
+than in Farrier's database. `tls.crt` holds the full chain and `ca.crt` the intermediates. Most ingress
+controllers pick up the change by themselves; list workloads that read the Secret only at start-up under
+`restart`. Rollback restores the copy (or deletes a Secret Farrier created).
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `namespace`, `secret` | yes | |
+| `url` | no | API server; default the in-cluster address |
+| `token` | no | Bearer token; default the pod's service account |
+| `verify_tls` | no | Default the in-cluster CA |
+| `restart` | no | e.g. `["deployment/web", "statefulset/kafka"]` |
+
+RBAC for Farrier's service account: `get`, `create`, `update` and `delete` on `secrets` in the namespace, and
+`patch` on the workloads in `restart`.
+
+## aws_acm
+
+AWS Certificate Manager, for Application and Network Load Balancers, CloudFront, API Gateway and anything else
+that takes an ACM certificate. Calls are signed with the engine's AWS identity (IRSA, EKS Pod Identity, ECS task
+role, instance profile, or keys), optionally through a role in another account.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `region` | yes | The certificate's region. CloudFront needs `us-east-1` |
+| `certificate_arn` | no | Re-import into this ARN (see the modes below) |
+| `listener_arn` | no | An ELBv2 HTTPS or TLS listener in `region`. Not with `certificate_arn` |
+| `listener_mode` | no | `default` (default): becomes the listener's default certificate. `additional`: added to its SNI list |
+| `role_arn`, `external_id` | no | `sts:AssumeRole` into the account that holds the certificate. The session is cached until shortly before it expires |
+| `tags` | no | e.g. `{"team": "web"}`, on new imports. Farrier also adds `farrier:endpoint` |
+
+Pick one of three modes:
+
+- **`listener_arn`**: each renewal is imported under a new ARN and the listener switches to it
+  (`ModifyListener`, or `AddListenerCertificates` in `additional` mode, which also takes this endpoint's
+  previous renewal off the SNI list so it cannot keep being chosen). Rollback switches the listener back and
+  deletes the new certificate. The previous certificate is never touched, so rollback is exact.
+- **`certificate_arn`**: the renewal is re-imported into the same ARN, so every load balancer, distribution
+  and API using it switches at once, with no other change on their side.
+- **Neither**: the certificate is imported under a new ARN and nothing else changes, for setups that find
+  certificates by host name, such as the AWS Load Balancer Controller's certificate discovery. Find it by its
+  `farrier:endpoint` tag. Rollback deletes it.
+
+<Callout type="warning" title="Re-importing cannot be rolled back">
+ACM never returns the private key of an imported certificate (`ExportCertificate` only covers private-CA
+and exportable public certificates), so Farrier cannot put the previous certificate back after a re-import.
+If verification fails in `certificate_arn` mode, the rollback fails with an error that says so, and the
+new certificate stays in place. Re-import the old one from your own copy if you need to. Use `listener_arn`
+when an exact rollback matters more than switching every consumer at once.
+</Callout>
+
+IAM permissions, on the account that holds the certificate (the role in `role_arn`, or the engine's own role):
+
+| Mode | Actions |
+| --- | --- |
+| all | `acm:ImportCertificate` |
+| new imports (`listener_arn` or neither) | `acm:AddTagsToCertificate`, `acm:DeleteCertificate` |
+| `listener_arn` | `elasticloadbalancing:DescribeListenerCertificates`, `elasticloadbalancing:ModifyListener` |
+| `listener_mode: additional` | also `elasticloadbalancing:AddListenerCertificates`, `elasticloadbalancing:RemoveListenerCertificates`, `acm:ListTagsForCertificate` |
+| `role_arn` | `sts:AssumeRole` on that role for the engine (Terraform: `assumable_role_arns`). The role's trust policy names the engine role, with `sts:ExternalId` as a condition when you set `external_id` |
+
+```json
+{
+  "connector": "aws_acm",
+  "connector_config": {
+    "region": "eu-west-1",
+    "listener_arn": "arn:aws:elasticloadbalancing:eu-west-1:210987654321:listener/app/web/50dc6c495c0c9188/f2f7dc8efc522ab2",
+    "role_arn": "arn:aws:iam::210987654321:role/farrier-deploy",
+    "external_id": "env:AWS_DEPLOY_EXTERNAL_ID"
+  }
+}
+```
+
+## iis
+
+Microsoft IIS over OpenSSH (built into Windows Server 2019 and later) and PowerShell. The certificate, key and
+chain travel as a password-protected PFX inside a script on standard input, never on a command line. It is
+imported into `LocalMachine\My` and the site's https binding switches to the new thumbprint. Rollback switches
+the binding back; the old certificate stays in the store.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `ssh` | yes | `user@host`, with key-based authentication for the system `ssh` client |
+| `site` | yes | IIS site name |
+| `port` | no | Default `443` |
+| `host_header` | no | For SNI bindings |
+
+## azure_keyvault
+
+A certificate in Azure Key Vault, for Application Gateway, Front Door, App Service, API Management and anything
+else that reads it by versionless id. Each renewal is imported as a new version of the certificate: a PFX with
+the chain and an exportable key (Application Gateway and Front Door read it through the certificate's secret).
+Farrier authenticates with its own Azure identity: AKS workload identity, a managed identity, or a service
+principal (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`).
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `vault` | yes | `https://<vault>.vault.azure.net` |
+| `certificate` | yes | Certificate name in the vault (`A-Z a-z 0-9 -`) |
+| `refresh.application_gateway` | no | Gateway resource id, or a list. Farrier writes a `farrier-refresh` tag: any change to a gateway makes it re-read Key Vault at once instead of at its 4-hourly poll |
+| `refresh.front_door` | no | Front Door Standard/Premium custom domain resource id, or a list. Farrier creates a Front Door secret pinned to the new version and switches the domain to it, instead of waiting up to 72 hours for a "Latest" secret. The domain must already use this Key Vault certificate. RSA keys only: Front Door rejects EC certificates, so Farrier refuses to deploy an EC key here |
+
+Roles for Farrier's identity: **Key Vault Certificates Officer** on the vault, plus **Key Vault Secrets User** for
+rollback. For `refresh`: **Network Contributor** on the gateway, **CDN Profile Contributor** on the Front Door
+profile. Without `refresh`, verification waits for the consumer to poll Key Vault, which can outlast the
+verification window and trigger a rollback.
+
+Rollback: Key Vault cannot make an older version current again, and disabling the new version does not fall back
+(versionless readers then fail; Application Gateway turns the listener off). So Farrier reads the previous version
+through its secret and imports it again as the newest version, then refreshes the gateways. If the previous
+version's key is not exportable, Key Vault cannot hand it back: rollback refuses and says so. If a newer version
+than Farrier's has appeared, rollback refuses rather than overwrite it. Front Door domains switch back to the
+secret they used before. If the certificate did not exist before, rollback disables the version Farrier imported.
+If a gateway refresh or a Front Door switch fails during deploy, Farrier runs this same rollback before reporting
+the failure, and the error says what failed and what was undone (or that the new version stays current).
+Pinned Front Door secrets (`farrier-<certificate>-<version>`) stay in the profile; delete old ones when no domain
+uses them.
+
+```json
+{
+  "connector": "azure_keyvault",
+  "connector_config": {
+    "vault": "https://kv-edge.vault.azure.net",
+    "certificate": "www-example-com",
+    "refresh": {
+      "application_gateway": "/subscriptions/<sub>/resourceGroups/edge/providers/Microsoft.Network/applicationGateways/agw-edge"
+    }
+  }
+}
+```
+
+## gcp_certificate_manager
+
+Google Cloud load balancers. With `certificate`, a self-managed certificate in Certificate Manager is created on
+the first renewal and updated in place after that, so certificate maps and proxies that reference it serve the
+new certificate without a change. With `target_https_proxies` (classic load balancers without certificate maps),
+each renewal becomes a new global Compute Engine SSL certificate named after the renewal, and each proxy is
+switched to it. Both can be set. Farrier authenticates with its own Google identity: GKE Workload Identity, the
+metadata server, or `GOOGLE_APPLICATION_CREDENTIALS`.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `project` | yes | Project id |
+| `certificate` | one of | Certificate Manager certificate id |
+| `location` | no | Certificate Manager location; default `global` |
+| `target_https_proxies` | one of | Global target HTTPS proxy names, e.g. `["web-https-proxy"]` |
+
+Roles for Farrier's identity: **Certificate Manager Editor** (`roles/certificatemanager.editor`); for
+`target_https_proxies`, **Compute Load Balancer Admin** (`roles/compute.loadBalancerAdmin`).
+
+Rollback: proxies switch back to the SSL certificates they had; the old ones are never deleted. A Certificate
+Manager certificate that Farrier updated in place cannot be rolled back, because the API never returns a private
+key, so the previous key is gone: rollback refuses and says so (deploy a known-good certificate instead). One
+that Farrier created is deleted. Google-managed certificates are refused. Old Farrier SSL certificates count
+against the project's SSL certificate quota; delete those no proxy uses.
+
+```json
+{
+  "connector": "gcp_certificate_manager",
+  "connector_config": {
+    "project": "acme-edge",
+    "certificate": "www-example-com"
+  }
+}
+```
+
 ## manual
 
-For devices with no usable API: Cisco ASA, Citrix ADC, IIS, vCenter, old appliances, anything behind a change advisory board. Farrier does everything except the last click. It issues the certificate, writes a change pack to `<data>/packs/<renewal id>/`, optionally opens a ticket, and watches the endpoint. The renewal closes itself when the new fingerprint is seen live, and the pack is then deleted.
+For devices with no usable API: Cisco ASA, vCenter, old appliances, anything behind a change advisory board. Farrier does everything except the last click. It issues the certificate, writes a change pack to `<data>/packs/<renewal id>/`, optionally opens a ticket, and watches the endpoint. The renewal closes itself when the new fingerprint is seen live, and the pack is then deleted.
 
 The change pack contains `cert.pem`, `chain.pem`, `fullchain.pem`, `key.pem`, `bundle.pfx`, `passphrase.txt` (for the PFX) and `RUNBOOK.md`. Download it as a zip from the dashboard or `GET /api/renewals/{id}/pack`.
 

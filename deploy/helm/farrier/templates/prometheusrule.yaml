@@ -1,0 +1,62 @@
+{{- /* Ready-made alerts on the engine's /metrics (Prometheus Operator). The troubleshooting guide covers each one. */}}
+{{- $pr := .Values.engine.metrics.prometheusRule }}
+{{- if $pr.enabled }}
+{{- $ctx := dict "ctx" . "component" "engine" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  {{- include "farrier.metadata" (merge (dict "labels" $pr.labels) $ctx) | nindent 2 }}
+spec:
+  groups:
+    - name: farrier
+      rules:
+        - alert: FarrierCertificateExpiringNoRenewal
+          expr: |
+            (farrier_cert_expires_in_seconds < {{ int $pr.expiringDays }} * 86400)
+              unless on(endpoint) farrier_renewal_planned_timestamp_seconds
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: {{ printf "{{ $labels.endpoint }}: certificate expires within %d days and no renewal is open" (int $pr.expiringDays) | quote }}
+            description: {{ `Run farrier explain {{ $labels.endpoint }}: backoff after failures, a discovered or disabled endpoint, or failing scans stop planning.` | quote }}
+        - alert: FarrierCertificateExpired
+          expr: farrier_cert_expired == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: {{ `{{ $labels.endpoint }} serves an expired certificate` | quote }}
+        - alert: FarrierRenewalFailed
+          expr: farrier_endpoints_failing > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{ `{{ $value }} endpoints failing renewal: {{ $labels.reason }} (issuer {{ $labels.issuer }})` | quote }}
+            description: "The dashboard's renewals table shows which endpoint, with a hint for the reason code."
+        - alert: FarrierApprovalsOverdue
+          expr: farrier_approvals_pending{overdue="true"} > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: {{ `{{ $value }} renewal(s) still wait for approval past their deadline` | quote }}
+        - alert: FarrierRunnerGroupOffline
+          expr: farrier_runner_group_online == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{ `No runner of group {{ $labels.group }} is polling the engine` | quote }}
+            description: "Start farrier runner in that network segment; check its token and outbound HTTPS to the engine."
+        - alert: FarrierAuditLogBroken
+          expr: farrier_audit_log_intact == 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "The activity log's hash chain no longer verifies: run farrier audit verify"
+        {{- with $pr.additionalRules }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

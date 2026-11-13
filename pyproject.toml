@@ -8,6 +8,7 @@ dependencies = [
   "httpx>=0.27",
   "fastapi>=0.110",
   "uvicorn>=0.29",
+  "tzdata>=2024.1",   # time zones for change windows on hosts without a system zoneinfo (Windows, slim images)
 ]
 
 [project.optional-dependencies]

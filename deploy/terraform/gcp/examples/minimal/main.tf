@@ -36,7 +36,7 @@ module "farrier" {
 
   project_id      = "my-project"
   region          = "europe-west1"
-  farrier_version = "0.1.0"
+  farrier_version = "0.2.0"
 
   create_network = true
   domains        = ["farrier.example.com"]

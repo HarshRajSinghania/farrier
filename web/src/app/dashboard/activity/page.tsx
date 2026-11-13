@@ -7,7 +7,10 @@ import { TableSkeleton } from "@/components/dashboard/widgets";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/misc";
 import { Segmented } from "@/components/ui/segmented";
-import { useEvents } from "@/lib/api";
+import { Download, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { api, useAuditStatus, useEvents } from "@/lib/api";
 import { cn, fmtDateTime, relativeTime } from "@/lib/utils";
 
 const LEVEL = {
@@ -31,7 +34,11 @@ export default function ActivityPage() {
 
   return (
     <>
-      <PageHeader title="Activity" description="Audit trail of every scan, issuance, deploy, verification and operator action." />
+      <PageHeader
+        title="Activity"
+        description="Audit trail of every scan, issuance, deploy, verification and operator action, sealed in a hash chain."
+        actions={<AuditActions />}
+      />
       <ErrorNotice error={error} />
       <div className="mb-4">
         <Segmented
@@ -76,6 +83,35 @@ export default function ActivityPage() {
           </ol>
         )}
       </Card>
+    </>
+  );
+}
+
+/** Integrity of the hash-chained log, and the exports auditors ask for. */
+function AuditActions() {
+  const { data, error } = useAuditStatus();
+  return (
+    <>
+      {data && (
+        <Badge tone={data.ok ? "good" : "critical"} title={data.head ? `Chain head ${data.head}` : undefined}>
+          {data.ok ? <ShieldCheck /> : <ShieldAlert />}
+          {data.ok ? `Log intact · ${data.sealed} sealed` : `Log altered at event ${data.first_bad_id}`}
+        </Badge>
+      )}
+      {!error && (
+        <>
+          <Button asChild size="sm" variant="secondary">
+            <a href={api.auditExportUrl()} download>
+              <Download /> Audit log
+            </a>
+          </Button>
+          <Button asChild size="sm" variant="secondary">
+            <a href={api.complianceCsvUrl()} download>
+              <Download /> Compliance report
+            </a>
+          </Button>
+        </>
+      )}
     </>
   );
 }

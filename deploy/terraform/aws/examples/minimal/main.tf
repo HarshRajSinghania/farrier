@@ -37,7 +37,7 @@ module "farrier" {
   source = "../.."
 
   name            = "farrier"
-  farrier_version = "0.1.0"
+  farrier_version = "0.2.0"
 
   vpc_id             = "vpc-0123456789abcdef0"
   private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]

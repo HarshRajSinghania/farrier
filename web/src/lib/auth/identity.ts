@@ -5,7 +5,7 @@
 import "server-only";
 import type { NextRequest } from "next/server";
 import { checkBasic } from "./basic";
-import { authMode, oidcConfig, type AuthMode } from "./config";
+import { authMode, ssoConfig, type AuthMode } from "./config";
 import type { Role } from "./roles";
 import { readSession } from "./session";
 
@@ -24,14 +24,14 @@ export type IdentityResult = { ok: true; identity: Identity } | { ok: false; sta
 
 export async function getIdentity(req: NextRequest, live: boolean): Promise<IdentityResult> {
   const mode = authMode();
-  if (mode === "oidc") {
-    const cfg = oidcConfig();
+  if (mode === "oidc" || mode === "saml") {
+    const cfg = ssoConfig();
     if (!cfg.ok) return { ok: false, status: 500, detail: `Single sign-on is misconfigured: ${cfg.error}` };
     const s = await readSession(req, cfg.config);
     if (!s) return { ok: false, status: 401, detail: "Your session has ended. Sign in again." };
     const email = s.email ?? null;
     const groups = s.role === "admin" ? null : Array.isArray(s.grp) ? s.grp.filter((g) => typeof g === "string") : [];
-    return { ok: true, identity: { user: email ?? s.name ?? s.sub, email, role: s.role, auth: "oidc", groups } };
+    return { ok: true, identity: { user: email ?? s.name ?? s.sub, email, role: s.role, auth: mode, groups } };
   }
   if (mode === "basic") {
     const user = checkBasic(req.headers.get("authorization"));

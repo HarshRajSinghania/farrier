@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Ban, Download, FileText, MoreHorizontal, RefreshCw, StepForward } from "lucide-react";
+import { Ban, Check, Download, ExternalLink, FileText, MoreHorizontal, RefreshCw, StepForward, X } from "lucide-react";
 import { toast } from "sonner";
 import { STATE_META } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,8 @@ export function RenewalActions({ renewal: r, compact }: { renewal: Renewal; comp
   const retry = wrap(() => run(`Renewal restarted for ${r.name}`, () => api.renew(r.endpoint_id)));
   const advance = wrap(() => run(`Checked ${r.name}`, () => api.advance(r.id)));
   const cancel = wrap(() => run(`Cancelled renewal for ${r.name}`, () => api.cancel(r.id)));
+  const approve = wrap(() => run(`Approved renewal for ${r.name}`, () => api.approveRenewal(r.id)));
+  const reject = wrap(() => run(`Rejected renewal for ${r.name}`, () => api.rejectRenewal(r.id)));
   const openRunbook = wrap(async () => {
     try {
       setRunbook((await api.runbook(r.id)).markdown);
@@ -47,7 +49,14 @@ export function RenewalActions({ renewal: r, compact }: { renewal: Renewal; comp
   });
 
   let primary: React.ReactNode = null;
-  if (r.state === "awaiting_manual") {
+  if (r.approval) {
+    primary = (
+      <Button size="sm" variant={r.approval.overdue ? "primary" : "secondary"} onClick={approve} disabled={busy}
+        title={r.approval.mode.startsWith("servicenow:") ? "Approve here (ServiceNow is the usual approver)" : "Approve this renewal"}>
+        <Check /> Approve
+      </Button>
+    );
+  } else if (r.state === "awaiting_manual") {
     primary = (
       <Button asChild size="sm" variant="secondary">
         <a href={api.packUrl(r.id)} download>
@@ -80,6 +89,21 @@ export function RenewalActions({ renewal: r, compact }: { renewal: Renewal; comp
             </Button>
           </DropdownTrigger>
           <DropdownContent>
+            {r.approval && (
+              <>
+                {r.approval.ticket?.url && (
+                  <DropdownItem asChild>
+                    <a href={r.approval.ticket.url} target="_blank" rel="noreferrer">
+                      <ExternalLink /> Open {r.approval.ticket.ref}
+                    </a>
+                  </DropdownItem>
+                )}
+                <DropdownItem danger onSelect={reject}>
+                  <X /> Reject
+                </DropdownItem>
+                <DropdownSeparator />
+              </>
+            )}
             {r.state === "awaiting_manual" && (
               <>
                 <DropdownItem onSelect={openRunbook}>

@@ -6,6 +6,7 @@ import io
 import os
 import re
 import threading
+import time
 import zipfile
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -21,8 +22,9 @@ from farrier.api.scope import parse as parse_scope
 from farrier.connectors import REGISTRY, is_automated, make_connector
 from farrier.core import policy
 from farrier.core.discovery import expand_targets, scan
+from farrier.core.scheduler import check as check_window
 from farrier.core.engine import Engine, NotApproved
-from farrier.db.store import OPEN_STATES, parse_dt
+from farrier.db.store import OPEN_STATES, now_iso, parse_dt
 from farrier.security.vault import REF_PREFIXES, SecretRefused, check_secret_refs
 
 
@@ -56,6 +58,13 @@ class EndpointIn(BaseModel):
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     project: str | None = None      # where a new endpoint goes (default: "default"); move one with /move
+
+
+class ReplaceIn(BaseModel):
+    filter: dict
+    reason: str = "superseded"
+    revoke: bool = False
+    dry_run: bool = False
 
 
 class DiscoverIn(BaseModel):
@@ -280,6 +289,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         try:
             check_secret_refs(ep.connector_config)
             make_connector(ep.connector, ep.connector_config, engine.data_dir)  # validate config
+            check_window(ep.window)
         except SecretRefused as e:
             raise HTTPException(400, f"secret reference refused: {e}")
         except (ValueError, KeyError) as e:
@@ -302,6 +312,8 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     def delete_endpoint(eid: int, request: Request):
         ep = guard.endpoint(request, eid, write=True)
         with lock:  # don't pull an endpoint out from under a running tick
+            for row in S.q("SELECT id FROM renewals WHERE endpoint_id=?", (eid,)):
+                engine.runners.withdraw(row["id"])   # a queued runner deploy must not outlive its endpoint
             S.x("DELETE FROM endpoints WHERE id=?", (eid,))
             S.log(f"endpoint {ep['name']} removed by {actor(request)}")
         return {"ok": True}
@@ -316,6 +328,13 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                 raise HTTPException(409, str(e))
             state = engine.advance(rid)
         return {"renewal_id": rid, "state": state}
+
+    @app.get("/api/endpoints/{eid}/explain", dependencies=[Depends(auth)])
+    def explain_endpoint(eid: int, request: Request):
+        """Why the next renewal is when it is: lifetime maths, ARI, window, daily cap, backoff, approval, policy,
+        runner group, and the last failure with its reason code (the same as `farrier explain --json`)."""
+        from farrier.core.explain import explain
+        return explain(engine, guard.endpoint(request, eid))
 
     @app.post("/api/endpoints/{eid}/approve", dependencies=[Depends(auth)])
     def approve(eid: int, request: Request):
@@ -340,9 +359,42 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             reg = engine.register_scan(results, pid, None if sc.all else sc.has_row)
         return reg | {"scanned": len(targets), "with_tls": sum(1 for r in results if r.cert)}
 
+    cloud_cache: dict = {}
+
+    @app.get("/api/cloud/certificates", dependencies=[Depends(auth), Depends(guard.global_only)])
+    def cloud_certificates(refresh: bool = False):
+        """Certificates in AWS ACM, Azure Key Vault and Google Certificate Manager (settings cloud_inventory),
+        cached for 15 minutes; ?refresh=true lists again."""
+        from farrier.monitoring.cloud_inventory import inventory
+        cfg = engine.settings.get("cloud_inventory")
+        if not cfg:
+            return {"configured": False, "certificates": [], "errors": [], "listed_at": None}
+        if refresh or not cloud_cache or time.monotonic() - cloud_cache["at"] > 900:
+            cloud_cache.update(at=time.monotonic(), data=inventory(cfg) | {"listed_at": now_iso()})
+        return {"configured": True, **cloud_cache["data"]}
+
+    @app.get("/api/discover/ct", dependencies=[Depends(auth)])
+    def discover_ct(domain: str):
+        """Names with a valid public certificate under ``domain``, from Certificate Transparency logs (crt.sh)."""
+        from farrier.core.ct import ct_names
+        try:
+            return ct_names(domain)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except RuntimeError as e:
+            raise HTTPException(502, f"Certificate Transparency search failed: {e}")
+
     @app.get("/api/renewals", dependencies=[Depends(auth)])
     def renewals(request: Request, state: str | None = None):
-        return S.renewals(tuple(state.split(",")) if state else None, scope=scope_of(request))
+        from farrier.core.reasons import annotate
+        rows = S.renewals(tuple(state.split(",")) if state else None, scope=scope_of(request))
+        recs = engine.approvals.records()
+        for r in rows:   # a planned renewal held at an approval gate says so, and how it is gated
+            a = recs.get(r["id"])
+            if a and a["state"] == "pending" and r["state"] == "planned":
+                r["approval"] = {"mode": a["mode"], "ticket": a.get("ticket"), "overdue": bool(a.get("overdue"))}
+            annotate(r, a)   # reason_code + hint: why it is stuck or failed, and what to do
+        return rows
 
     @app.post("/api/renewals/{rid}/advance", dependencies=[Depends(auth)])
     def advance(rid: int, request: Request):
@@ -360,6 +412,82 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             except ValueError as e:
                 raise HTTPException(400, str(e))
         return {"state": "cancelled"}
+
+    @app.post("/api/renewals/{rid}/approve", dependencies=[Depends(auth)])
+    def approve_renewal(rid: int, request: Request):
+        """Open an approval gate (settings approvals): the renewal issues in its change window."""
+        return decide(rid, request, True)
+
+    @app.post("/api/renewals/{rid}/reject", dependencies=[Depends(auth)])
+    def reject_renewal(rid: int, request: Request):
+        return decide(rid, request, False)
+
+    def decide(rid: int, request: Request, ok: bool):
+        if not S.renewal(rid):
+            raise HTTPException(404, "no such renewal")
+        guard.renewal(request, rid, write=True)
+        with lock:
+            try:
+                return engine.approvals.decide(rid, ok, actor(request))
+            except ValueError as e:
+                raise HTTPException(409, str(e))
+
+    @app.get("/api/audit/verify", dependencies=whole_install)
+    def audit_verify():
+        """Recompute the activity log's hash chain: ok, how many rows are sealed, the head, the first bad row."""
+        from farrier.monitoring.audit import verify
+        return verify(S)
+
+    @app.get("/api/audit/export", dependencies=whole_install)
+    def audit_export():
+        """Every sealed event as JSON lines, ending with the signed chain head. Keep copies outside Farrier."""
+        from fastapi.responses import Response
+
+        from farrier.monitoring.audit import export
+        return Response(export(S), media_type="application/x-ndjson",
+                        headers={"Content-Disposition": 'attachment; filename="farrier-audit.jsonl"'})
+
+    @app.get("/api/reports/compliance", dependencies=whole_install)
+    def compliance_report(format: str = "json"):
+        """Per project: automation coverage, expiry risk, failed renewals, 47-day readiness; crypto; audit."""
+        from farrier.monitoring.audit import compliance
+        rep = compliance(engine)
+        if format != "csv":
+            return rep
+        from fastapi.responses import Response
+        cols = ["endpoints", "automated", "automated_pct", "expired", "expiring_7d", "expiring_30d",
+                "failed_renewals_30d", "longer_than_public_maximum", "no_certificate_seen"]
+        lines = ["project," + ",".join(cols)] + [
+            f"{name}," + ",".join(str(p.get(c, 0)) for c in cols) for name, p in rep["projects"].items()]
+        return Response("\n".join(lines) + "\n", media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="farrier-compliance.csv"'})
+
+    @app.post("/api/replace", dependencies=[Depends(auth)])
+    def replace_now(body: ReplaceIn, request: Request):
+        """Incident drill: renew every endpoint matching ``filter`` now; with revoke, revoke each old certificate
+        once nothing serves it. dry_run lists the matches only."""
+        from farrier.core.replace import replace, select
+        sc = scope_of(request)
+        visible = None if sc.all else sc.has_row
+        try:
+            if body.dry_run:
+                return {"matches": [{"endpoint_id": e["id"], "name": e["name"], "cert_issuer": e["cert_issuer"]}
+                                    for e in select(engine, body.filter, visible)]}
+            with lock:
+                return replace(engine, body.filter, body.reason, body.revoke, actor(request), visible)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/approvals", dependencies=[Depends(auth)])
+    def approvals_pending(request: Request):
+        """Renewals waiting for approval, with how they are gated (and the ServiceNow change, if any)."""
+        sc = scope_of(request)
+        out = []
+        for rid, rec in engine.approvals.pending().items():
+            r = S.renewal(rid)
+            if r and r["state"] == "planned" and (sc.all or sc.has_row(S.endpoint(r["endpoint_id"]))):
+                out.append({"renewal_id": rid, "endpoint_id": r["endpoint_id"], **rec})
+        return out
 
     @app.get("/api/renewals/{rid}/pack", dependencies=[Depends(auth), Depends(secret_read)])
     def pack(rid: int, request: Request):
@@ -415,6 +543,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                  "doc": (sys.modules[c.__module__].__doc__ or "").strip()} for k, c in REGISTRY.items()]
 
     # ---- observability ------------------------------------------------------------------------
+
     @app.get("/metrics", dependencies=[Depends(auth)], include_in_schema=False)
     def metrics(request: Request):
         """Prometheus text format. Names follow x509-certificate-exporter and cert-manager where they overlap."""
@@ -449,9 +578,40 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                [(l, int(parse_dt(e["not_after"]) < now)) for e, l in with_cert])
         metric("farrier_endpoint_up", "gauge", "1 when the last TLS handshake with the endpoint succeeded.",
                [(l, int(not e["scan_error"] and bool(e["fingerprint"]))) for e, l in base])
-        counts = Counter(r["state"] for r in S.renewals(limit=100000, scope=sc))
+        rows = S.renewals(limit=100000, scope=sc)
+        counts = Counter(r["state"] for r in rows)
         metric("farrier_renewals", "gauge", "Renewals by state.",
                [(lbl(state=st), n) for st, n in sorted(counts.items())])
+        metric("farrier_renewal_planned_timestamp_seconds", "gauge",
+               "When the endpoint's open renewal is scheduled to start (absent: no open renewal).",
+               [(lbl(endpoint=r["name"], state=r["state"]), int(parse_dt(r["scheduled_for"]).timestamp()))
+                for r in rows if r["state"] in OPEN_STATES])
+        from farrier.core.reasons import FAILED_STATES, code
+        issuer_of = {e["id"]: e["issuer"] or "default" for e in eps}
+        latest: dict[int, dict] = {}
+        for r in rows:   # each endpoint's most recent finished renewal: a retry waiting out its backoff still fails
+            if r["state"] not in OPEN_STATES and (r["endpoint_id"] not in latest
+                                                  or r["id"] > latest[r["endpoint_id"]]["id"]):
+                latest[r["endpoint_id"]] = r
+        failing = Counter((code(r["state"], r["error"]) or "UNKNOWN", issuer_of.get(r["endpoint_id"], "default"))
+                          for r in latest.values() if r["state"] in FAILED_STATES)
+        metric("farrier_endpoints_failing", "gauge",
+               "Endpoints whose latest finished renewal failed or rolled back, by reason code and issuer; clears "
+               "when a retry succeeds.", [(lbl(reason=c, issuer=i), n) for (c, i), n in sorted(failing.items())])
+        planned = {r["id"] for r in rows if r["state"] == "planned"}
+        waiting = Counter(bool(a.get("overdue")) for rid, a in engine.approvals.pending().items() if rid in planned)
+        metric("farrier_approvals_pending", "gauge", "Renewals waiting at an approval gate (overdue: past the deadline).",
+               [(lbl(overdue="false"), waiting[False]), (lbl(overdue="true"), waiting[True])])
+        if sc.all:   # install-wide facts: not shown to a project-scoped caller
+            groups = engine.runners.groups()
+            metric("farrier_runner_group_online", "gauge", "1 when a runner of the group polled in the last 5 minutes.",
+                   [(lbl(group=g["group"]), int(g["online"])) for g in groups])
+            metric("farrier_runner_group_pending_jobs", "gauge", "Runner jobs queued or leased, per group.",
+                   [(lbl(group=g["group"]), g["pending_jobs"]) for g in groups])
+            from farrier.monitoring.audit import last_status
+            if (st := last_status(S)) is not None:   # verified by the leader, at most hourly; scrapes only read it
+                metric("farrier_audit_log_intact", "gauge", "1 when the activity log's hash chain verified at the "
+                       "leader's last hourly check.", [("", int(st["ok"]))])
         from farrier.monitoring.health import last_reports
         names = {e["id"]: e["name"] for e in eps}
         metric("farrier_health_check_failed", "gauge",
@@ -549,6 +709,12 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
 
     from farrier.api.project_routes import mount as mount_projects
     mount_projects(app, engine, lock, auth, actor)
+
+    from farrier.api.runner_routes import mount as mount_runners
+    mount_runners(app, engine, whole_install, actor)
+
+    from farrier.api.acme_routes import mount as mount_acme
+    mount_acme(app, engine, lock, whole_install, actor)
 
     @app.post("/api/notifiers/test", dependencies=whole_install)
     def test_notifiers():
