@@ -4,6 +4,7 @@ from datetime import timedelta
 from farrier.core import policy
 from farrier.core.discovery import fetch_cert, scan
 from farrier.core.x509util import parse_pem
+from farrier.db.store import parse_dt
 
 
 def _endpoint(engine, port, connector, cfg, **kw):
@@ -278,3 +279,32 @@ def test_exported_keys_are_deleted_after_the_retention_window(engine, monkeypatc
     engine.tick(policy.utcnow() + timedelta(hours=25), scan=False)
     assert engine.secrets.backend.get(f"keys/{rid}") is None
     assert not engine.store.q("SELECT * FROM config_items WHERE kind='exported_key'")
+
+
+def test_failed_issuance_backs_off_instead_of_retrying_every_tick(engine, served, monkeypatch):
+    """cert-manager-style backoff: attempts spread out, then failed renewals 1 h, 2 h, 4 h ... apart."""
+    from farrier.core.engine import Engine
+    from farrier.issuers.acme import AcmeError
+    s, srv = served
+    calls = []
+
+    class Down:
+        def issue(self, csr, names, **kw):
+            calls.append(1)
+            raise AcmeError(429, "rateLimited", retry_after=900 if len(calls) == 1 else None)
+
+    monkeypatch.setattr(Engine, "issuers", property(lambda self: {"default": Down()}))
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    now = _due_now(engine, eid)
+    for i in range(12 * 24):                         # one day of 5-minute ticks
+        engine.tick(now=now + timedelta(minutes=5 * i), scan=False)
+    rs = sorted(engine.store.renewals(limit=100), key=lambda r: r["id"])
+    # without backoff: 288 attempts and ~58 renewals; with it: 1+2+4+8 h gaps after ~75 min of attempts each
+    assert len(calls) <= 30 and len(rs) <= 6, (len(calls), len(rs))
+    assert rs[0]["state"] == "failed" and "retry after 1 failed renewal" in rs[1]["reason"]
+    gap = parse_dt(rs[1]["scheduled_for"]) - parse_dt(rs[0]["scheduled_for"])
+    assert gap >= timedelta(hours=1)
+    first = engine.store.q("SELECT message FROM events WHERE message LIKE 'issuance attempt 1 failed%'")
+    assert first and "next attempt in 15 min" in first[0]["message"]   # Retry-After (900 s) beat the 5 min step
+    assert engine.force_renewal(eid) == rs[-1]["id"] or engine.store.open_renewal(eid)   # "renew now" still works
