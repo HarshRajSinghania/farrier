@@ -1082,6 +1082,47 @@
                   "$ref": "#/definitions/objectList"
                 }
               }
+            },
+            "prometheusRule": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "expiringDays": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 365
+                },
+                "labels": {
+                  "$ref": "#/definitions/stringMap"
+                },
+                "additionalRules": {
+                  "$ref": "#/definitions/objectList"
+                }
+              }
+            },
+            "grafanaDashboard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "labels": {
+                  "$ref": "#/definitions/stringMap"
+                },
+                "annotations": {
+                  "$ref": "#/definitions/stringMap"
+                }
+              }
             }
           }
         }

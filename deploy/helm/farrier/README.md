@@ -32,7 +32,8 @@ than one replica runs.
 - A CNI that enforces NetworkPolicy (Calico, Cilium, AWS VPC CNI with network policies on, GKE
   Dataplane V2, Azure CNI with Azure/Cilium network policy).
 - Optional, only for the features that need them: External Secrets Operator (`secrets.mode:
-  externalSecrets`), Prometheus Operator (`engine.metrics.serviceMonitor`), Gateway API CRDs
+  externalSecrets`), Prometheus Operator (`engine.metrics.serviceMonitor`, `engine.metrics.prometheusRule`),
+  the Grafana dashboard sidecar (`engine.metrics.grafanaDashboard`), Gateway API CRDs
   (`web.httpRoute`).
 
 ## Install
@@ -240,6 +241,24 @@ engine:
 `engine.replicaCount` above 1 with SQLite fails rendering: SQLite has exactly one writer. Back up
 the PVC daily.
 
+## Monitoring
+
+With the Prometheus Operator, turn on the scrape, the alerts and the dashboard together:
+
+```yaml
+engine:
+  metrics:
+    serviceMonitor: {enabled: true, labels: {release: kube-prometheus-stack}}
+    prometheusRule: {enabled: true, labels: {release: kube-prometheus-stack}}
+    grafanaDashboard: {enabled: true}          # ConfigMap labelled grafana_dashboard: "1"
+```
+
+The ServiceMonitor sets `honorLabels: true` so Farrier's `endpoint` label (the inventory endpoint) is kept.
+The alerts are FarrierCertificateExpiringNoRenewal, FarrierCertificateExpired, FarrierRenewalFailed
+(labelled with the reason code), FarrierApprovalsOverdue, FarrierRunnerGroupOffline and FarrierAuditLogBroken;
+the troubleshooting guide (https://farrier-erc1.vercel.app/docs/troubleshooting) says what to do for each. The dashboard
+JSON is `dashboards/farrier.json` in the chart, for importing by hand.
+
 ## Rendering checks without a cluster
 
 ```bash
@@ -360,6 +379,13 @@ HTTPRoute together, missing secret references) fail rendering with a message nam
 | `engine.metrics.serviceMonitor.scrapeTimeout` | `"10s"` | Scrape timeout. |
 | `engine.metrics.serviceMonitor.labels` | `{}` | Extra labels (e.g. the release label your Prometheus selects on). |
 | `engine.metrics.serviceMonitor.metricRelabelings` | `[]` | Metric relabelings. |
+| `engine.metrics.prometheusRule.enabled` | `false` | Render a Prometheus Operator PrometheusRule with ready-made alerts: certificate expiring with no open renewal, certificate expired, renewal failed (by reason code), approvals overdue, runner group offline, audit log broken. |
+| `engine.metrics.prometheusRule.expiringDays` | `7` | FarrierCertificateExpiringNoRenewal fires when fewer days than this are left. |
+| `engine.metrics.prometheusRule.labels` | `{}` | Extra labels (e.g. the release label your Prometheus selects rules on). |
+| `engine.metrics.prometheusRule.additionalRules` | `[]` | Extra alerting or recording rules appended to the farrier group. |
+| `engine.metrics.grafanaDashboard.enabled` | `false` | Ship the Farrier Grafana dashboard as a ConfigMap for the Grafana sidecar. |
+| `engine.metrics.grafanaDashboard.labels` | `{"grafana_dashboard": "1"}` | Labels the Grafana sidecar selects dashboards by. |
+| `engine.metrics.grafanaDashboard.annotations` | `{}` | Annotations, e.g. {grafana_folder: Certificates} for the sidecar's folder annotation. |
 | `web.enabled` | `true` | Deploy the dashboard. |
 | `web.replicaCount` | `2` | Replicas (ignored when autoscaling is enabled). |
 | `web.image.registry` | `"ghcr.io"` | Image registry (overridden by global.imageRegistry). |

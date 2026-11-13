@@ -16,6 +16,8 @@ spec:
   endpoints:
     - port: http
       path: /metrics
+      # Farrier's own "endpoint" label (the inventory endpoint) must win over the operator's target label
+      honorLabels: true
       scheme: http
       interval: {{ $sm.interval | quote }}
       scrapeTimeout: {{ $sm.scrapeTimeout | quote }}
