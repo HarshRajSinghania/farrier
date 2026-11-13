@@ -153,7 +153,7 @@ def check_yaml_files() -> dict:
         except yaml.YAMLError as exc:
             fail(f"{path.relative_to(CHART)}: {exc}")
     chart = docs.get("Chart.yaml", {})
-    for key, want in {"apiVersion": "v2", "version": "0.1.0", "appVersion": "0.1.0"}.items():
+    for key, want in {"apiVersion": "v2", "version": "0.2.0", "appVersion": "0.2.0"}.items():
         if str(chart.get(key)) != want:
             fail(f"Chart.yaml {key}={chart.get(key)!r}, want {want!r}")
     return docs

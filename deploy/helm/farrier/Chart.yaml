@@ -4,8 +4,8 @@ description: >-
   Farrier renews TLS certificates on the machines ACME can't reach (firewalls, load balancers,
   appliances). This chart runs the engine (API + renewal loop) and the web dashboard.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/gagankarthik/farrier
 sources:

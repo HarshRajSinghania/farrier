@@ -16,6 +16,20 @@ a tag that doesn't match both versions and this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
+### Upgrading from 0.1.0
+
+- Schema migrations 9 to 11 (runner jobs, audit hash chain, ACME server tables) run by themselves at
+  start-up, under a lock. Back up first (`farrier backup`).
+- The activity log is sealed into its hash chain on the first cycle after the upgrade; events from
+  before the upgrade are sealed too.
+- New Python dependency: `tzdata` (the images include it).
+- The root `docker-compose.yml` now runs the release images; add `--build` to keep building from source.
+- Setting both OIDC and SAML in the dashboard now fails closed: choose one.
+- Nothing else changes until you opt in: runners, approvals, issuance policy, the ACME server, cloud
+  inventory and the new connectors are all off until configured.
+
 ### Added
 
 - AWS Certificate Manager managed ACME: the `aws-acm` issuer preset (no DNS-01; with `acm_eab_arn` the

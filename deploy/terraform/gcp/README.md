@@ -57,7 +57,7 @@ restore` trusts a backup's rows (backups are HMAC-signed; unsigned ones need `--
 | `region` | `europe-west1` | |
 | `domains` | (required) | Dashboard hostnames |
 | `name` | `farrier` | ≤ 15 characters |
-| `farrier_version` | `0.1.0` | |
+| `farrier_version` | `0.2.0` | |
 | `engine_image`, `web_image` | `""` | Override (Artifact Registry or Docker Hub) |
 | `create_network`, `network_id`, `subnetwork_id` | `false`, `""`, `""` | Bring your own network |
 | `create_private_service_access` | `true` | `false` if the VPC already peers with Service Networking |

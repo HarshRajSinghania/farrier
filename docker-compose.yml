@@ -8,7 +8,7 @@
 # Uses the signed release images; `docker compose up -d --build` builds from this checkout instead.
 services:
   farrier:
-    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.2.0}
     build: .
     restart: unless-stopped
     # the demo keeps its own data under /data/demo, never in the real database
@@ -24,7 +24,7 @@ services:
     expose: ["8740"]
 
   web:
-    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.2.0}
     build: ./web
     restart: unless-stopped
     depends_on: [farrier]

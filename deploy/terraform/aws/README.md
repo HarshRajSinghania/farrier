@@ -52,7 +52,7 @@ The most used inputs (all are documented in `variables.tf`):
 | Name | Default | Notes |
 | --- | --- | --- |
 | `name` | `farrier` | Prefix for every resource |
-| `farrier_version` | `0.1.0` | Image tag for `ghcr.io/gagankarthik/farrier` and `farrier-web` |
+| `farrier_version` | `0.2.0` | Image tag for `ghcr.io/gagankarthik/farrier` and `farrier-web` |
 | `engine_image`, `web_image` | `""` | Override with a mirrored image or a digest pin |
 | `create_vpc` | `false` | Or give `vpc_id` + `private_subnet_ids` |
 | `vpc_id`, `private_subnet_ids`, `database_subnet_ids` | | Bring your own network |

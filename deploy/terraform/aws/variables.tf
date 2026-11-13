@@ -22,11 +22,11 @@ variable "tags" {
 variable "farrier_version" {
   description = "Farrier release to run. Selects ghcr.io/gagankarthik/farrier:<version> and farrier-web:<version>."
   type        = string
-  default     = "0.1.0"
+  default     = "0.2.0"
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$", var.farrier_version))
-    error_message = "farrier_version must be a SemVer version such as 0.1.0."
+    error_message = "farrier_version must be a SemVer version such as 0.2.0."
   }
 }
 

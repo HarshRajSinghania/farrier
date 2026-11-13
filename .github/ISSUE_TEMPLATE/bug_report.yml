@@ -35,7 +35,7 @@ body:
     attributes:
       label: Farrier version
       description: Shown in the dashboard sidebar, or `pip show farrier-tls`.
-      placeholder: 0.1.0
+      placeholder: 0.2.0
     validations:
       required: true
   - type: input

@@ -45,7 +45,7 @@ x-secret-env-entrypoint: &secret-env-entrypoint
 services:
   engine:
     <<: *app-hardening
-    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.2.0}
     entrypoint: *secret-env-entrypoint
     command: [farrier, serve, --host, 0.0.0.0, --port, "8740", --grace, "20"]
     deploy:
@@ -87,7 +87,7 @@ services:
 
   web:
     <<: *app-hardening
-    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.1.0}
+    image: ghcr.io/gagankarthik/farrier-web:${FARRIER_VERSION:-0.2.0}
     entrypoint: *secret-env-entrypoint
     command: [node, server.js]
     environment:
