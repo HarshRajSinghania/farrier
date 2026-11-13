@@ -31,7 +31,7 @@ export function SiteFooter({ cta = true }: { cta?: boolean }) {
                   href={site.demo}
                   className="inline-flex h-11 items-center gap-1 rounded-full px-5 text-[15px] font-semibold ring-1 ring-white/40 ring-inset transition-colors hover:bg-white/10"
                 >
-                  Live demo <ArrowRight className="size-4" />
+                  Try it <ArrowRight className="size-4" />
                 </Link>
               </div>
             </div>

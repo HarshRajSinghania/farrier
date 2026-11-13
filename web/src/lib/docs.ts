@@ -1,11 +1,11 @@
 /**
  * Where the dashboard's documentation links lead. The docs are a separate static site (site/ in the
  * repository). FARRIER_DOCS_URL, read per request, points a private install at its own copy, so one
- * image serves every deployment. Otherwise NEXT_PUBLIC_DOCS_URL from the build (the public docs site),
- * else the docs' source on GitHub.
+ * image serves every deployment. Otherwise NEXT_PUBLIC_DOCS_URL from the build, else the public docs site.
  */
 export const GITHUB_DOCS_URL = "https://github.com/gagankarthik/farrier/tree/main/site/src/app/docs";
-export const DEFAULT_DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || GITHUB_DOCS_URL;
+export const PUBLIC_DOCS_URL = "https://farrier-erc1.vercel.app/docs";
+export const DEFAULT_DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || PUBLIC_DOCS_URL;
 
 const GITHUB_TREE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/tree\//;
 

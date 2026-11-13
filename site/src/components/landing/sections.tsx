@@ -95,7 +95,7 @@ export function Hero() {
             Install Farrier
           </Link>
           <Link href={site.demo} className={secondary}>
-            Live demo <ArrowRight className="size-4" />
+            Try it <ArrowRight className="size-4" />
           </Link>
         </div>
       </div>

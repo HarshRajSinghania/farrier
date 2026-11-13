@@ -21,7 +21,7 @@ export const MENUS: NavMenu[] = [
         links: [
           { href: "/#how", label: "How a renewal runs", desc: "And what 47-day certificates mean" },
           { href: "/#features", label: "AI agents", desc: "Claude, Gemini and Codex over MCP" },
-          { href: site.demo, label: "Live demo", desc: "The real dashboard on demo data" },
+          { href: site.demo, label: "Try it", desc: "The dashboard on a demo estate, on your laptop" },
         ],
       },
     ],
@@ -79,7 +79,7 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
       { href: "/#how", label: "How it works" },
       { href: "/#platform", label: "Platform" },
       { href: "/#deploy", label: "Deploy" },
-      { href: site.demo, label: "Live demo" },
+      { href: site.demo, label: "Try it" },
     ],
   },
   {

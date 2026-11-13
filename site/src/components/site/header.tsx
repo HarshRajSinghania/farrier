@@ -93,7 +93,7 @@ export function SiteHeader({ landing = false }: { landing?: boolean }) {
             <GithubIcon className="size-[18px]" />
           </a>
           <Link href={site.demo} className={link}>
-            Live demo
+            Try it
           </Link>
           <Link
             href="/docs/quickstart"
@@ -139,7 +139,7 @@ export function SiteHeader({ landing = false }: { landing?: boolean }) {
               Install Farrier
             </Link>
             <Link href={site.demo} className="flex h-11 items-center justify-center rounded-full bg-[var(--l-pill)] text-[15px] font-medium hover:bg-[var(--l-pill-hover)]">
-              Live demo
+              Try it
             </Link>
             <a href={site.github} className="flex h-11 items-center justify-center gap-2 text-[15px] font-medium">
               <GithubIcon className="size-4" /> GitHub

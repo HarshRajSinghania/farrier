@@ -11,7 +11,7 @@ export const site = {
   // ||, not ??: an empty value must not win. Includes the base path, e.g. https://example.github.io/farrier
   url: (process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:3100${basePath}`).replace(/\/+$/, ""),
   github: "https://github.com/gagankarthik/farrier",
-  // the public demo: web/ deployed with no engine (demo mode). Unset, "Live demo" explains how to run it.
+  // each team runs its own dashboard; "Try it" shows how to run it on a demo estate (or a hosted demo, if set)
   demo: process.env.NEXT_PUBLIC_DEMO_URL || "/docs/install#try-it",
   license: "MIT",
   version: pkg.version, // bumped with farrier/__init__.py and web/package.json; the release workflow checks they match
