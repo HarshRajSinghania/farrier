@@ -46,6 +46,8 @@ const CA_LOGO: Record<string, string> = {
   digicert: "/assets/icons/ca-digicert.png",
   sectigo: "/assets/icons/ca-sectigo.png",
   "aws-acm": "/assets/icons/cert.svg",
+  aws_pca: "/assets/icons/cert.svg",
+  gcp_cas: "/assets/icons/google-cloud.svg",
   local_ca: "/assets/icons/cert.svg",
 };
 
@@ -68,8 +70,11 @@ const hostOf = (url: string | null) => {
   }
 };
 
+const CLOUD_CA: Record<string, string> = { aws_pca: "AWS Private CA", gcp_cas: "Google CAS" };
+
 function presetLabel(i: Issuer, presets: CaPreset[]) {
   if (i.type === "local_ca" && !i.preset) return "Built-in private CA";
+  if (CLOUD_CA[i.type]) return CLOUD_CA[i.type];
   const p = presets.find((x) => x.id === i.preset);
   if (p) return p.label.replace(/\s*\(staging\)$/i, "");
   return i.preset ?? "Custom ACME";
@@ -113,7 +118,7 @@ function IssuerForm({ entry, taken, onDone }: { entry: Issuer | null; taken: str
   const needsEab = !!preset?.eab;
   const showEab = needsEab || custom;
   const needsDirectory = custom || !!preset?.needs_directory_url;
-  const prevalidated = base === "aws-acm"; // ACM validates domains on the endpoint: no DNS-01
+  const prevalidated = !!preset?.prevalidated; // e.g. AWS ACM validates domains on the endpoint: no DNS-01
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -363,8 +368,14 @@ export function AuthoritiesView() {
                         {i.preset?.endsWith("-staging") && <Badge tone="warning">Staging</Badge>}
                       </span>
                     </TD>
-                    <TD className="font-mono text-xs text-muted-foreground">{i.type === "local_ca" ? "—" : hostOf(i.directory_url) ?? "—"}</TD>
-                    <TD className="text-muted-foreground">{i.type === "local_ca" ? "—" : !i.dns || i.dns === "auto" ? "Automatic" : i.dns}</TD>
+                    <TD className="max-w-56 truncate font-mono text-xs text-muted-foreground" title={i.cloud_ref ?? undefined}>
+                      {i.type === "local_ca" ? "—" : i.cloud_ref ? i.cloud_ref.split("/").pop() : hostOf(i.directory_url) ?? "—"}
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {i.type === "local_ca" || i.cloud_ref || presets.find((p) => p.id === i.preset)?.prevalidated
+                        ? "—"
+                        : !i.dns || i.dns === "auto" ? "Automatic" : i.dns}
+                    </TD>
                     <TD className="text-muted-foreground">{i.profile ?? "—"}</TD>
                     <TD>
                       <SourceBadge source={i.source} file="issuers.json" />
@@ -375,6 +386,7 @@ export function AuthoritiesView() {
                         canWrite={canWrite}
                         canTest={canTest}
                         readOnly={i.source === "file"}
+                        editable={!i.cloud_ref}
                         testing={result === "running"}
                         onTest={() => tests.run(i.name, () => api.testIssuer(i.name))}
                         onEdit={() => setEditing(i)}

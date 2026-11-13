@@ -11,8 +11,10 @@ services:
     image: ghcr.io/gagankarthik/farrier:${FARRIER_VERSION:-0.1.0}
     build: .
     restart: unless-stopped
-    command: ["farrier", "${FARRIER_MODE:-serve}", "--host", "0.0.0.0", "--port", "8740"]
+    # the demo keeps its own data under /data/demo, never in the real database
+    command: ["sh", "-c", "if [ \"$$FARRIER_MODE\" = demo ]; then exec farrier --data /data/demo demo --host 0.0.0.0 --port 8740; else exec farrier serve --host 0.0.0.0 --port 8740; fi"]
     environment:
+      FARRIER_MODE: ${FARRIER_MODE:-serve}
       FARRIER_API_TOKEN: ${FARRIER_API_TOKEN:?set FARRIER_API_TOKEN in .env}
       # Optional: supply the vault key from a secret instead of /data/master.key
       # FARRIER_MASTER_KEY: ${FARRIER_MASTER_KEY}

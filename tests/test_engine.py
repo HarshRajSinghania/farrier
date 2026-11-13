@@ -308,3 +308,29 @@ def test_failed_issuance_backs_off_instead_of_retrying_every_tick(engine, served
     first = engine.store.q("SELECT message FROM events WHERE message LIKE 'issuance attempt 1 failed%'")
     assert first and "next attempt in 15 min" in first[0]["message"]   # Retry-After (900 s) beat the 5 min step
     assert engine.force_renewal(eid) == rs[-1]["id"] or engine.store.open_renewal(eid)   # "renew now" still works
+
+
+def test_backoff_counts_from_the_failure_and_retry_after_stops_at_the_deadline(engine, served, monkeypatch):
+    from farrier.core.engine import Engine
+    from farrier.issuers.acme import AcmeError
+    s, srv = served
+
+    class Limited:
+        def issue(self, csr, names, **kw):
+            raise AcmeError(429, "rateLimited", retry_after=30 * 86400)   # "come back in a month"
+
+    monkeypatch.setattr(Engine, "issuers", property(lambda self: {"default": Limited()}))
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    now = _due_now(engine, eid) - timedelta(days=10)          # well before the deadline
+    engine.store.create_renewal(eid, now.isoformat(), (now + timedelta(days=2)).isoformat(), None, "test")
+    rid = engine.store.open_renewal(eid)["id"]
+    engine.advance(rid, now)
+    nxt = parse_dt(engine.store.renewal(rid)["scheduled_for"])
+    assert nxt <= now + timedelta(days=2)                     # capped at the deadline, not a month out
+
+    # a renewal that failed long after its planned start backs off from the failure
+    engine.store.x("UPDATE renewals SET state='rolled_back', scheduled_for=?, updated_at=? WHERE id=?",
+                   ((now - timedelta(hours=5)).isoformat(), now.isoformat(), rid))
+    until, n = engine._failure_backoff(eid)
+    assert n == 1 and until == now + timedelta(hours=1)

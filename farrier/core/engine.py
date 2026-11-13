@@ -300,12 +300,15 @@ class Engine:
     def _failure_backoff(self, eid: int) -> tuple[datetime, int] | None:
         """(not before, consecutive failures) after failed or rolled-back renewals: 1 h, doubling to 32 h, as
         cert-manager does, so a broken CA, DNS or device is not hit every tick. force_renewal skips it."""
-        rows = self.store.q("SELECT state, scheduled_for FROM renewals WHERE endpoint_id=? ORDER BY id DESC LIMIT 6",
-                            (eid,))
+        rows = self.store.q("SELECT state, scheduled_for, updated_at FROM renewals WHERE endpoint_id=? "
+                            "ORDER BY id DESC LIMIT 6", (eid,))
         n = next((i for i, r in enumerate(rows) if r["state"] not in ("failed", "rolled_back")), len(rows))
         if not n:
-            return None   # scheduled_for of a failed renewal is when its last attempt ran (engine clock)
-        return parse_dt(rows[0]["scheduled_for"]) + timedelta(hours=2 ** (n - 1)), n
+            return None
+        # when it failed: updated_at (a deploy, verify or rollback can end hours after the planned start), or
+        # scheduled_for when that is later (issuance retries push it forward on the engine's clock)
+        failed_at = max(parse_dt(rows[0]["updated_at"]), parse_dt(rows[0]["scheduled_for"]))
+        return failed_at + timedelta(hours=2 ** (n - 1)), n
 
     def _served_by_farrier(self, ep) -> dict | None:
         """The finished renewal whose certificate the endpoint serves right now, if any."""
@@ -503,6 +506,8 @@ class Engine:
                 return self._fail(r, ep, f"issuance failed {attempts}x: {e}")
             # 5, 10, 20, 40 min between attempts, or longer when the CA says so (rate limits: Retry-After)
             wait = timedelta(seconds=max(getattr(e, "retry_after", None) or 0, 300 * 2 ** (attempts - 1)))
+            if r["deadline"] and now + wait > parse_dt(r["deadline"]):   # never wait past the safety deadline
+                wait = max(parse_dt(r["deadline"]) - now, timedelta(minutes=5))
             if self.store.update_renewal(r["id"], expect_state="planned", attempts=attempts, error=f"issuance: {e}",
                                          scheduled_for=(now + wait).isoformat(timespec="seconds")):
                 self.store.log(f"issuance attempt {attempts} failed: {e}; next attempt in "

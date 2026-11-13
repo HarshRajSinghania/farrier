@@ -388,6 +388,7 @@ export function RowActions({
   canWrite,
   canTest,
   readOnly,
+  editable = true,
   testing,
   onTest,
   onEdit,
@@ -397,6 +398,8 @@ export function RowActions({
   canWrite: boolean;
   canTest: boolean;
   readOnly: boolean;
+  /** false: the form can't represent this entry, so offer Delete only */
+  editable?: boolean;
   testing: boolean;
   onTest: () => void;
   onEdit: () => void;
@@ -417,10 +420,14 @@ export function RowActions({
             </Button>
           </DropdownTrigger>
           <DropdownContent>
-            <DropdownItem onSelect={onEdit}>
-              <Pencil /> Edit
-            </DropdownItem>
-            <DropdownSeparator />
+            {editable && (
+              <>
+                <DropdownItem onSelect={onEdit}>
+                  <Pencil /> Edit
+                </DropdownItem>
+                <DropdownSeparator />
+              </>
+            )}
             <DropdownItem danger onSelect={onDelete}>
               <Trash2 /> Delete
             </DropdownItem>

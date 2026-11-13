@@ -30,6 +30,8 @@ jobs:
           echo "$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::not a SemVer tag"; exit 1; }
           [ "$tag" = "$py" ] && [ "$tag" = "$web" ] && [ "$tag" = "$site" ] || { echo "::error::tag v$tag does not match engine $py / web $web / site $site"; exit 1; }
           grep -q "## \[$tag\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [$tag] entry"; exit 1; }
+          # install.sh and the root compose file install this default: it must be the release being tagged
+          grep -q "farrier:\${FARRIER_VERSION:-$tag}" docker-compose.yml || { echo "::error::docker-compose.yml default image is not $tag"; exit 1; }
 
   image:
     needs: version

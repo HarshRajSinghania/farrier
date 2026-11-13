@@ -30,9 +30,20 @@ if [ ! -f .env ]; then
     echo "FARRIER_DASHBOARD_PASSWORD=$password"
     echo "FARRIER_MODE=$mode"
     echo "FARRIER_PORT=${FARRIER_PORT:-3000}"
-    [ -n "${FARRIER_VERSION:-}" ] && echo "FARRIER_VERSION=$FARRIER_VERSION"
   } > .env)
   new=1
+fi
+# a version asked for now is pinned in .env, so a later plain `docker compose up` keeps it
+if [ -n "${FARRIER_VERSION:-}" ]; then
+  (umask 077 && { grep -v '^FARRIER_VERSION=' .env || true; echo "FARRIER_VERSION=$FARRIER_VERSION"; } > .env.tmp)
+  mv .env.tmp .env
+fi
+version=$(sed -n 's/^FARRIER_VERSION=//p' .env)
+[ -n "$version" ] || version=$(sed -n 's/.*farrier:${FARRIER_VERSION:-\([^}]*\)}.*/\1/p' docker-compose.yml | head -n 1)
+if [ "$(sed -n 's/^FARRIER_MODE=//p' .env)" = demo ] && [ "$version" = 0.1.0 ]; then
+  echo "The demo in Docker needs Farrier 0.2.0 or later; set FARRIER_VERSION, or try it from source:" >&2
+  echo "https://github.com/gagankarthik/farrier#readme" >&2
+  exit 1
 fi
 
 docker compose pull --quiet

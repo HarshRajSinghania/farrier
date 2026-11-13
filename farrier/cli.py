@@ -20,8 +20,11 @@ def cmd_serve(args):
     import uvicorn
 
     from farrier.api.app import create_app
+    from farrier.demo import devices_dir
     if args.host not in ("127.0.0.1", "localhost") and not os.environ.get("FARRIER_API_TOKEN"):
         sys.exit("refusing to listen on a non-loopback address without FARRIER_API_TOKEN set")
+    if devices_dir(Path(args.data)).exists():
+        sys.exit(f"{args.data} holds the simulated demo estate; serve a real install from another --data directory")
     import signal
     import time
 
@@ -85,7 +88,11 @@ def cmd_demo(args):
     import uvicorn
 
     from farrier.api.app import create_app
-    from farrier.demo import start
+    from farrier.demo import devices_dir, start
+    data = Path(args.data)
+    if os.environ.get("FARRIER_DATABASE_URL") or ((data / "farrier.db").exists() and not devices_dir(data).exists()):
+        sys.exit(f"{args.data} (or FARRIER_DATABASE_URL) holds a real install; run the demo with another --data "
+                 "directory and no FARRIER_DATABASE_URL")
     if args.host not in ("127.0.0.1", "localhost") and not os.environ.get("FARRIER_API_TOKEN"):
         sys.exit("refusing to listen on a non-loopback address without FARRIER_API_TOKEN set")
     eng, srv = start(Path(args.data), args.simulate_date)

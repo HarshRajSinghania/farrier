@@ -47,8 +47,14 @@ PRESETS: dict[str, dict] = {
     "digicert": {"directory_url": None, "eab": True},
     "sectigo": {"directory_url": None, "eab": True},
     # AWS ACM: per-endpoint directory URL and EAB, or "acm_eab_arn" alone (both read from ACM via IAM)
-    "aws-acm": {"directory_url": None, "eab": True},
+    "aws-acm": {"directory_url": None, "eab": True, "prevalidated": True},
 }
+
+
+def prevalidated(c: dict) -> bool:
+    """True when the CA authorizes names out of band (AWS ACM): the entry needs no "dns" and builds an
+    AcmAcmeIssuer. The one place this rule lives."""
+    return bool((PRESETS.get(str(c.get("preset", "")).lower()) or {}).get("prevalidated")) or "acm_eab_arn" in c
 
 
 def apply_preset(name: str, c: dict) -> dict:
@@ -59,8 +65,8 @@ def apply_preset(name: str, c: dict) -> dict:
         raise ValueError(f"issuer {name}: unknown preset {preset!r}; known: {', '.join(sorted(PRESETS))}")
     if c.setdefault("type", "acme") != "acme":
         raise ValueError(f"issuer {name}: preset {preset!r} is an ACME preset but type is {c['type']!r}")
-    if str(preset).lower() == "aws-acm" and c.get("acm_eab_arn"):
-        return c
+    if p.get("prevalidated") and c.get("acm_eab_arn"):
+        return c   # the directory URL and EAB key are read from ACM
     if not c.get("directory_url"):
         if p["directory_url"] is None:
             raise ValueError(f"issuer {name}: preset {preset!r} needs \"directory_url\" (the ACME directory "
@@ -85,7 +91,7 @@ def build_issuer(name: str, c: dict, data_dir: Path, dns_accounts=None):
     """Construct one issuer from its issuers.json entry (no network). ``dns_accounts`` is an optional
     callable returning the shared DnsAccounts (file + dashboard); without it ACME loads dns.json itself."""
     c = dict(c)
-    acm = str(c.get("preset", "")).lower() == "aws-acm" or "acm_eab_arn" in c
+    acm = prevalidated(c)
     if "preset" in c:
         c = apply_preset(name, c)
     c = {k: resolve_secret(v) for k, v in c.items()}

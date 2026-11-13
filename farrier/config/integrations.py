@@ -355,7 +355,8 @@ def catalog(allow_commands: bool = False) -> dict:
         providers.append({"id": pid, "label": DNS_LABELS.get(pid, pid), "fields": fields,
                           "help": doc[0] if doc else ""})
     presets = [{"id": k, "label": CA_LABELS.get(k, k), "eab": bool(p["eab"]),
-                "needs_directory_url": p["directory_url"] is None, "staging": "staging" in k}
+                "needs_directory_url": p["directory_url"] is None, "staging": "staging" in k,
+                "prevalidated": bool(p.get("prevalidated"))}
                for k, p in PRESETS.items()]
     return {
         "dns_providers": providers,
@@ -375,12 +376,14 @@ def issuer_view(name: str, source: str, c: dict) -> dict:
     return {"name": name, "source": source, "type": kind, "preset": preset, "directory_url": url,
             "email": c.get("email"), "dns": c.get("dns") or ("hook" if c.get("dns_hook") else None),
             "profile": c.get("profile"), "preferred_chain": c.get("preferred_chain"),
-            "eab_kid": _ref_view(c.get("eab_kid")), "eab_hmac_key": _ref_view(c.get("eab_hmac_key"))}
+            "eab_kid": _ref_view(c.get("eab_kid")), "eab_hmac_key": _ref_view(c.get("eab_hmac_key")),
+            # a cloud CA, or an ACM binding read through IAM: shown, but edited in issuers.json or the API
+            "cloud_ref": c.get("ca_arn") or c.get("ca_pool") or c.get("acm_eab_arn")}
 
 
 def validate_issuer(engine, name: str, body, allow_commands: bool, allow_inline: bool) -> dict:
     from farrier.dns.base import DnsConfigError
-    from farrier.issuers import ACME_KEYS, CLOUD_CA, LOCAL_CA_KEYS, build_issuer
+    from farrier.issuers import ACME_KEYS, CLOUD_CA, LOCAL_CA_KEYS, build_issuer, prevalidated
     if not isinstance(body, dict) or not body:
         raise Invalid("send an issuers.json entry, e.g. {\"preset\": \"letsencrypt\", \"email\": ..., \"dns\": \"auto\"}")
     guard(body, allow_commands, allow_inline)
@@ -398,8 +401,7 @@ def validate_issuer(engine, name: str, body, allow_commands: bool, allow_inline:
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise Invalid(f"issuer {name}: unknown keys {unknown} for type {kind} (allowed: {sorted(allowed)})")
-    prevalidated = str(body.get("preset", "")).lower() == "aws-acm" or "acm_eab_arn" in body
-    if kind == "acme" and not body.get("dns") and not body.get("dns_hook") and not prevalidated:
+    if kind == "acme" and not body.get("dns") and not body.get("dns_hook") and not prevalidated(body):
         raise Invalid(f"issuer {name}: set \"dns\" (\"auto\" or a DNS account name) so Farrier can answer DNS-01")
     if kind == "acme" and body.get("directory_url"):
         u = urlparse(str(body["directory_url"]))

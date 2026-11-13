@@ -285,6 +285,8 @@ export interface CaPreset {
   needs_directory_url: boolean;
   /** true for a staging/test directory */
   staging: boolean | string | null;
+  /** the CA authorizes names out of band (AWS ACM): no DNS-01 */
+  prevalidated?: boolean;
 }
 export interface NotifierTypeInfo {
   id: string;
@@ -310,6 +312,8 @@ export interface Issuer {
   preferred_chain: string | null;
   eab_kid: string | null;
   eab_hmac_key: SecretRef | null;
+  /** AWS Private CA ARN, Google CAS pool or ACM binding ARN; such issuers are edited in issuers.json or the API */
+  cloud_ref?: string | null;
 }
 export interface IssuerInput {
   preset?: string;
