@@ -12,6 +12,8 @@ export const metadata = {
 | `farrier serve [--host --port --tick]` | Run the engine API (OpenAPI at `/docs`) and the renewal loop. The dashboard is the web app: `docker compose up` runs both, or `cd web && FARRIER_API_URL=http://127.0.0.1:8740 npm run dev` |
 | `farrier demo` | A simulated estate of real TLS endpoints, with the API running against it |
 | `farrier scan <targets> [--register]` | Handshake with TLS targets and list the certificates they serve; `--register` adds unknown ones as `discovered` |
+| `farrier ct <domain> [--json]` | Names with a valid public certificate under the domain, from Certificate Transparency logs (crt.sh), with expiry and issuer; feed them to `farrier scan`. The dashboard's **Discovery** page does the same with **Find names** |
+| `farrier acm endpoint\|domain\|eab ...` | AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings ([guide](/docs/configuration#aws-certificate-manager-managed-acme)) |
 | `farrier tick` | Run one scan, plan and advance cycle and print the result |
 | `farrier import <file.json>` | Import endpoints from a JSON inventory |
 | `farrier endpoints approve <name or id>` | Let a discovered endpoint be renewed (logged with actor `cli`). **json** |

@@ -10,6 +10,7 @@ import type {
   CertificateDetail,
   CryptoAsset,
   CryptoSummary,
+  CtName,
   ConnectorInfo,
   DiscoverResult,
   DnsAccount,
@@ -171,6 +172,7 @@ export const api = {
   // new endpoints, hosts and assets land in the picked project (the engine picks your only one otherwise)
   discover: (targets: string) =>
     act<DiscoverResult>("/discover", { method: "POST", body: JSON.stringify({ targets, project: currentProject() ?? undefined }) }),
+  ctNames: (domain: string) => request<CtName[]>(`/discover/ct?domain=${encodeURIComponent(domain)}`),
   runbook: (id: number) => request<{ markdown: string }>(`/renewals/${id}/runbook`),
   packUrl: (id: number) => `${BASE}/renewals/${id}/pack`,
 

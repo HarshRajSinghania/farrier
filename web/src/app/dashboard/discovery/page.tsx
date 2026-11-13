@@ -6,7 +6,7 @@ import { ArrowRight, Radar } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FieldHint, Label, Textarea } from "@/components/ui/input";
+import { FieldHint, Input, Label, Textarea } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/misc";
 import { api } from "@/lib/api";
 import type { DiscoverResult } from "@/lib/types";
@@ -18,6 +18,24 @@ export default function DiscoveryPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DiscoverResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [domain, setDomain] = useState("");
+  const [ct, setCt] = useState<string | null>(null);
+
+  // Certificate Transparency: names with a public certificate under the domain become scan targets
+  async function fromCt() {
+    setCt("Searching Certificate Transparency logs…");
+    setError(null);
+    try {
+      const rows = await api.ctNames(domain);
+      const hosts = rows.filter((r) => !r.wildcard).map((r) => r.name);
+      const wild = rows.length - hosts.length;
+      setTargets(hosts.join(", "));
+      setCt(`${hosts.length} names found${wild ? `, plus ${wild} wildcard certificate${wild > 1 ? "s" : ""}` : ""}. Review them, then scan.`);
+    } catch (err) {
+      setCt(null);
+      setError((err as Error).message);
+    }
+  }
 
   async function scan(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +90,16 @@ export default function DiscoveryPage() {
                     {x}
                   </button>
                 ))}
+              </div>
+              <div className="flex flex-wrap items-end gap-2 border-t pt-4">
+                <div className="min-w-48 flex-1">
+                  <Label htmlFor="ct-domain">Or find names in Certificate Transparency logs</Label>
+                  <Input id="ct-domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" className="mt-1" />
+                </div>
+                <Button type="button" variant="secondary" onClick={fromCt} disabled={!domain.trim() || ct?.startsWith("Searching")}>
+                  Find names
+                </Button>
+                {ct && <FieldHint className="w-full" role="status">{ct}</FieldHint>}
               </div>
               <div className="flex items-center justify-end gap-4 pt-1">
                 {busy && <span className="text-xs text-muted-foreground">Scanning — large ranges take a minute…</span>}

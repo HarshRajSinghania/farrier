@@ -278,6 +278,13 @@ export interface DnsProviderInfo {
   label: string;
   fields: CatalogField[];
 }
+/** A name with a valid public certificate, from Certificate Transparency logs. */
+export interface CtName {
+  name: string;
+  not_after: string | null;
+  issuer: string | null;
+  wildcard: boolean;
+}
 export interface CaPreset {
   id: string;
   label: string;

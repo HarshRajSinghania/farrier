@@ -304,6 +304,18 @@ def cmd_endpoints_approve(args):
     _emit(args, {"ok": True, "endpoint_id": ep["id"]}, lambda: [f"{ep['name']} approved for renewal"])
 
 
+def cmd_ct(args):
+    from farrier.core.ct import ct_names
+    try:
+        rows = ct_names(args.domain)
+    except (ValueError, RuntimeError) as e:
+        sys.exit(f"farrier ct: {e}")
+    hosts = [r["name"] for r in rows if not r["wildcard"]]
+    _emit(args, rows, lambda: [f"{(r['not_after'] or '')[:10]:<11}{r['name']:<50}{r['issuer'] or ''}"[:160]
+                               for r in rows] + ["", f"{len(hosts)} names; scan them with: farrier scan "
+                                                    + " ".join(hosts[:5]) + (" ..." if len(hosts) > 5 else "")])
+
+
 def cmd_acm(args):
     """AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings."""
     from farrier.security.cloud_auth.http import CloudError
@@ -482,6 +494,11 @@ def main(argv=None):
     x = js(esub.add_parser("approve", help="let a discovered endpoint be renewed (logged with actor cli)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_endpoints_approve)
+
+    x = js(sub.add_parser("ct", help="names with a valid public certificate under a domain, from Certificate "
+                          "Transparency logs (crt.sh)"))
+    x.add_argument("domain", help="e.g. example.com (covers every name below it)")
+    x.set_defaults(fn=cmd_ct)
 
     s = sub.add_parser("acm", help="AWS Certificate Manager managed ACME: endpoints, domains, EAB credentials")
     s.add_argument("--region", default=None, help="AWS region for create/list (default: $AWS_REGION); commands "

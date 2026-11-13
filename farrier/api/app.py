@@ -11,6 +11,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -339,6 +340,17 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         with lock:
             reg = engine.register_scan(results, pid, None if sc.all else sc.has_row)
         return reg | {"scanned": len(targets), "with_tls": sum(1 for r in results if r.cert)}
+
+    @app.get("/api/discover/ct", dependencies=[Depends(auth)])
+    def discover_ct(domain: str):
+        """Names with a valid public certificate under ``domain``, from Certificate Transparency logs (crt.sh)."""
+        from farrier.core.ct import ct_names
+        try:
+            return ct_names(domain)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except (RuntimeError, httpx.HTTPError) as e:
+            raise HTTPException(502, f"Certificate Transparency search failed: {e}")
 
     @app.get("/api/renewals", dependencies=[Depends(auth)])
     def renewals(request: Request, state: str | None = None):

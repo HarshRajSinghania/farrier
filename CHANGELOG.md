@@ -32,6 +32,12 @@ a tag that doesn't match both versions and this file.
   as tabs; every page keeps its URL.
 - Website: solution pages for F5, FortiGate, PAN-OS, the 47-day schedule, AWS ACM, cloud private CAs and
   open-source CLM, with schema.org FAQ, breadcrumb and software data, and canonical URLs.
+- Connectors for Citrix ADC / NetScaler (NITRO), Kubernetes TLS Secrets (with an in-cluster backup and
+  optional rollout restart) and IIS (OpenSSH and PowerShell).
+- Issuance policy in `settings.json`: allowed names, issuers and key types per project, checked before
+  any request to a CA.
+- Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
+  the Discovery page list every name with a valid public certificate.
 
 ### Fixed
 

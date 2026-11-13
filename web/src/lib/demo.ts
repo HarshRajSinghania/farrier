@@ -10,6 +10,7 @@ import type {
   AlertRule,
   AlertWhen,
   CatalogField,
+  CtName,
   DnsAccount,
   IntegrationCatalog,
   Issuer,
@@ -647,6 +648,14 @@ export function discover(targets: string) {
   }, 0);
   log(`discovery: scanned ${scanned} targets (demo mode, nothing contacted)`);
   return { new: 0, seen: Math.min(scanned, db().endpoints.length), scanned, with_tls: Math.min(scanned, db().endpoints.length) };
+}
+
+/** Certificate Transparency names (demo: what crt.sh would list for the demo estate's domain). */
+export function ctNames(domain: string): CtName[] {
+  const d = domain.trim().toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
+  if (!/^([a-z0-9-]+\.)+[a-z]{2,63}$/.test(d)) throw new DemoError(400, `not a domain name: ${domain}`);
+  const names = db().endpoints.map((e) => e.host).filter((h) => h === d || h.endsWith(`.${d}`));
+  return [...new Set(names)].sort().map((name) => ({ name, not_after: null, issuer: "demo", wildcard: false }));
 }
 
 export function runbook(id: number) {

@@ -293,6 +293,9 @@ async function serveDemo(req: NextRequest, path: string[], project: string | nul
           return demo.tick();
         case "POST discover":
           return demo.discover(String((await body()).targets ?? ""));
+        case "GET discover/:id":
+          if (rawId !== "ct") throw new demo.DemoError(404, "Not found");
+          return demo.ctNames(q.get("domain") ?? "");
         case "POST notifiers/:id":
           if (rawId !== "test") throw new demo.DemoError(404, "Not found");
           return { sent: demo.listNotifiers().length }; // demo: pretend every channel's test went out
