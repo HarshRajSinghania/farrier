@@ -42,7 +42,7 @@ import type {
 import { OPEN_STATES } from "./types";
 
 const DAY = 86_400_000;
-const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos", "citrix", "kubernetes", "iis"]);
+const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos", "citrix", "kubernetes", "iis", "azure_keyvault", "gcp_certificate_manager"]);
 
 export const CONNECTORS: ConnectorInfo[] = [
   { kind: "files", automated: true, required: ["cert_path", "key_path"], doc: "nginx, HAProxy, Apache, Postfix — atomic write + backup, test_command, reload_command; local or over SSH." },
@@ -53,6 +53,8 @@ export const CONNECTORS: ConnectorInfo[] = [
   { kind: "citrix", automated: true, required: ["url", "username", "password", "certkey"], doc: "Citrix ADC / NetScaler via NITRO: upload, update the certkey in place, link the intermediate, save." },
   { kind: "kubernetes", automated: true, required: ["namespace", "secret"], doc: "A kubernetes.io/tls Secret for Ingress or Gateway API, with an in-cluster backup and optional rollout restart." },
   { kind: "iis", automated: true, required: ["ssh", "site"], doc: "IIS over OpenSSH and PowerShell: import the PFX into LocalMachine\My and switch the https binding." },
+  { kind: "azure_keyvault", automated: true, required: ["vault", "certificate"], doc: "A new Key Vault certificate version for Application Gateway, Front Door or App Service, with optional immediate refresh." },
+  { kind: "gcp_certificate_manager", automated: true, required: ["project"], doc: "A self-managed Certificate Manager certificate and/or classic target HTTPS proxies on Google Cloud load balancers." },
   { kind: "manual", automated: false, required: [], doc: "Cisco ASA, vCenter, anything else — change pack (PEM + PFX + runbook) and optional ServiceNow/Jira ticket; closes itself on detection." },
 ];
 

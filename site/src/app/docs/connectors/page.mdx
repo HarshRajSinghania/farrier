@@ -5,7 +5,7 @@ export const metadata = {
 
 # Connectors
 
-A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Eight connectors are automated (deploy, verify, roll back). The ninth, `manual`, prepares everything for a human and verifies their work.
+A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Ten connectors are automated (deploy, verify, roll back). The eleventh, `manual`, prepares everything for a human and verifies their work.
 
 Rules that apply to every connector:
 
@@ -24,6 +24,8 @@ Rules that apply to every connector:
 | `citrix` | yes | `url`, `username`, `password`, `certkey` |
 | `kubernetes` | yes | `namespace`, `secret` |
 | `iis` | yes | `ssh`, `site` |
+| `azure_keyvault` | yes | `vault`, `certificate` |
+| `gcp_certificate_manager` | yes | `project`, and `certificate` or `target_https_proxies` |
 | `manual` | no | none |
 
 <Callout type="info">
@@ -220,6 +222,83 @@ the binding back; the old certificate stays in the store.
 | `site` | yes | IIS site name |
 | `port` | no | Default `443` |
 | `host_header` | no | For SNI bindings |
+
+## azure_keyvault
+
+A certificate in Azure Key Vault, for Application Gateway, Front Door, App Service, API Management and anything
+else that reads it by versionless id. Each renewal is imported as a new version of the certificate: a PFX with
+the chain and an exportable key (Application Gateway and Front Door read it through the certificate's secret).
+Farrier authenticates with its own Azure identity: AKS workload identity, a managed identity, or a service
+principal (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`).
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `vault` | yes | `https://<vault>.vault.azure.net` |
+| `certificate` | yes | Certificate name in the vault (`A-Z a-z 0-9 -`) |
+| `refresh.application_gateway` | no | Gateway resource id, or a list. Farrier writes a `farrier-refresh` tag: any change to a gateway makes it re-read Key Vault at once instead of at its 4-hourly poll |
+| `refresh.front_door` | no | Front Door Standard/Premium custom domain resource id, or a list. Farrier creates a Front Door secret pinned to the new version and switches the domain to it, instead of waiting up to 72 hours for a "Latest" secret. The domain must already use this Key Vault certificate. RSA keys only: Front Door rejects EC certificates, so Farrier refuses to deploy an EC key here |
+
+Roles for Farrier's identity: **Key Vault Certificates Officer** on the vault, plus **Key Vault Secrets User** for
+rollback. For `refresh`: **Network Contributor** on the gateway, **CDN Profile Contributor** on the Front Door
+profile. Without `refresh`, verification waits for the consumer to poll Key Vault, which can outlast the
+verification window and trigger a rollback.
+
+Rollback: Key Vault cannot make an older version current again, and disabling the new version does not fall back
+(versionless readers then fail; Application Gateway turns the listener off). So Farrier reads the previous version
+through its secret and imports it again as the newest version, then refreshes the gateways. If the previous
+version's key is not exportable, Key Vault cannot hand it back: rollback refuses and says so. If a newer version
+than Farrier's has appeared, rollback refuses rather than overwrite it. Front Door domains switch back to the
+secret they used before. If the certificate did not exist before, rollback disables the version Farrier imported.
+Pinned Front Door secrets (`farrier-<certificate>-<version>`) stay in the profile; delete old ones when no domain
+uses them.
+
+```json
+{
+  "connector": "azure_keyvault",
+  "connector_config": {
+    "vault": "https://kv-edge.vault.azure.net",
+    "certificate": "www-example-com",
+    "refresh": {
+      "application_gateway": "/subscriptions/<sub>/resourceGroups/edge/providers/Microsoft.Network/applicationGateways/agw-edge"
+    }
+  }
+}
+```
+
+## gcp_certificate_manager
+
+Google Cloud load balancers. With `certificate`, a self-managed certificate in Certificate Manager is created on
+the first renewal and updated in place after that, so certificate maps and proxies that reference it serve the
+new certificate without a change. With `target_https_proxies` (classic load balancers without certificate maps),
+each renewal becomes a new global Compute Engine SSL certificate named after the renewal, and each proxy is
+switched to it. Both can be set. Farrier authenticates with its own Google identity: GKE Workload Identity, the
+metadata server, or `GOOGLE_APPLICATION_CREDENTIALS`.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `project` | yes | Project id |
+| `certificate` | one of | Certificate Manager certificate id |
+| `location` | no | Certificate Manager location; default `global` |
+| `target_https_proxies` | one of | Global target HTTPS proxy names, e.g. `["web-https-proxy"]` |
+
+Roles for Farrier's identity: **Certificate Manager Editor** (`roles/certificatemanager.editor`); for
+`target_https_proxies`, **Compute Load Balancer Admin** (`roles/compute.loadBalancerAdmin`).
+
+Rollback: proxies switch back to the SSL certificates they had; the old ones are never deleted. A Certificate
+Manager certificate that Farrier updated in place cannot be rolled back, because the API never returns a private
+key, so the previous key is gone: rollback refuses and says so (deploy a known-good certificate instead). One
+that Farrier created is deleted. Google-managed certificates are refused. Old Farrier SSL certificates count
+against the project's SSL certificate quota; delete those no proxy uses.
+
+```json
+{
+  "connector": "gcp_certificate_manager",
+  "connector_config": {
+    "project": "acme-edge",
+    "certificate": "www-example-com"
+  }
+}
+```
 
 ## manual
 

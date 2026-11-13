@@ -85,6 +85,8 @@ export const CONNECTOR_LABEL: Record<string, string> = {
   citrix: "Citrix ADC",
   kubernetes: "Kubernetes Secret",
   iis: "IIS",
+  azure_keyvault: "Azure Key Vault",
+  gcp_certificate_manager: "Google Certificate Manager",
   manual: "Manual",
 };
 
