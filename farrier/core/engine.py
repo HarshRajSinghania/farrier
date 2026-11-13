@@ -305,40 +305,66 @@ class Engine:
     def plan(self, now: datetime | None = None) -> list[int]:
         now = now or policy.utcnow()
         created = []
-        load = {"auto": Counter(), "manual": Counter()}
-        for r in self.store.renewals(OPEN_STATES, limit=100000):
-            load["auto" if is_automated(r["connector"]) else "manual"][r["scheduled_for"][:10]] += 1
+        load = self.open_load()
 
         for ep in self.store.endpoints():
             if not ep["enabled"] or not ep["fingerprint"] or discovered(ep) or self.store.open_renewal(ep["id"]):
                 continue
-            nb, na = parse_dt(ep["not_before"]), parse_dt(ep["not_after"])
-            lifetime = min(max(1, (na - nb).days), policy.max_lifetime_days(now))
-            due = na - timedelta(days=policy.renew_before_days(lifetime, ep["lead_days"]))
-            ari = self._ari_due(ep)
-            if ari and ari < due:
-                due = ari                     # the CA asked for an earlier renewal (RFC 9773)
-            if due > now + timedelta(days=self.settings["horizon_days"]):
+            s = self.schedule(ep, now, load)
+            if s["start"] is None:
                 continue
-            latest = na - timedelta(days=self.settings["safety_days"])
-            klass = "auto" if is_automated(ep["connector"]) else "manual"
-            cap = self.settings[f"{klass}_daily_cap"]
-            if na <= now:
-                start, reason = now, "expired"
-            elif latest <= now or next_window_start(ep["window"], max(now, due)) > latest:
-                start, reason = now, "urgent: no window before expiry"
-            else:
-                start = level(ep["window"], max(now, due), latest, load[klass], cap)
-                reason = "due (CA renewal window)" if ari and ari <= due else "due"
-            if (retry := self._failure_backoff(ep["id"])) and retry[0] > start:
-                start, reason = retry[0], f"retry after {retry[1]} failed renewal{'s' * (retry[1] > 1)}"
-            load[klass][start.date().isoformat()] += 1
+            start, reason, latest = s["start"], s["reason"], s["latest"]
+            load[s["class"]][start.date().isoformat()] += 1
             rid = self.store.create_renewal(ep["id"], start.isoformat(timespec="seconds"),
                                             latest.isoformat(timespec="seconds"), ep["fingerprint"], reason)
             self.store.log(f"renewal planned for {start:%Y-%m-%d %H:%M} UTC ({reason}); "
-                           f"current cert expires {na:%Y-%m-%d}", ep["id"], rid)
+                           f"current cert expires {s['not_after']:%Y-%m-%d}", ep["id"], rid)
             created.append(rid)
         return created
+
+    def open_load(self) -> dict:
+        """Open renewals per class ("auto", "manual") and UTC day: what the daily caps level against."""
+        load = {"auto": Counter(), "manual": Counter()}
+        for r in self.store.renewals(OPEN_STATES, limit=100000):
+            load["auto" if is_automated(r["connector"]) else "manual"][r["scheduled_for"][:10]] += 1
+        return load
+
+    def names(self, ep: dict) -> list[str]:
+        """The names a renewal asks for: the endpoint's, else those of the certificate it serves."""
+        obs = self.store.latest_cert_observation(ep["id"])
+        cn = ep["common_name"] or (obs and obs["subject_cn"]) or ep["host"]
+        sans = ep["sans"] or (obs["sans"] if obs and obs["sans"] else [])
+        return list(dict.fromkeys([cn, *sans]))
+
+    def schedule(self, ep: dict, now: datetime, load: dict, beyond_horizon: bool = False) -> dict:
+        """When ``ep`` (with a served certificate) would be planned, and every input to that decision. ``start``
+        is None when the due date is beyond horizon_days, unless ``beyond_horizon`` (farrier explain) asks anyway."""
+        nb, na = parse_dt(ep["not_before"]), parse_dt(ep["not_after"])
+        lifetime = min(max(1, (na - nb).days), policy.max_lifetime_days(now))
+        before = policy.renew_before_days(lifetime, ep["lead_days"])
+        due = na - timedelta(days=before)
+        ari = self._ari_due(ep)
+        if ari and ari < due:
+            due = ari                     # the CA asked for an earlier renewal (RFC 9773)
+        latest = na - timedelta(days=self.settings["safety_days"])
+        klass = "auto" if is_automated(ep["connector"]) else "manual"
+        cap = self.settings[f"{klass}_daily_cap"]
+        out = {"not_before": nb, "not_after": na, "lifetime_days": lifetime, "renew_before_days": before,
+               "ari_due": ari, "due": due, "latest": latest, "class": klass, "daily_cap": cap,
+               "window_start": None, "start": None, "reason": None, "backoff": None}
+        if due > now + timedelta(days=self.settings["horizon_days"]) and not beyond_horizon:
+            return out
+        if na <= now:
+            start, reason = now, "expired"
+        elif latest <= now or (ws := next_window_start(ep["window"], max(now, due))) > latest:
+            start, reason = now, "urgent: no window before expiry"
+        else:
+            out["window_start"] = ws
+            start = level(ep["window"], max(now, due), latest, load[klass], cap)
+            reason = "due (CA renewal window)" if ari and ari <= due else "due"
+        if (retry := self._failure_backoff(ep["id"])) and retry[0] > start:
+            start, reason = retry[0], f"retry after {retry[1]} failed renewal{'s' * (retry[1] > 1)}"
+        return out | {"start": start, "reason": reason, "backoff": retry}
 
     def _failure_backoff(self, eid: int) -> tuple[datetime, int] | None:
         """(not before, consecutive failures) after failed or rolled-back renewals: 1 h, doubling to 32 h, as
@@ -531,10 +557,8 @@ class Engine:
             return  # not yet, or a discovered endpoint planned before approval existed: wait for an admin
         try:
             issuer = self.issuers.get(ep["issuer"]) or self.issuers["default"]
-            obs = self.store.latest_cert_observation(ep["id"])
-            cn = ep["common_name"] or (obs and obs["subject_cn"]) or ep["host"]
-            sans = ep["sans"] or (obs["sans"] if obs and obs["sans"] else [])
-            names = list(dict.fromkeys([cn, *sans]))
+            names = self.names(ep)
+            cn = names[0]
             issuer_name = ep["issuer"] if ep["issuer"] in self.issuers else "default"
             if bad := issuance_policy.violations(issuance_policy.rules_for(self.settings.get("policy"), ep.get("project")),
                                                  names, issuer_name, ep["key_type"]):
