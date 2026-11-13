@@ -18,6 +18,7 @@ def reset() -> None:
     """Drop cached identities (tests; or after rotating credentials in the environment)."""
     from farrier.security.cloud_auth import aws, azure, google
     aws._default = None
+    aws._assumed.clear()
     google._default = None
     azure._default = None
 

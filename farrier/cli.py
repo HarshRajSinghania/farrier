@@ -311,7 +311,7 @@ def cmd_cloud_certs(args):
     eng = _engine(args)
     cfg = eng.settings.get("cloud_inventory")
     if not cfg:
-        sys.exit('farrier cloud-certs: add "cloud_inventory" to settings.json (aws_regions, azure_vaults, gcp_projects)')
+        sys.exit('farrier cloud-certs: add "cloud_inventory" to settings.json (aws_regions, aws_accounts, azure_vaults, gcp_projects)')
     out = inventory(cfg)
     _emit(args, out, lambda: [f"{(c['not_after'] or '?')[:10]:<11}{c['source']:<24}{c['location']:<16}"
                               f"{'in use  ' if c['in_use'] else '        '}{c['name']}" for c in out["certificates"]]

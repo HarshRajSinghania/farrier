@@ -5,9 +5,12 @@ use. Listing them next to the inventory shows what expires where, and which are 
 
 settings.json:
   "cloud_inventory": {"aws_regions": ["eu-west-1", "us-east-1"],
+                      "aws_accounts": [{"role_arn": "arn:aws:iam::210987654321:role/farrier-inventory",
+                                        "external_id": "env:AWS_INV_EXTERNAL_ID", "regions": ["eu-west-1"]}],
                       "azure_vaults": ["prod-kv", "edge-kv"],
                       "gcp_projects": ["my-project"]}
-Credentials come from the platform chain of each cloud (farrier.security.cloud_auth). Each source is
+Credentials come from the platform chain of each cloud (farrier.security.cloud_auth); each aws_accounts
+entry assumes its role on top of the AWS chain, and its rows show "<account id>/<region>" as location. Each source is
 listed on its own: one that fails is reported in ``errors`` and the rest still show.
 Rows: source, location, name, id, domains, not_after, in_use, managed (the cloud renews it itself).
 """
@@ -16,10 +19,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from farrier.security.cloud_auth import azure, google
-from farrier.security.cloud_auth.aws import json_call
+from farrier.security.cloud_auth.aws import ROLE_ARN, assume_role, json_call
 from farrier.security.cloud_auth.http import json_body, request
+from farrier.security.vault import resolve_secret
 
-KEYS = {"aws_regions", "azure_vaults", "gcp_projects"}
+KEYS = {"aws_regions", "aws_accounts", "azure_vaults", "gcp_projects"}
 
 
 def _iso(v) -> str | None:
@@ -30,16 +34,17 @@ def _iso(v) -> str | None:
     return str(v)
 
 
-def aws(region: str, http=None) -> list[dict]:
+def aws(region: str, http=None, creds=None, location: str | None = None) -> list[dict]:
     rows, token = [], None
     while True:
         body = {"MaxItems": 1000, "Includes": {"keyTypes": ["RSA_1024", "RSA_2048", "RSA_3072", "RSA_4096",
                                                             "EC_prime256v1", "EC_secp384r1", "EC_secp521r1"]}}
         if token:
             body["NextToken"] = token
-        r = json_call("acm", "ListCertificates", body, region=region, what="ACM ListCertificates", http=http)
+        r = json_call("acm", "ListCertificates", body, region=region, what="ACM ListCertificates", http=http,
+                      creds=creds)
         for c in r.get("CertificateSummaryList") or []:
-            rows.append({"source": "aws-acm", "location": region, "name": c.get("DomainName"),
+            rows.append({"source": "aws-acm", "location": location or region, "name": c.get("DomainName"),
                          "id": c["CertificateArn"], "domains": c.get("SubjectAlternativeNameSummaries") or
                          [c.get("DomainName")], "not_after": _iso(c.get("NotAfter")), "in_use": c.get("InUse"),
                          "managed": c.get("Type") in ("AMAZON_ISSUED", "PRIVATE") and c.get("RenewalEligibility")
@@ -83,11 +88,22 @@ def gcp(project: str, http=None, tokens=None) -> list[dict]:
             return rows
 
 
+def _account(a: dict, region: str):
+    """ACM in another account: its role assumed on top of the default AWS chain."""
+    def fn(location, http=None):
+        ext = a.get("external_id")
+        return aws(region, http=http, location=location,
+                   creds=assume_role(a["role_arn"], resolve_secret(ext) if ext else None, "farrier-inventory"))
+    return fn
+
+
 def inventory(cfg: dict | None, http=None) -> dict:
     """{"certificates": [...] soonest expiry first, "errors": [{"source", "location", "error"}]}."""
     cfg = cfg or {}
     rows, errors = [], []
     sources = ([("aws-acm", r, aws) for r in cfg.get("aws_regions") or []]
+               + [("aws-acm", f"{a['role_arn'].split(':')[4]}/{r}", _account(a, r))
+                  for a in cfg.get("aws_accounts") or [] for r in a["regions"]]
                + [("azure-keyvault", v, azure_vault) for v in cfg.get("azure_vaults") or []]
                + [("gcp-certificate-manager", p, gcp) for p in cfg.get("gcp_projects") or []])
     for source, where, fn in sources:
@@ -109,6 +125,13 @@ def inventory(cfg: dict | None, http=None) -> dict:
 def validate(cfg) -> None:
     if cfg is None:
         return
-    if not isinstance(cfg, dict) or set(cfg) - KEYS or not all(
-            isinstance(v, list) and all(isinstance(x, str) and x for x in v) for v in cfg.values()):
+    names = lambda v: isinstance(v, list) and all(isinstance(x, str) and x for x in v)  # noqa: E731
+    if not isinstance(cfg, dict) or set(cfg) - KEYS or not all(names(v) for k, v in cfg.items() if k != "aws_accounts"):
         raise ValueError(f'settings.json "cloud_inventory": an object with lists of names under {", ".join(sorted(KEYS))}')
+    accounts = cfg.get("aws_accounts") or []
+    if not isinstance(accounts, list) or not all(
+            isinstance(a, dict) and not set(a) - {"role_arn", "external_id", "regions"}
+            and ROLE_ARN.match(str(a.get("role_arn"))) and names(a.get("regions")) and a["regions"]
+            and isinstance(a.get("external_id", ""), str) for a in accounts):
+        raise ValueError('settings.json "cloud_inventory" "aws_accounts": a list of {"role_arn": "arn:aws:iam::'
+                         '<account>:role/<name>", "regions": ["eu-west-1"], "external_id": optional}')
