@@ -281,3 +281,24 @@ def _der(pem):
 def _csr_der(pem):
     from cryptography import x509
     return x509.load_pem_x509_csr(pem.encode()).public_bytes(serialization.Encoding.DER)
+
+
+def test_eab_payload_may_carry_extra_jwk_members(env):
+    """Some JOSE libraries put "alg"/"use" into the JWK they bind: same key, so the binding must be accepted."""
+    _, api, _ = env
+    url, h = f"{B}/acme/internal/new-account", {"Content-Type": "application/jose+json"}
+    ek = ed25519.Ed25519PrivateKey.generate()
+    jwk = {"crv": "Ed25519", "kty": "OKP", "x": b64u(ek.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw))}
+    nonce = api.head("/acme/internal/new-nonce").headers["Replay-Nonce"]
+    body = {"termsOfServiceAgreed": True, "externalAccountBinding": _eab(*eab(api), url, {**jwk, "alg": "EdDSA", "use": "sig"})}
+    r = api.post(url, content=_jws(ek, "EdDSA", url, body, nonce, jwk=jwk), headers=h)
+    assert r.status_code == 201, r.text
+    other = ed25519.Ed25519PrivateKey.generate()        # but a binding over another key is still refused
+    other_jwk = {**jwk, "x": b64u(other.public_key().public_bytes(serialization.Encoding.Raw,
+                                                                  serialization.PublicFormat.Raw))}
+    nonce = r.headers["Replay-Nonce"]
+    k2 = ed25519.Ed25519PrivateKey.generate()
+    jwk2 = {**jwk, "x": b64u(k2.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw))}
+    body = {"termsOfServiceAgreed": True, "externalAccountBinding": _eab(*eab(api), url, other_jwk)}
+    assert api.post(url, content=_jws(k2, "EdDSA", url, body, nonce, jwk=jwk2), headers=h).status_code == 401

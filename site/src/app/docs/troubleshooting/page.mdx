@@ -11,7 +11,7 @@ Start with one command. It shows how Farrier scheduled the endpoint's next renew
 farrier explain www-lb          # endpoint name or id; add --json for the API payload
 ```
 
-The dashboard's **Renewals** table shows the same reason code and a one-line fix next to each stuck or failed renewal. `GET /api/renewals` returns them as `reason_code` and `hint`. Failures are counted in `/metrics` as `farrier_renewal_failures_total{reason,issuer}`, and the Helm chart's [alerts](/docs/api#get-metrics) fire on them.
+The dashboard's **Renewals** table shows the same reason code and a one-line fix next to each stuck or failed renewal. `GET /api/renewals` returns them as `reason_code` and `hint`. Endpoints failing renewal are counted in `/metrics` as `farrier_endpoints_failing{reason,issuer}`, and the Helm chart's [alerts](/docs/api#get-metrics) fire on them.
 
 ## `farrier explain`
 

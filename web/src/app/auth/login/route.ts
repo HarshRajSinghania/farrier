@@ -10,7 +10,7 @@ import { authMode, oidcConfig, samlConfig } from "@/lib/auth/config";
 import { safeReturnTo } from "@/lib/auth/csrf";
 import { noStore, redirectUri, samlSp, toSignin } from "@/lib/auth/flow";
 import { authorizeUrl, discover, pkceChallenge, randomToken } from "@/lib/auth/oidc";
-import { authnRequestUrl, newRequestId, REQUEST_TTL_MS, resolveIdp } from "@/lib/auth/saml";
+import { authnRequestUrl, newRequestId, REQUEST_TTL_MS, resolveIdp, spProblem } from "@/lib/auth/saml";
 import { seal } from "@/lib/auth/seal";
 import { isSecure, now, SAML_TX_COOKIE, SAML_TX_PURPOSE, TX_COOKIE, TX_PURPOSE } from "@/lib/auth/session";
 
@@ -23,6 +23,11 @@ async function samlLogin(req: NextRequest, returnTo: string) {
     return noStore(toSignin(req, "misconfigured"));
   }
   const sp = samlSp(req, cfg.config);
+  const bad = spProblem(sp);
+  if (bad) {
+    console.error(`[farrier] SSO misconfigured: ${bad}`);
+    return noStore(toSignin(req, "misconfigured"));
+  }
   const id = newRequestId();
   let url: string;
   try {
@@ -35,7 +40,8 @@ async function samlLogin(req: NextRequest, returnTo: string) {
   const tx = await seal({ id, returnTo, sp: sp.entityId, acs: sp.acsUrl }, cfg.config.sessionSecret, SAML_TX_PURPOSE, now() + seconds);
   const res = NextResponse.redirect(url, 303);
   // SameSite=None: the IdP returns the browser with a cross-site POST, which drops Lax cookies.
-  // Browsers require Secure with None (they accept it on http://localhost for development).
+  // Browsers require Secure with None, so spProblem() allows only https, or http://localhost, where
+  // Chrome and Firefox accept Secure cookies (Safari may not: develop in one of those).
   res.cookies.set(SAML_TX_COOKIE, tx, { httpOnly: true, secure: true, sameSite: "none", path: "/auth/saml", maxAge: seconds });
   return noStore(res);
 }

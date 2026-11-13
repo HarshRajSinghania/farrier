@@ -28,11 +28,12 @@ spec:
           annotations:
             summary: {{ `{{ $labels.endpoint }} serves an expired certificate` | quote }}
         - alert: FarrierRenewalFailed
-          expr: increase(farrier_renewal_failures_total[1h]) > 0
+          expr: farrier_endpoints_failing > 0
+          for: 10m
           labels:
             severity: warning
           annotations:
-            summary: {{ `A renewal failed: {{ $labels.reason }} (issuer {{ $labels.issuer }})` | quote }}
+            summary: {{ `{{ $value }} endpoints failing renewal: {{ $labels.reason }} (issuer {{ $labels.issuer }})` | quote }}
             description: "The dashboard's renewals table shows which endpoint, with a hint for the reason code."
         - alert: FarrierApprovalsOverdue
           expr: farrier_approvals_pending{overdue="true"} > 0

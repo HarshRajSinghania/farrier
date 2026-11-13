@@ -24,7 +24,10 @@ def _iso(d):
 def explain(engine, ep: dict, now=None) -> dict:
     now = now or policy.utcnow()
     S = engine.store
-    row = next((e for e in S.endpoints() if e["id"] == ep["id"]), None) or ep   # latest observation joined
+    last_obs = S.q1("SELECT fingerprint, not_after, not_before, error FROM observations WHERE endpoint_id=? "
+                    "ORDER BY observed_at DESC, id DESC LIMIT 1", (ep["id"],))   # this endpoint's only, not the inventory
+    row = {**ep, **{k: (last_obs or {}).get(k) for k in ("fingerprint", "not_after", "not_before")},
+           "scan_error": (last_obs or {}).get("error")}
     obs = S.latest_cert_observation(ep["id"])
     group = runner_of(ep)
     out = {
@@ -56,7 +59,7 @@ def explain(engine, ep: dict, now=None) -> dict:
     if bad:
         blockers.append("issuance policy: " + "; ".join(bad) + " [POLICY_DENIED]")
     if group:
-        g = next((x for x in engine.runners.groups() if x["group"] == group), None)
+        g = engine.runners.group_status(group)
         out["runner"] = g or {"group": group, "online": False, "token": False, "pending_jobs": 0}
         if not out["runner"]["online"]:
             blockers.append(f"runner group {group} is offline (last seen {out['runner'].get('last_seen') or 'never'})"

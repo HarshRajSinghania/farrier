@@ -355,12 +355,12 @@
     },
     {
       "type": "timeseries",
-      "title": "Failed renewals by reason (per hour)",
+      "title": "Endpoints failing renewal, by reason",
       "description": "Every reason code has a fix in the troubleshooting guide.",
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (reason, issuer) (increase(farrier_renewal_failures_total[1h]))",
+          "expr": "sum by (reason, issuer) (farrier_endpoints_failing)",
           "legendFormat": "{{reason}} ({{issuer}})"
         }
       ],

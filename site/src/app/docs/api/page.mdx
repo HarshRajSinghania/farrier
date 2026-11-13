@@ -334,7 +334,7 @@ Prometheus text format. Needs a token (use the read-only one). Names follow x509
 | `farrier_endpoint_up` | same | `1` when the last TLS handshake succeeded |
 | `farrier_renewals` | `state` | Renewals by state |
 | `farrier_renewal_planned_timestamp_seconds` | `endpoint`, `state` | When the endpoint's open renewal is scheduled to start; absent when none is open |
-| `farrier_renewal_failures_total` | `reason`, `issuer` | Counter of renewals that ended `failed` or `rolled_back`, by [reason code](/docs/troubleshooting#reason-codes) and issuer |
+| `farrier_endpoints_failing` | `reason`, `issuer` | Endpoints whose latest finished renewal ended `failed` or `rolled_back`, by [reason code](/docs/troubleshooting#reason-codes) and issuer; stays until a retry succeeds |
 | `farrier_approvals_pending` | `overdue` | Renewals waiting at an approval gate (`overdue="true"`: past the deadline) |
 | `farrier_runner_group_online` | `group` | `1` when a runner of the group polled in the last 5 minutes |
 | `farrier_runner_group_pending_jobs` | `group` | Runner jobs queued or leased |
@@ -353,7 +353,7 @@ series per endpoint, reason code, issuer or runner group. With Prometheus Operat
   for: 1h
   labels: { severity: critical }
 - alert: FarrierRenewalFailed
-  expr: increase(farrier_renewal_failures_total[1h]) > 0
+  expr: farrier_endpoints_failing > 0
   labels: { severity: warning }
 - alert: FarrierApprovalsOverdue
   expr: farrier_approvals_pending{overdue="true"} > 0

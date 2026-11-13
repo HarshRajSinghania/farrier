@@ -21,6 +21,7 @@ VAULT = "https://kv1.vault.azure.net"
 GW = "/subscriptions/s1/resourceGroups/rg/providers/Microsoft.Network/applicationGateways/agw"
 PROFILE = "/subscriptions/s1/resourceGroups/rg/providers/Microsoft.Cdn/profiles/afd"
 DOMAIN = f"{PROFILE}/customDomains/www"
+DOMAIN2 = f"{PROFILE}2/customDomains/api"      # a second profile, so it gets its own pinned secret
 KV_SOURCE = "/subscriptions/s1/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/kv1/secrets/app"
 
 
@@ -67,10 +68,12 @@ class KeyVault:
     def __init__(self, versions=()):
         self.versions = [dict(v) for v in versions]   # {"v", "value", "contentType", "pwd", "enabled"}
         self.gw_tags = {"env": "prod"}
-        self.afd_secrets = {f"{PROFILE}/secrets/old": {"properties": {"provisioningState": "Succeeded", "parameters": {
-            "type": "CustomerCertificate", "secretSource": {"id": KV_SOURCE}, "useLatestVersion": False}}}}
-        self.domain_tls = {"certificateType": "CustomerCertificate", "minimumTlsVersion": "TLS12",
-                           "secret": {"id": f"{PROFILE}/secrets/old"}}
+        self.afd_secrets = {f"{p}/secrets/old": {"properties": {"provisioningState": "Succeeded", "parameters": {
+            "type": "CustomerCertificate", "secretSource": {"id": KV_SOURCE}, "useLatestVersion": False}}}
+            for p in (PROFILE, PROFILE + "2")}
+        self.domains = {d: {"certificateType": "CustomerCertificate", "minimumTlsVersion": "TLS12",
+                            "secret": {"id": f"{d.split('/customDomains/')[0]}/secrets/old"}} for d in (DOMAIN, DOMAIN2)}
+        self.failing = set()    # profiles whose new Front Door secrets end Failed
 
     def __call__(self, req, body):
         path, host = req.url.path, req.url.host
@@ -97,17 +100,18 @@ class KeyVault:
                 if req.method == "PATCH":
                     self.gw_tags = body["tags"]
                 return httpx.Response(200, json={"tags": self.gw_tags})
-            if path == DOMAIN:
+            if path in self.domains:
                 if req.method == "PATCH":
-                    self.domain_tls = body["properties"]["tlsSettings"]
-                return httpx.Response(200, json={"properties": {"tlsSettings": self.domain_tls}})
-            if path.startswith(f"{PROFILE}/secrets/"):
+                    self.domains[path] = body["properties"]["tlsSettings"]
+                return httpx.Response(200, json={"properties": {"tlsSettings": self.domains[path]}})
+            if "/Microsoft.Cdn/profiles/" in path and "/secrets/" in path:
                 if req.method == "PUT":
                     self.afd_secrets[path] = {"properties": {**body["properties"], "provisioningState": "Creating"}}
                     return httpx.Response(201, json=self.afd_secrets[path])
                 s = self.afd_secrets[path]
                 out = json.loads(json.dumps(s))
-                s["properties"]["provisioningState"] = "Succeeded"   # the next poll sees it finished
+                done = "Failed" if path.split("/secrets/")[0] in self.failing else "Succeeded"
+                s["properties"]["provisioningState"] = done   # the next poll sees it finished
                 return httpx.Response(200, json=out)
         return httpx.Response(404, json={"error": {"code": "NotFound", "message": f"{req.method} {path}"}})
 
@@ -178,11 +182,43 @@ def test_keyvault_front_door_pins_new_version_and_switches_back(tmp_path, fake):
     p = kv.afd_secrets[pinned]["properties"]["parameters"]
     assert p == {"type": "CustomerCertificate", "secretSource": {"id": KV_SOURCE}, "secretVersion": v,
                  "useLatestVersion": False}
-    assert kv.domain_tls == {"certificateType": "CustomerCertificate", "minimumTlsVersion": "TLS12",
+    assert kv.domains[DOMAIN] == {"certificateType": "CustomerCertificate", "minimumTlsVersion": "TLS12",
                              "secret": {"id": pinned}}
     assert token["front_door"] == {DOMAIN: f"{PROFILE}/secrets/old"}
     c.rollback(token)
-    assert kv.domain_tls["secret"]["id"] == f"{PROFILE}/secrets/old"
+    assert kv.domains[DOMAIN]["secret"]["id"] == f"{PROFILE}/secrets/old"
+
+
+def test_keyvault_failed_deploy_undoes_switched_domains_and_restores_version(tmp_path, fake):
+    route, _ = fake
+    rsa_bundle = _bundle(LocalCA(tmp_path), "rsa2048")
+    old = _pfx_with_key(rsa_bundle)
+    kv = KeyVault([{"v": "a" * 32, "value": old, "contentType": "application/x-pkcs12", "enabled": True}])
+    kv.failing.add(PROFILE + "2")
+    route(kv)
+    c = _kv(tmp_path, refresh={"front_door": [DOMAIN, DOMAIN2], "application_gateway": GW})
+    with pytest.raises(DeployError) as e:
+        c.deploy(rsa_bundle)
+    msg = str(e.value)
+    assert "is Failed, not Succeeded" in msg and "undone" in msg
+    assert f"switched Front Door domain {DOMAIN} back" in msg and f"re-imported previous version {'a' * 32}" in msg
+    assert kv.domains[DOMAIN]["secret"]["id"] == f"{PROFILE}/secrets/old"         # domain 1 switched back
+    assert kv.domains[DOMAIN2]["secret"]["id"] == f"{PROFILE}2/secrets/old"       # domain 2 never moved
+    assert kv.versions[-1]["value"] == old and len(kv.versions) == 3             # previous material is current
+
+
+def test_keyvault_failed_deploy_says_when_previous_version_cannot_return(tmp_path, fake):
+    route, _ = fake
+    kv = KeyVault([{"v": "a" * 32, "value": "no key here", "contentType": "application/x-pem-file"}])
+    kv.failing.add(PROFILE)
+    route(kv)
+    c = _kv(tmp_path, refresh={"front_door": DOMAIN})
+    with pytest.raises(DeployError) as e:
+        c.deploy(_bundle(LocalCA(tmp_path), "rsa2048"))
+    new = kv.versions[-1]["v"]
+    assert "is Failed, not Succeeded; undoing it failed" in str(e.value)
+    assert "non-exportable key" in str(e.value) and f"version {new} stays current" in str(e.value)
+    assert len(kv.versions) == 2
 
 
 def test_keyvault_front_door_refuses_ec_and_foreign_certificates(tmp_path, bundle, fake):

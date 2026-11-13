@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { inflateRawSync } from "node:zlib";
 import { signXml } from "@node-saml/node-saml/lib/xml.js";
 import { claimValues, mapRole } from "./roles.ts";
-import { authnRequestUrl, parseIdpMetadata, spMetadata, validateResponse } from "./saml.ts";
+import { authnRequestUrl, parseIdpMetadata, spMetadata, spProblem, validateResponse } from "./saml.ts";
 
 // ---- a minimal X.509 v3 certificate in DER (node:crypto reads certificates but cannot make them)
 const len = (n) => {
@@ -81,7 +81,7 @@ function response(requestId, opts = {}) {
   let assertion = assertionXml(o);
   if (o.sign === "assertion") assertion = signAssertion(assertion, o.key);
   let xml = `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"` +
-    ` ID="${uid("r")}" Version="2.0" IssueInstant="${iso(0)}" Destination="${o.destination}"` +
+    ` ID="${uid("r")}" Version="2.0" IssueInstant="${iso(0)}"${o.destination === null ? "" : ` Destination="${o.destination}"`}` +
     `${o.inResponseTo ? ` InResponseTo="${o.inResponseTo}"` : ""}><saml:Issuer>${o.issuer}</saml:Issuer>` +
     `<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>${assertion}</samlp:Response>`;
   if (o.sign === "response") xml = signResponse(xml, o.key);
@@ -142,6 +142,25 @@ test("SAML: wrong audience, issuer, recipient or destination is refused", async 
     const id = uid("q");
     await rejects(validateResponse(idp, SP, pending(id), response(id, opts)), pattern, JSON.stringify(opts));
   }
+});
+
+test("SAML: Destination is optional only on an unsigned Response carrying a signed assertion", async () => {
+  const id = uid("q");
+  const user = await validateResponse(idp, SP, pending(id), response(id, { destination: null }));
+  assert.equal(user.nameId, "jane@example.com");
+  const id2 = uid("q");
+  await rejects(validateResponse(idp, SP, pending(id2), response(id2, { destination: null, sign: "response" })), /signed Response must carry a Destination/);
+  const id3 = uid("q"); // Recipient stays mandatory
+  await rejects(validateResponse(idp, SP, pending(id3), response(id3, { destination: null, recipient: "https://evil.example.com/acs" })), /Recipient/);
+  const id4 = uid("q"); // present but wrong is refused on a signed Response too
+  await rejects(validateResponse(idp, SP, pending(id4), response(id4, { destination: "https://evil.example.com/acs", sign: "response" })), /Destination/);
+});
+
+test("SAML: the ACS URL must be https, or http on localhost (the SameSite=None request cookie needs Secure)", () => {
+  assert.equal(spProblem(SP), null);
+  for (const origin of ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"])
+    assert.equal(spProblem({ ...SP, acsUrl: `${origin}/auth/saml/acs` }), null, origin);
+  assert.match(spProblem({ ...SP, acsUrl: "http://farrier.internal:3000/auth/saml/acs" }), /NEXT_PUBLIC_SITE_URL/);
 });
 
 test("SAML: expired or not-yet-valid assertions are refused (60 s skew)", async () => {

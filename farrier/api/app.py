@@ -543,7 +543,6 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                  "doc": (sys.modules[c.__module__].__doc__ or "").strip()} for k, c in REGISTRY.items()]
 
     # ---- observability ------------------------------------------------------------------------
-    audit_cache = {"at": -1e9, "ok": 1}
 
     @app.get("/metrics", dependencies=[Depends(auth)], include_in_schema=False)
     def metrics(request: Request):
@@ -589,11 +588,16 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                 for r in rows if r["state"] in OPEN_STATES])
         from farrier.core.reasons import FAILED_STATES, code
         issuer_of = {e["id"]: e["issuer"] or "default" for e in eps}
-        failures = Counter((code(r["state"], r["error"]) or "UNKNOWN", issuer_of.get(r["endpoint_id"], "default"))
-                           for r in rows if r["state"] in FAILED_STATES)
-        metric("farrier_renewal_failures_total", "counter",
-               "Renewals that ended failed or rolled back, by reason code and issuer (from the database).",
-               [(lbl(reason=c, issuer=i), n) for (c, i), n in sorted(failures.items())])
+        latest: dict[int, dict] = {}
+        for r in rows:   # each endpoint's most recent finished renewal: a retry waiting out its backoff still fails
+            if r["state"] not in OPEN_STATES and (r["endpoint_id"] not in latest
+                                                  or r["id"] > latest[r["endpoint_id"]]["id"]):
+                latest[r["endpoint_id"]] = r
+        failing = Counter((code(r["state"], r["error"]) or "UNKNOWN", issuer_of.get(r["endpoint_id"], "default"))
+                          for r in latest.values() if r["state"] in FAILED_STATES)
+        metric("farrier_endpoints_failing", "gauge",
+               "Endpoints whose latest finished renewal failed or rolled back, by reason code and issuer; clears "
+               "when a retry succeeds.", [(lbl(reason=c, issuer=i), n) for (c, i), n in sorted(failing.items())])
         planned = {r["id"] for r in rows if r["state"] == "planned"}
         waiting = Counter(bool(a.get("overdue")) for rid, a in engine.approvals.pending().items() if rid in planned)
         metric("farrier_approvals_pending", "gauge", "Renewals waiting at an approval gate (overdue: past the deadline).",
@@ -604,11 +608,10 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
                    [(lbl(group=g["group"]), int(g["online"])) for g in groups])
             metric("farrier_runner_group_pending_jobs", "gauge", "Runner jobs queued or leased, per group.",
                    [(lbl(group=g["group"]), g["pending_jobs"]) for g in groups])
-            if time.monotonic() - audit_cache["at"] > 300:   # verifying rehashes the whole log: at most every 5 min
-                from farrier.monitoring.audit import verify
-                audit_cache.update(at=time.monotonic(), ok=int(verify(S)["ok"]))
-            metric("farrier_audit_log_intact", "gauge", "1 when the activity log's hash chain verifies (checked every "
-                   "5 minutes).", [("", audit_cache["ok"])])
+            from farrier.monitoring.audit import last_status
+            if (st := last_status(S)) is not None:   # verified by the leader, at most hourly; scrapes only read it
+                metric("farrier_audit_log_intact", "gauge", "1 when the activity log's hash chain verified at the "
+                       "leader's last hourly check.", [("", int(st["ok"]))])
         from farrier.monitoring.health import last_reports
         names = {e["id"]: e["name"] for e in eps}
         metric("farrier_health_check_failed", "gauge",

@@ -905,8 +905,9 @@ class Engine:
         except Exception as e:  # noqa: BLE001
             self.store.log(f"revocations failed: {type(e).__name__}: {e}"[:500], level="error")
         try:
-            from farrier.monitoring.audit import seal
+            from farrier.monitoring.audit import check_hourly, seal
             seal(self.store)                    # tamper evidence for everything logged so far
+            check_hourly(self.store, now_iso())  # full re-verification, at most hourly, for /metrics
         except Exception as e:  # noqa: BLE001
             self.store.log(f"sealing the audit log failed: {type(e).__name__}: {e}"[:500], level="error")
         return out

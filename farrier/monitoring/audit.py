@@ -58,6 +58,31 @@ def verify(store) -> dict:
             "first_bad_id": bad}
 
 
+STATUS = ("audit_status", "chain")   # config_items: the leader's last full verification
+
+
+def check_hourly(store, now_iso: str) -> dict | None:
+    """Leader tick: a full verify at most once an hour (it rehashes the whole log), stored for every replica."""
+    st = last_status(store)
+    if st and st["at"] > _hour_ago(now_iso):
+        return None
+    res = verify(store) | {"at": now_iso}
+    with store.transaction():
+        store.x("DELETE FROM config_items WHERE kind=? AND name=?", STATUS)
+        store.x("INSERT INTO config_items(kind, name, body, updated_at) VALUES (?,?,?,?)",
+                (*STATUS, json.dumps(res), now_iso))
+    return res
+
+
+def last_status(store) -> dict | None:
+    row = store.q1("SELECT body FROM config_items WHERE kind=? AND name=?", STATUS)
+    return json.loads(row["body"]) if row else None
+
+
+def _hour_ago(now_iso: str) -> str:
+    return (parse_dt(now_iso) - timedelta(hours=1)).isoformat(timespec="seconds")
+
+
 def _key(store) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=PURPOSE).derive(master_key(store.data_dir))
 

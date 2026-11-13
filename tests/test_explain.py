@@ -167,8 +167,8 @@ def test_renewals_carry_reason_codes_and_metrics(engine, served):
     assert pending["reason_code"] == "APPROVAL_PENDING" and pending["approval"]["mode"] == "manual"
 
     text = c.get("/metrics").text
-    assert "# TYPE farrier_renewal_failures_total counter" in text
-    assert 'farrier_renewal_failures_total{reason="DEPLOY_FAILED",issuer="default"} 1' in text
+    assert "# TYPE farrier_endpoints_failing gauge" in text
+    assert 'farrier_endpoints_failing{reason="DEPLOY_FAILED",issuer="default"} 1' in text
     line = next(x for x in text.splitlines() if x.startswith("farrier_renewal_planned_timestamp_seconds{"))
     assert 'endpoint="app1",state="planned"' in line and int(line.split()[-1]) > 0
     assert 'farrier_approvals_pending{overdue="false"} 1' in text
@@ -180,3 +180,13 @@ def test_renewals_carry_reason_codes_and_metrics(engine, served):
         if line and not line.startswith("#"):
             float(line.rsplit(" ", 1)[1])
     json.dumps(c.get(f"/api/endpoints/{eid}/explain").json())   # serialisable
+
+
+def test_reason_codes_follow_the_source_of_the_error():
+    from farrier.core.reasons import code
+    assert code("failed", "issuance failed 3x: ACME 400: rejectedIdentifier: 'x' is not a valid DNS name") == "ISSUE_CA_ERROR"
+    assert code("failed", "issuance failed 5x: cf-prod: zone example.com not found in this account") == "ISSUE_DNS"
+    assert code("failed", "issuance failed 5x: ACME 400: {'type': 'urn:ietf:params:acme:error:dns'}") == "ISSUE_DNS"
+    assert code("planned", "issuance: ACME 400: certificate chain: refused") == "ISSUE_CA_ERROR"   # not VERIFY_CHAIN
+    assert code("verifying", "verify: chain: incomplete") == "VERIFY_CHAIN"
+    assert code("verifying", "verify: endpoint serving abcd") == "VERIFY_MISMATCH"

@@ -133,9 +133,9 @@ class AzureKeyVaultConnector(Connector):
         self._arm("PATCH", domain, CDN_API, "switch Front Door domain certificate",
                   json={"properties": {"tlsSettings": {**tls, "secret": {"id": secret_id}}}})
 
-    def _pin_front_door(self, version: str) -> dict:
-        """{custom domain id: the Front Door secret it used before}, after switching each to the new version."""
-        before = {}
+    def _pin_front_door(self, version: str, before: dict) -> None:
+        """Switch each domain to the new version, recording {custom domain id: the secret it used before} in
+        `before` as it goes, so a failure part-way still leaves what to switch back."""
         for domain in _ids(self.refresh.get("front_door")):
             tls = self._arm("GET", domain, CDN_API, "get Front Door domain")["properties"].get("tlsSettings") or {}
             old = (tls.get("secret") or {}).get("id")
@@ -160,7 +160,6 @@ class AzureKeyVaultConnector(Connector):
                 raise DeployError(f"Front Door secret {new} is {state}, not Succeeded")
             self._switch_domain(domain, new)
             before[domain] = old
-        return before
 
     # ---- contract --------------------------------------------------------------------------------
     def deploy(self, b: Bundle) -> dict:
@@ -172,8 +171,20 @@ class AzureKeyVaultConnector(Connector):
         # 3DES PFX: the format every Key Vault and gateway parser reads; the password travels in the same request
         pfx = build_pkcs12(b, b.object_name, pwd, legacy=True)
         version = self._import(base64.b64encode(pfx).decode(), PKCS12, pwd)
-        self._refresh_gateways()
-        return {"version": version, "previous": previous, "front_door": self._pin_front_door(version)}
+        token = {"version": version, "previous": previous, "front_door": {}}
+        try:
+            self._refresh_gateways()
+            self._pin_front_door(version, token["front_door"])
+        except DeployError as e:
+            # the engine gets no token from a failed deploy, so undo the import and any switched domains here
+            try:
+                self.rollback(token)
+            except DeployError as r:
+                raise DeployError(f"{e}; undoing it failed: {r}") from None
+            done = [f"switched Front Door domain {d} back to {s}" for d, s in token["front_door"].items()]
+            done.append(f"re-imported previous version {previous}" if previous else f"disabled version {version}")
+            raise DeployError(f"{e}; undone: {', '.join(done)}") from None
+        return token
 
     def rollback(self, token: dict) -> None:
         for domain, secret_id in (token.get("front_door") or {}).items():
@@ -191,6 +202,7 @@ class AzureKeyVaultConnector(Connector):
             value, content_type = s.get("value") or "", s.get("contentType") or PKCS12
             if not _has_key(value, content_type):
                 raise DeployError(f"previous version {prev} of {self.name} has a non-exportable key, so Key Vault "
-                                  "cannot return it and it cannot be imported again; roll back by hand")
+                                  f"cannot return it and it cannot be imported again; Farrier's version {current} "
+                                  "stays current; roll back by hand")
             self._import(value, content_type)
         self._refresh_gateways()

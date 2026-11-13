@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import json
 import re
+import threading
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -125,6 +126,20 @@ def contacts(payload: dict) -> list[str]:
 def mount(app, engine, lock, whole_install, actor) -> None:
     acme = AcmeServer(engine)
     S = engine.store
+    # ACME issuance never waits behind a renewal cycle (engine ``lock``): each issuer gets its own copy (separate
+    # nonce and account state, the HTTP client is shared and thread-safe) and its own lock
+    own: dict[str, tuple] = {}
+    own_guard = threading.Lock()
+
+    def issuer_for(name: str):
+        """(this server's copy of the engine's issuer ``name``, its lock), or (None, None)."""
+        live = engine.issuers.get(name)
+        with own_guard:
+            if live is None:
+                return None, None
+            if name not in own or own[name][2] is not live:   # rebuilt after a configuration change
+                own[name] = (copy.copy(live), threading.Lock(), live)
+            return own[name][0], own[name][1]
 
     @app.exception_handler(Problem)
     async def problem(request: Request, e: Problem):
@@ -286,8 +301,9 @@ def mount(app, engine, lock, whole_install, actor) -> None:
             eprot = json.loads(b64u_decode(eab["protected"]))
             row = acme.eab(eprot["kid"]) if isinstance(eprot.get("kid"), str) else None
             alg = EAB_ALGS.get(eprot.get("alg"))
+            # the same key, by RFC 7638 thumbprint: clients may add members such as "alg" or "use" to the JWK
             if (not row or row["profile"] != profile or not alg or "nonce" in eprot or eprot.get("url") != f"{base}/new-account"
-                    or json.loads(b64u_decode(eab["payload"])) != jwk):
+                    or thumbprint(json.loads(b64u_decode(eab["payload"]))) != thumbprint(jwk)):
                 raise refused
             mac = hmac.new(b64u_decode(row["hmac"]), f"{eab['protected']}.{eab['payload']}".encode(), alg).digest()
             if not hmac.compare_digest(mac, b64u_decode(eab["signature"])):
@@ -389,17 +405,21 @@ def mount(app, engine, lock, whole_install, actor) -> None:
                                          f"{', '.join(sorted(order['identifiers']))}")
         pub = csr.public_key()
         kt = key_type(pub)
-        rules = issuance_policy.rules_for(engine.settings.get("policy"), p.get("project")) or {}
-        if kt is None or kt not in rules.get("key_types", KEY_TYPES):
-            raise Problem(400, "badCSR", f"key type not allowed (allowed: {', '.join(rules.get('key_types', KEY_TYPES))})")
+        if kt is None or kt not in KEY_TYPES:
+            raise Problem(400, "badCSR", f"key type not supported (supported: {', '.join(KEY_TYPES)})")
         if spki(pub) == spki(account_key):
             raise Problem(400, "badCSR", "the certificate key must not be the account key")
         if bad := acme.unauthorized_names(profile, account, order["identifiers"]):  # policy may have changed
             raise Problem(400, "rejectedIdentifier", f"no longer allowed by policy: {', '.join(bad)}")
         issuer_name = p["issuer"]
-        issuer = engine.issuers.get(issuer_name)
-        if issuer is None or ("allowed_issuers" in rules and issuer_name not in rules["allowed_issuers"]):
-            S.log(f"acme {profile}: issuer {issuer_name!r} is not configured or not allowed by policy", level="error")
+        # the engine's own policy check, so renewals and ACME issuance can never drift apart
+        rules = issuance_policy.rules_for(engine.settings.get("policy"), p.get("project"))
+        if refused := issuance_policy.violations(rules, sorted(order["identifiers"]), issuer_name, kt):
+            raise Problem(400, "badCSR" if any(v.startswith("key type") for v in refused) else "rejectedIdentifier",
+                          "not allowed by policy: " + "; ".join(refused))
+        issuer, issuer_lock = issuer_for(issuer_name)
+        if issuer is None:
+            S.log(f"acme {profile}: issuer {issuer_name!r} is not configured", level="error")
             raise Problem(500, "serverInternal", "this profile's issuer is unavailable")
         if p.get("lifetime_days"):
             if not hasattr(issuer, "lifetime_days"):
@@ -411,7 +431,7 @@ def mount(app, engine, lock, whole_install, actor) -> None:
             raise Problem(403, "orderNotReady", "the order is already being finalized")
         csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode()
         try:
-            with lock:   # issuers keep state (an upstream ACME account's nonce): one issuance at a time, like ticks
+            with issuer_lock:   # one issuance at a time per issuer copy; renewal cycles use the engine's own
                 cert_pem, chain_pem = issuer.issue(csr_pem, order["identifiers"])
             info = parse_pem(cert_pem)
         except Exception as e:  # noqa: BLE001
@@ -450,11 +470,11 @@ def mount(app, engine, lock, whole_install, actor) -> None:
         reason = {v: k for k, v in REASONS.items()}.get(code) if type(code) is int else None
         if reason is None:
             raise Problem(400, "badRevocationReason", f"reason: one of {sorted(REASONS.values())}")
-        issuer = engine.issuers.get(order["issuer"])
+        issuer, issuer_lock = issuer_for(order["issuer"])
         if not callable(getattr(issuer, "revoke", None)):
             raise Problem(403, "unauthorized", f"issuer {order['issuer']} cannot revoke certificates "
                                                "(a local CA publishes no revocation); ask a Farrier admin")
-        with lock:
+        with issuer_lock:
             issuer.revoke(order["cert_pem"], reason)
         S.x("UPDATE acme_orders SET revoked_at=? WHERE id=?", (now_iso(), order["id"]))
         who = f"account {account['id']}" if "kid" in prot else "the certificate's key"

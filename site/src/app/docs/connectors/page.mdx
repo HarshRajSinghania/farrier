@@ -307,6 +307,8 @@ through its secret and imports it again as the newest version, then refreshes th
 version's key is not exportable, Key Vault cannot hand it back: rollback refuses and says so. If a newer version
 than Farrier's has appeared, rollback refuses rather than overwrite it. Front Door domains switch back to the
 secret they used before. If the certificate did not exist before, rollback disables the version Farrier imported.
+If a gateway refresh or a Front Door switch fails during deploy, Farrier runs this same rollback before reporting
+the failure, and the error says what failed and what was undone (or that the new version stays current).
 Pinned Front Door secrets (`farrier-<certificate>-<version>`) stay in the profile; delete old ones when no domain
 uses them.
 

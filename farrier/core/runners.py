@@ -94,6 +94,19 @@ class Runners:
             g["endpoints"] = per_group.get(g["group"], 0)
         return sorted(out.values(), key=lambda g: g["group"])
 
+    def group_status(self, group: str) -> dict | None:
+        """One group's token, liveness and pending jobs (groups() without reading the whole inventory)."""
+        row = self.store.q1("SELECT body FROM config_items WHERE kind=? AND name=?", (KIND, group))
+        if not row:
+            return None
+        b = json.loads(row["body"])
+        pending = self.store.q1("SELECT COUNT(*) AS n FROM runner_jobs WHERE runner_group=? AND status IN "
+                                "('queued', 'leased')", (group,))["n"]
+        recent = (policy.utcnow() - ONLINE).isoformat(timespec="seconds")
+        return {"group": group, "token": True, "created_at": b["created_at"], "last_seen": b.get("last_seen"),
+                "version": b.get("version"), "pending_jobs": pending,
+                "online": bool(b.get("last_seen") and b["last_seen"] >= recent)}
+
     def seen(self, group: str, version: str | None) -> None:
         row = self.store.q1("SELECT body FROM config_items WHERE kind=? AND name=?", (KIND, group))
         if row:

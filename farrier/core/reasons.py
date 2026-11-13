@@ -3,7 +3,7 @@
 Codes are derived in one place, here, from what the engine already records: the renewal's state, its
 error text and its approval record. Nothing extra is stored, so rows written by older versions get a
 code too. The API (GET /api/renewals, /api/endpoints/{id}/explain), the CLI (farrier explain), the
-dashboard and /metrics (farrier_renewal_failures_total) all read this mapping.
+dashboard and /metrics (farrier_endpoints_failing) all read this mapping.
 """
 from __future__ import annotations
 
@@ -63,21 +63,26 @@ def code(state: str | None, error: str | None, approval: dict | None = None) -> 
         return "DEPLOY_RUNNER_OFFLINE"
     if e.startswith("deploy failed"):
         return "DEPLOY_FAILED"
-    if "chain:" in e or "hostname:" in e:
-        return "VERIFY_CHAIN"
-    if e.startswith("verify:") or "never went live" in e:
-        return "VERIFY_MISMATCH"
-    if e.startswith("a different cert"):
-        return "SUPERSEDED"
-    if state in ("planned", *FAILED_STATES) and (e.startswith("issuance") or state == "planned"):
+    # where the error came from decides first; its wording only refines it (a CA's message can say anything)
+    if e.startswith("issuance") or (state == "planned" and not e.startswith(("verify:", "a different cert"))):
         if "not prevalidated" in e:
             return "NOT_PREVALIDATED"
         if any(s in e for s in ("ratelimited", "rate limit", "too many", "acme 429")):
             return "ISSUE_RATE_LIMITED"
-        if any(s in e for s in ("dns", "txt record", "nxdomain", "servfail", "zone")):
+        if any(s in e for s in DNS_MARKERS):
             return "ISSUE_DNS"
         return "ISSUE_CA_ERROR"
+    if e.startswith("verify:") or "never went live" in e:
+        return "VERIFY_CHAIN" if any(s in e for s in ("chain:", "hostname:")) else "VERIFY_MISMATCH"
+    if e.startswith("a different cert"):
+        return "SUPERSEDED"
     return "UNKNOWN"
+
+
+# What Farrier's DNS-01 code and an ACME CA's own DNS problems say ("acme:error:dns"); deliberately not a bare
+# "dns", which a CA's rejection of a name ("not a valid DNS name") would also contain.
+DNS_MARKERS = (":error:dns", "dns account", "_acme-challenge", "txt record", "propagat", "dns resolver",
+               "dns zone", "not inside zone", "no zone in this account", "zone ", "nxdomain", "servfail")
 
 
 def annotate(row: dict, approval: dict | None = None) -> dict:

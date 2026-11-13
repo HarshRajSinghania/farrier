@@ -123,7 +123,7 @@ A response signs someone in only if all of these hold:
 - An XML signature on the Response or the Assertion verifies against the configured IdP certificate. Unsigned assertions are refused, and certificates embedded in the message are ignored.
 - The response carries exactly one assertion, and the assertion read is the one that was signed. This defeats signature-wrapping attacks.
 - `InResponseTo` names the AuthnRequest this browser started. Its ID is kept in a short-lived encrypted cookie, so this works across replicas. Unsolicited (IdP-initiated) responses are refused.
-- The `Issuer` matches the IdP, the `Audience` is Farrier's entity ID, and the Response's `Destination` and the bearer confirmation's `Recipient` are the ACS URL.
+- The `Issuer` matches the IdP, the `Audience` is Farrier's entity ID, the bearer confirmation's `Recipient` is the ACS URL, and so is the Response's `Destination` when present. `Destination` may be left out only when the Response is unsigned and the assertion is signed.
 - `NotBefore` and `NotOnOrAfter` hold, with 60 seconds of allowed clock skew.
 - The assertion ID hasn't been used before while it is still valid (replay).
 
@@ -134,7 +134,7 @@ XML parsing and signature checks use [`@node-saml/node-saml`](https://github.com
 - **No Single Logout.** Signing out ends the Farrier session only. The IdP session stays open, so the next sign-in may not prompt.
 - **No IdP-initiated sign-on.** For an Okta or Entra app tile, point the tile at `https://farrier.example.com/auth/login`, which starts an SP-initiated sign-in.
 - **No encrypted assertions, and AuthnRequests are unsigned.** The HTTP-Redirect request carries nothing secret.
-- **HTTPS only.** The request cookie must return on the IdP's cross-site POST, so it is `SameSite=None; Secure`. Browsers accept that on `http://localhost` for development.
+- **HTTPS only.** The request cookie must return on the IdP's cross-site POST, so it is `SameSite=None; Secure`. Farrier refuses to start a SAML sign-in (error `misconfigured`, with the reason in the log) unless `NEXT_PUBLIC_SITE_URL`, or in development the URL you browse to, is `https://`. The exception is `http://localhost` or `http://127.0.0.1` for development, where Chrome and Firefox accept `Secure` cookies; Safari may not.
 - **Replay memory is per replica.** Within an assertion's validity window, a captured response together with that browser's request cookie could be replayed once on each other replica.
 
 ## Why there is no SCIM

@@ -11,7 +11,8 @@
  *     check works across replicas) and IdP-initiated responses are refused
  *   - Issuer is the IdP's entity id (when known), Audience is ours, NotBefore/NotOnOrAfter hold
  *     with 60 seconds of clock skew
- *   - the Response's Destination and a bearer SubjectConfirmation's Recipient are our ACS URL
+ *   - the Response's Destination, when present, is our ACS URL (it must be present on a signed Response)
+ *     and a bearer SubjectConfirmation's Recipient is our ACS URL
  *   - the assertion ID was not accepted before while it is still valid (replay; per instance)
  *
  * Imports only the library, so it runs under `node --test` (auth.test.mjs builds an IdP there).
@@ -122,10 +123,17 @@ export async function validateResponse(idp: Idp, sp: Sp, request: PendingRequest
   const { profile } = await client(idp, sp, request).validatePostResponseAsync({ SAMLResponse: samlResponse });
   if (!profile?.nameID) throw new SamlError("the response carries no signed assertion with a NameID");
 
+  // Destination is optional (SAML core 3.2.2) but must be present on a signed Response (profiles 4.1.4.5).
   // Rejecting on an unsigned Destination is safe: it can only refuse, never admit.
   const response = await parseDomFromString(Buffer.from(samlResponse, "base64").toString("utf8"));
-  const destination = response.documentElement.getAttribute("Destination");
-  if (destination !== sp.acsUrl) throw new SamlError(`Response Destination "${destination ?? ""}" is not ${sp.acsUrl}`);
+  const root = response.documentElement;
+  if (root.hasAttribute("Destination")) {
+    const destination = root.getAttribute("Destination");
+    if (destination !== sp.acsUrl) throw new SamlError(`Response Destination "${destination}" is not ${sp.acsUrl}`);
+  } else if (xpath.selectElements(root, "./*[local-name()='Signature']").length) {
+    throw new SamlError("a signed Response must carry a Destination");
+  }
+  // (with no Response signature the library has verified the Assertion's, so absent is fine here)
 
   // Recipient comes from the verified assertion only.
   const signedXml = profile.getAssertionXml?.();
@@ -157,6 +165,17 @@ const secureUrl = (v: string) => {
   const u = new URL(v);
   return u.protocol === "https:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
 };
+
+/**
+ * Why this SP cannot do SAML sign-in, or null. The request cookie must come back on the IdP's cross-site
+ * POST, so it is SameSite=None, which browsers accept only with Secure: hence https, or http on localhost
+ * (where Chrome and Firefox accept Secure cookies; Safari may not, so develop in those).
+ */
+export function spProblem(sp: Sp): string | null {
+  return secureUrl(sp.acsUrl)
+    ? null
+    : `the ACS URL ${sp.acsUrl} is not https: set NEXT_PUBLIC_SITE_URL to the dashboard's https:// URL (plain http works only on localhost)`;
+}
 
 /** SSO URL (HTTP-Redirect), signing certificates and entity id from an IdP metadata document. */
 export async function parseIdpMetadata(xml: string): Promise<Partial<Idp>> {
