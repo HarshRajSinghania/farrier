@@ -172,6 +172,8 @@ export const api = {
   deleteEndpoint: (id: number) => act<{ ok: true }>(`/endpoints/${id}`, { method: "DELETE" }),
   advance: (id: number) => act<{ state: string }>(`/renewals/${id}/advance`, { method: "POST" }),
   cancel: (id: number) => act<{ state: string }>(`/renewals/${id}/cancel`, { method: "POST" }),
+  approveRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/approve`, { method: "POST" }),
+  rejectRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/reject`, { method: "POST" }),
   tick: () => act<{ planned: number; states: Record<string, number> }>("/tick", { method: "POST" }),
   // new endpoints, hosts and assets land in the picked project (the engine picks your only one otherwise)
   discover: (targets: string) =>

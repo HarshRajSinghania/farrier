@@ -29,7 +29,7 @@ from types import SimpleNamespace
 
 from farrier.config.integrations import ConfigItems
 from farrier.connectors import Bundle, is_automated, make_connector
-from farrier.core import issuance_policy, policy
+from farrier.core import approvals, issuance_policy, policy
 from farrier.core.discovery import fetch_cert
 from farrier.core.runners import Runners, runner_of
 from farrier.core.scheduler import level, next_window_start
@@ -88,6 +88,7 @@ class Engine:
         file_settings = json.loads(sp.read_text()) if sp.exists() else {}
         self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
         issuance_policy.validate(self.settings.get("policy"))
+        approvals.validate(self.settings.get("approvals"))
         from farrier.monitoring.cloud_inventory import validate as validate_cloud_inventory
         validate_cloud_inventory(self.settings.get("cloud_inventory"))
         # issuers passed in (tests, embedding) are kept; dashboard-configured ones are added around them
@@ -102,6 +103,7 @@ class Engine:
         self._config_version = self.items.version()
         self.notifier = self._build_notifier()
         self.alerts = Alerts(self)
+        self.approvals = approvals.Approvals(self)
         self.itsm = Itsm(self)                  # ServiceNow / Jira ticket lifecycle, Datadog / Splunk telemetry
         self._lease = None                    # leader lease, opened on the first tick
         self._tick_lock = threading.Lock()      # held for the duration of a tick
@@ -537,6 +539,13 @@ class Engine:
             if bad := issuance_policy.violations(issuance_policy.rules_for(self.settings.get("policy"), ep.get("project")),
                                                  names, issuer_name, ep["key_type"]):
                 return self._fail(r, ep, "policy: " + "; ".join(bad))
+            if not self.approvals.gate(r, ep, now):
+                return   # waiting for a person or a change approval; nothing issued yet
+            if self.approvals.get(r["id"]) and (nxt := next_window_start(ep["window"], now)) > now                     and (not r["deadline"] or nxt <= parse_dt(r["deadline"])):
+                # approved after its window closed: the next window, unless that would miss the deadline
+                if self.store.update_renewal(r["id"], expect_state="planned", scheduled_for=nxt.isoformat(timespec="seconds")):
+                    self.store.log(f"approved; moved to the next change window, {nxt:%Y-%m-%d %H:%M} UTC", ep["id"], r["id"])
+                return
             key = generate_key(ep["key_type"])
             csr = build_csr(key, cn, names)
             # per-endpoint DNS account (dns.json) overrides the issuer's zone matching

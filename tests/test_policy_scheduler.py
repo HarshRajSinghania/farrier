@@ -66,3 +66,24 @@ def test_expand_targets_rejects_garbage():
         with pytest.raises(ValueError):
             expand_targets(bad)
     assert expand_targets("svc_1.corp.internal.") == [("svc_1.corp.internal.", 443, None)]
+
+
+def test_time_zone_windows_follow_daylight_saving():
+    from datetime import UTC, datetime
+
+    import pytest
+
+    from farrier.core.scheduler import check, next_window_start
+    w = {"days": ["sun"], "start": "02:00", "hours": 4, "tz": "Europe/Berlin"}
+    winter = next_window_start(w, datetime(2027, 1, 6, 12, tzinfo=UTC))      # a Wednesday
+    summer = next_window_start(w, datetime(2027, 7, 7, 12, tzinfo=UTC))
+    assert winter == datetime(2027, 1, 10, 1, tzinfo=UTC)                    # 02:00 CET = 01:00 UTC
+    assert summer == datetime(2027, 7, 11, 0, tzinfo=UTC)                    # 02:00 CEST = 00:00 UTC
+    inside = datetime(2027, 7, 11, 1, tzinfo=UTC)                            # 03:00 Berlin: in the window
+    assert next_window_start(w, inside) == inside
+    assert next_window_start({"days": ["sun"], "start": "02:00", "hours": 4}, datetime(2027, 7, 7, 12, tzinfo=UTC)) \
+        == datetime(2027, 7, 11, 2, tzinfo=UTC)                              # no tz: UTC as before
+    with pytest.raises(ValueError, match="IANA"):
+        check({"tz": "Mars/Olympus"})
+    with pytest.raises(ValueError, match="days"):
+        check({"days": ["funday"]})

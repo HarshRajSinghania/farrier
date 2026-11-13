@@ -43,6 +43,10 @@ a tag that doesn't match both versions and this file.
 - Cloud certificate inventory: **Certificates → Cloud**, `farrier cloud-certs` and
   `GET /api/cloud/certificates` list certificates in AWS ACM, Azure Key Vault and Google Certificate
   Manager (settings `cloud_inventory`).
+- Approval gates: `approvals` in `settings.json` holds renewals before issuance until an admin approves
+  them in the dashboard or API, or until a ServiceNow change request is approved.
+- Change windows take a time zone (`"tz": "Europe/Berlin"`), following daylight saving; invalid windows
+  are refused when an endpoint is saved. New dependency: `tzdata`.
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 

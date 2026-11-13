@@ -22,6 +22,7 @@ from farrier.api.scope import parse as parse_scope
 from farrier.connectors import REGISTRY, is_automated, make_connector
 from farrier.core import policy
 from farrier.core.discovery import expand_targets, scan
+from farrier.core.scheduler import check as check_window
 from farrier.core.engine import Engine, NotApproved
 from farrier.db.store import OPEN_STATES, now_iso, parse_dt
 from farrier.security.vault import REF_PREFIXES, SecretRefused, check_secret_refs
@@ -281,6 +282,7 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
         try:
             check_secret_refs(ep.connector_config)
             make_connector(ep.connector, ep.connector_config, engine.data_dir)  # validate config
+            check_window(ep.window)
         except SecretRefused as e:
             raise HTTPException(400, f"secret reference refused: {e}")
         except (ValueError, KeyError) as e:
@@ -370,7 +372,13 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
 
     @app.get("/api/renewals", dependencies=[Depends(auth)])
     def renewals(request: Request, state: str | None = None):
-        return S.renewals(tuple(state.split(",")) if state else None, scope=scope_of(request))
+        rows = S.renewals(tuple(state.split(",")) if state else None, scope=scope_of(request))
+        waiting = engine.approvals.pending()
+        for r in rows:   # a planned renewal held at an approval gate says so, and how it is gated
+            if r["id"] in waiting and r["state"] == "planned":
+                a = waiting[r["id"]]
+                r["approval"] = {"mode": a["mode"], "ticket": a.get("ticket"), "overdue": bool(a.get("overdue"))}
+        return rows
 
     @app.post("/api/renewals/{rid}/advance", dependencies=[Depends(auth)])
     def advance(rid: int, request: Request):
@@ -388,6 +396,36 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             except ValueError as e:
                 raise HTTPException(400, str(e))
         return {"state": "cancelled"}
+
+    @app.post("/api/renewals/{rid}/approve", dependencies=[Depends(auth)])
+    def approve_renewal(rid: int, request: Request):
+        """Open an approval gate (settings approvals): the renewal issues in its change window."""
+        return decide(rid, request, True)
+
+    @app.post("/api/renewals/{rid}/reject", dependencies=[Depends(auth)])
+    def reject_renewal(rid: int, request: Request):
+        return decide(rid, request, False)
+
+    def decide(rid: int, request: Request, ok: bool):
+        if not S.renewal(rid):
+            raise HTTPException(404, "no such renewal")
+        guard.renewal(request, rid, write=True)
+        with lock:
+            try:
+                return engine.approvals.decide(rid, ok, actor(request))
+            except ValueError as e:
+                raise HTTPException(409, str(e))
+
+    @app.get("/api/approvals", dependencies=[Depends(auth)])
+    def approvals_pending(request: Request):
+        """Renewals waiting for approval, with how they are gated (and the ServiceNow change, if any)."""
+        sc = scope_of(request)
+        out = []
+        for rid, rec in engine.approvals.pending().items():
+            r = S.renewal(rid)
+            if r and r["state"] == "planned" and (sc.all or sc.has_row(S.endpoint(r["endpoint_id"]))):
+                out.append({"renewal_id": rid, "endpoint_id": r["endpoint_id"], **rec})
+        return out
 
     @app.get("/api/renewals/{rid}/pack", dependencies=[Depends(auth), Depends(secret_read)])
     def pack(rid: int, request: Request):

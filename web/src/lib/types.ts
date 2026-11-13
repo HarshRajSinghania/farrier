@@ -156,6 +156,8 @@ export interface Renewal {
   connector: string;
   host: string;
   port: number;
+  /** present while the renewal waits at an approval gate (settings approvals) */
+  approval?: { mode: string; ticket: { ref: string; url: string | null } | null; overdue: boolean };
 }
 
 export interface FarrierEvent {

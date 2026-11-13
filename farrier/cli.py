@@ -126,9 +126,11 @@ def cmd_tick(args):
 def cmd_import(args):
     eng = _engine(args)
     from farrier.connectors import make_connector
+    from farrier.core.scheduler import check as check_window
     items = json.loads(Path(args.file).read_text())
     for ep in items:
         make_connector(ep.get("connector", "manual"), ep.get("connector_config", {}), eng.data_dir)
+        check_window(ep.get("window") or {})
         eid = eng.store.upsert_endpoint(ep)
         cert = eng.observe(eng.store.endpoint(eid))
         print(f"{ep['name']:<40} {'ok, ' + str(round(policy.days_left(cert.not_after))) + 'd left' if cert else 'no TLS'}")
