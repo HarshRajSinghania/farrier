@@ -334,3 +334,28 @@ def test_backoff_counts_from_the_failure_and_retry_after_stops_at_the_deadline(e
                    ((now - timedelta(hours=5)).isoformat(), now.isoformat(), rid))
     until, n = engine._failure_backoff(eid)
     assert n == 1 and until == now + timedelta(hours=1)
+
+
+def test_issuance_policy_blocks_names_issuers_and_key_types(engine, served, data_dir):
+    from farrier.core import issuance_policy as ip
+    rules = {"allowed_names": ["*.internal.test"], "allowed_issuers": ["default"], "key_types": ["ec256"]}
+    assert ip.violations(rules, ["app.internal.test", "a.b.internal.test"], "default", "ec256") == []
+    assert ip.violations(rules, ["internal.test"], "default", "ec256") == ["names not allowed: internal.test"]
+    assert "issuer 'le' not allowed" in ip.violations(rules, ["x.internal.test"], "le", "ec256")[0]
+    assert "key type rsa2048" in ip.violations(rules, ["x.internal.test"], "default", "rsa2048")[0]
+    assert ip.rules_for({"default": rules}, "payments") == rules and ip.rules_for(None, "x") is None
+
+    s, srv = served
+    engine.settings["policy"] = {"default": {"allowed_names": ["*.example.com"]}}
+    eid = _endpoint(engine, s.port, "files", {"cert_path": str(srv / "fullchain.pem"), "key_path": str(srv / "key.pem")})
+    engine.observe(engine.store.endpoint(eid))
+    engine.tick(now=_due_now(engine, eid), scan=False)
+    r = engine.store.renewals()[0]
+    assert r["state"] == "failed" and r["error"].startswith("policy: names not allowed: app.internal.test")
+
+    import json
+    import pytest
+    from farrier.core.engine import Engine
+    (data_dir / "settings.json").write_text(json.dumps({"policy": {"default": {"allowed_names": "*.x"}}}))
+    with pytest.raises(ValueError, match="list of strings"):
+        Engine(data_dir)

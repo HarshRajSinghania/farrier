@@ -263,6 +263,35 @@ All keys are optional; missing keys use these defaults.
 
 See [Concepts](/docs/concepts) for how these interact.
 
+`issue_max_attempts` attempts are spread out (5, 10, 20, then 40 minutes apart, or longer when the CA sends
+`Retry-After`, but never past the deadline). After a renewal fails or rolls back, the next one for that endpoint
+waits 1 hour, then 2, 4 and so on up to 32 hours, so a broken CA, DNS account or device is not hit every tick.
+**Renew now** in the dashboard skips the wait.
+
+## Issuance policy
+
+Add `policy` to `settings.json` to limit which names, certificate authorities and key types each project may
+use. An endpoint follows its project's rules, or `default`'s. Without `policy`, everything is allowed.
+
+```json
+{
+  "policy": {
+    "default":  { "allowed_names": ["*.example.com", "example.com"], "key_types": ["ec256", "ec384", "rsa3072"] },
+    "payments": { "allowed_names": ["*.pay.example.com"], "allowed_issuers": ["digicert"] }
+  }
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `allowed_names` | Every name on the certificate must match one pattern. `*.example.com` covers every name below `example.com`, not `example.com` itself |
+| `allowed_issuers` | Issuer names from `issuers.json` this project may use |
+| `key_types` | `ec256`, `ec384`, `rsa2048`, `rsa3072`, `rsa4096` |
+
+Farrier checks the policy before it asks a CA for anything. A violation fails the renewal with a `policy:`
+reason that names what was refused, so it appears in **Activity** and in any alert rule on failed renewals. A
+malformed `policy` block stops the engine at start-up with the reason.
+
 ## Notifications
 
 Add `notifiers` to `settings.json` to hear about renewals in Slack, Microsoft Teams or any webhook:

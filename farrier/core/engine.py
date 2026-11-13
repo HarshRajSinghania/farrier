@@ -26,7 +26,7 @@ from pathlib import Path
 
 from farrier.config.integrations import ConfigItems
 from farrier.connectors import Bundle, is_automated, make_connector
-from farrier.core import policy
+from farrier.core import issuance_policy, policy
 from farrier.core.discovery import fetch_cert
 from farrier.core.scheduler import level, next_window_start
 from farrier.core.x509util import build_csr, generate_key, key_to_pem, parse_pem
@@ -82,6 +82,7 @@ class Engine:
         sp = self.data_dir / "settings.json"
         file_settings = json.loads(sp.read_text()) if sp.exists() else {}
         self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
+        issuance_policy.validate(self.settings.get("policy"))
         # issuers passed in (tests, embedding) are kept; dashboard-configured ones are added around them
         self._explicit_issuers = issuers
         self._issuers = None
@@ -491,6 +492,10 @@ class Engine:
             cn = ep["common_name"] or (obs and obs["subject_cn"]) or ep["host"]
             sans = ep["sans"] or (obs["sans"] if obs and obs["sans"] else [])
             names = list(dict.fromkeys([cn, *sans]))
+            issuer_name = ep["issuer"] if ep["issuer"] in self.issuers else "default"
+            if bad := issuance_policy.violations(issuance_policy.rules_for(self.settings.get("policy"), ep.get("project")),
+                                                 names, issuer_name, ep["key_type"]):
+                return self._fail(r, ep, "policy: " + "; ".join(bad))
             key = generate_key(ep["key_type"])
             csr = build_csr(key, cn, names)
             # per-endpoint DNS account (dns.json) overrides the issuer's zone matching
