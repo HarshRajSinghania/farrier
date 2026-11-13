@@ -53,10 +53,27 @@ a tag that doesn't match both versions and this file.
 - Replace and revoke: `farrier replace`, `POST /api/replace` and **Certificates → Replace…** renew every
   certificate matching a CA, issuer, key type, project or tag now, and optionally revoke the old ones
   (ACME, AWS Private CA) once nothing serves them.
+- ACME server (RFC 8555): certbot, cert-manager, lego, acme.sh and win-acme get internal certificates
+  from a Farrier issuer at `/acme/<profile>/directory` (settings `acme_server`). Accounts need an EAB
+  key (`farrier acme-server eab create`); names are authorized by the profile, the key and the issuance
+  policy; every certificate is logged with its account (schema migration 11).
+- Connectors `aws_acm` (re-import in place, or import and switch an ELBv2 listener with exact
+  rollback), `azure_keyvault` (new certificate version, optional Application Gateway and Front Door
+  refresh) and `gcp_certificate_manager` (Certificate Manager and classic HTTPS proxies).
+- Cross-account AWS: a shared, cached `sts:AssumeRole` (with ExternalId) for connectors, inventory
+  (`cloud_inventory.aws_accounts`) and Route 53; Terraform `assumable_role_arns`.
+- SAML 2.0 single sign-on for the dashboard (`FARRIER_SAML_*`, Helm `web.auth.mode=saml`), with the
+  same roles, projects and session as OIDC. Setting both OIDC and SAML fails closed.
+- Renewals carry a `reason_code` and a one-line `hint`; `farrier explain <endpoint>` and
+  `GET /api/endpoints/{id}/explain` say why the next renewal is when it is. New metrics for planned
+  renewals, failures by reason, approvals, runner groups and audit integrity; opt-in Helm
+  PrometheusRule alerts and Grafana dashboard. Troubleshooting guide.
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 
 ### Fixed
+
+- The ServiceMonitor keeps Farrier's `endpoint` label (`honorLabels: true`).
 
 - A failing CA, DNS provider or device is no longer retried every tick. Issuance attempts back off
   (5, 10, 20, 40 min, or the CA's `Retry-After`), and after a failed or rolled-back renewal the next
