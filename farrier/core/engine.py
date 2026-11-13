@@ -874,6 +874,11 @@ class Engine:
             out["alerts"] = alerts
         self.itsm.tick(now)                     # ticket retries, Datadog metrics, Splunk inventory; never raises
         try:
+            from farrier.core.replace import revoke_due
+            revoke_due(self)                    # old certificates of finished replacements nothing serves now
+        except Exception as e:  # noqa: BLE001
+            self.store.log(f"revocations failed: {type(e).__name__}: {e}"[:500], level="error")
+        try:
             from farrier.monitoring.audit import seal
             seal(self.store)                    # tamper evidence for everything logged so far
         except Exception as e:  # noqa: BLE001

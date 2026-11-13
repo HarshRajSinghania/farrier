@@ -301,6 +301,8 @@ async function serveDemo(req: NextRequest, path: string[], project: string | nul
           return { ok: true, sealed: 0, unsealed: 0, head: null, first_bad_id: null };
         case "GET reports/:id":
           throw new demo.DemoError(404, "Reports aren't generated in demo mode.");
+        case "POST replace":
+          throw new demo.DemoError(400, "Replacing certificates isn't available in demo mode.");
         case "GET runners":
           return []; // demo: no remote networks
         case "GET discover/:id":

@@ -175,6 +175,9 @@ export const api = {
   deleteEndpoint: (id: number) => act<{ ok: true }>(`/endpoints/${id}`, { method: "DELETE" }),
   advance: (id: number) => act<{ state: string }>(`/renewals/${id}/advance`, { method: "POST" }),
   cancel: (id: number) => act<{ state: string }>(`/renewals/${id}/cancel`, { method: "POST" }),
+  replace: (body: { filter: Record<string, unknown>; reason?: string; revoke?: boolean; dry_run?: boolean }) =>
+    act<{ matches?: { endpoint_id: number; name: string; cert_issuer: string | null }[]; renewals?: { renewal_id: number }[] }>(
+      "/replace", { method: "POST", body: JSON.stringify(body) }),
   approveRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/approve`, { method: "POST" }),
   rejectRenewal: (id: number) => act<{ state: string }>(`/renewals/${id}/reject`, { method: "POST" }),
   tick: () => act<{ planned: number; states: Record<string, number> }>("/tick", { method: "POST" }),

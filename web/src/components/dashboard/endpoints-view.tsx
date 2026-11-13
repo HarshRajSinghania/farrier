@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowDownUp, Download, FolderInput, MoreHorizontal, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { ReplaceDialog } from "@/components/dashboard/replace-dialog";
 import { ErrorNotice, PageHeader } from "@/components/dashboard/shell";
 import { TableSkeleton } from "@/components/dashboard/widgets";
 import { AddEndpointDialog } from "@/components/dashboard/add-endpoint";
@@ -109,6 +110,7 @@ export function EndpointsView() {
               <Download /> Export CSV
             </a>
           </Button>
+          {can("POST", "replace") && <ReplaceDialog />}
           {can("POST", "endpoints") && status?.allProjects !== false && (
             <AddEndpointDialog>
               <Button>

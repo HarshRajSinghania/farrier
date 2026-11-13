@@ -332,6 +332,25 @@ def cmd_ct(args):
                                                     + " ".join(hosts[:5]) + (" ..." if len(hosts) > 5 else "")])
 
 
+def cmd_replace(args):
+    from farrier.core.replace import replace, select
+    eng = _engine(args)
+    f = {k: v for k, v in {"issuer": args.issuer, "ca": args.ca, "key_type": args.key_type, "project": args.project,
+                           "tag": args.tag, "endpoint_ids": args.endpoint or None}.items() if v}
+    try:
+        if args.dry_run:
+            hits = select(eng, f)
+            return _emit(args, hits, lambda: [f"{e['name']:<40}{e['cert_issuer'] or ''}" for e in hits]
+                         + [f"{len(hits)} endpoints would be replaced"])
+        out = replace(eng, f, args.reason, args.revoke, "cli")
+    except ValueError as e:
+        sys.exit(f"farrier replace: {e}")
+    eng.tick(scan=False)   # start them now
+    _emit(args, out, lambda: [f"renewal {r['renewal_id']:<6}{r['name']}" for r in out["renewals"]]
+          + [f"skipped {s['name']}: {s['why']}" for s in out["skipped"]]
+          + (["old certificates are revoked once nothing serves them"] if args.revoke else []))
+
+
 def cmd_audit(args):
     from farrier.monitoring import audit
     eng = _engine(args)
@@ -572,6 +591,19 @@ def main(argv=None):
     x = js(esub.add_parser("approve", help="let a discovered endpoint be renewed (logged with actor cli)"))
     x.add_argument("endpoint", help="endpoint name or id")
     x.set_defaults(fn=cmd_endpoints_approve)
+
+    x = js(sub.add_parser("replace", help="incident drill: renew every matching endpoint now, optionally revoking "
+                          "the old certificates once nothing serves them"))
+    x.add_argument("--issuer", help="issuers.json name")
+    x.add_argument("--ca", help="text in the served certificate's issuer, e.g. R10 or Entrust")
+    x.add_argument("--key-type", help="e.g. rsa2048")
+    x.add_argument("--project")
+    x.add_argument("--tag")
+    x.add_argument("--endpoint", type=int, action="append", help="endpoint id (repeatable)")
+    x.add_argument("--reason", default="superseded", help="keyCompromise, cACompromise, superseded (default), ...")
+    x.add_argument("--revoke", action="store_true", help="revoke each old certificate once nothing serves it")
+    x.add_argument("--dry-run", action="store_true", help="list what would be replaced")
+    x.set_defaults(fn=cmd_replace)
 
     s = sub.add_parser("audit", help="the tamper-evident activity log: verify, export, check an export")
     asub2 = s.add_subparsers(dest="audit_cmd", required=True)

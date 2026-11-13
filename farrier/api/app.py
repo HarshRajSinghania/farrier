@@ -60,6 +60,13 @@ class EndpointIn(BaseModel):
     project: str | None = None      # where a new endpoint goes (default: "default"); move one with /move
 
 
+class ReplaceIn(BaseModel):
+    filter: dict
+    reason: str = "superseded"
+    revoke: bool = False
+    dry_run: bool = False
+
+
 class DiscoverIn(BaseModel):
     targets: str
     project: str | None = None      # discovery: the project new endpoints land in
@@ -445,6 +452,22 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
             f"{name}," + ",".join(str(p.get(c, 0)) for c in cols) for name, p in rep["projects"].items()]
         return Response("\n".join(lines) + "\n", media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="farrier-compliance.csv"'})
+
+    @app.post("/api/replace", dependencies=[Depends(auth)])
+    def replace_now(body: ReplaceIn, request: Request):
+        """Incident drill: renew every endpoint matching ``filter`` now; with revoke, revoke each old certificate
+        once nothing serves it. dry_run lists the matches only."""
+        from farrier.core.replace import replace, select
+        sc = scope_of(request)
+        visible = None if sc.all else sc.has_row
+        try:
+            if body.dry_run:
+                return {"matches": [{"endpoint_id": e["id"], "name": e["name"], "cert_issuer": e["cert_issuer"]}
+                                    for e in select(engine, body.filter, visible)]}
+            with lock:
+                return replace(engine, body.filter, body.reason, body.revoke, actor(request), visible)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.get("/api/approvals", dependencies=[Depends(auth)])
     def approvals_pending(request: Request):

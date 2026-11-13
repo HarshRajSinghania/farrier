@@ -62,3 +62,11 @@ def test_profile_when_offered(tmp_path):
     acme.profile = next(iter(profiles))
     cert, _ = acme.issue(build_csr(generate_key(), "profile.farrier.test", ["profile.farrier.test"]), ["profile.farrier.test"])
     assert parse_pem(cert).sans == ["profile.farrier.test"]
+
+
+def test_revoke_against_pebble(tmp_path):
+    acme = issuer(tmp_path)
+    names = ["revoke.farrier.test"]
+    cert, _ = acme.issue(build_csr(generate_key(), names[0], names), names)
+    acme.revoke(cert, "keyCompromise")
+    acme.revoke(cert, "keyCompromise")        # already revoked counts as done

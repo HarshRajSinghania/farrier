@@ -13,6 +13,7 @@ export const metadata = {
 | `farrier demo` | A simulated estate of real TLS endpoints, with the API running against it |
 | `farrier scan <targets> [--register]` | Handshake with TLS targets and list the certificates they serve; `--register` adds unknown ones as `discovered` |
 | `farrier audit verify\|export [-o file]\|check <file>` | The hash-chained activity log: verify it, export it signed, check an export ([security](/docs/security#tamper-evident-audit-log)) |
+| `farrier replace [--ca\|--issuer\|--key-type\|--project\|--tag\|--endpoint] [--revoke] [--reason] [--dry-run]` | Incident drill: renew every match now; revoke old certificates once nothing serves them ([security](/docs/security#replace-and-revoke-incident-drill)) |
 | `farrier report [--json]` | Compliance report per project: coverage, expiry risk, failures, 47-day readiness, audit integrity |
 | `farrier cloud-certs [--json]` | Certificates in AWS ACM, Azure Key Vault and Google Certificate Manager ([settings](/docs/configuration#cloud-certificate-inventory)); exits 1 if a source failed |
 | `farrier runner start\|token\|list` | [Remote runners](/docs/runners) for segmented networks |

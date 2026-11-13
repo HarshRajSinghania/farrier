@@ -50,6 +50,9 @@ a tag that doesn't match both versions and this file.
 - Tamper-evident activity log: events are sealed in a SHA-256 hash chain each cycle (schema migration
   10); `farrier audit verify|export|check`, `/api/audit/*`, and an integrity badge and signed export in
   Activity. Compliance report: `farrier report`, `/api/reports/compliance` (JSON or CSV).
+- Replace and revoke: `farrier replace`, `POST /api/replace` and **Certificates → Replace…** renew every
+  certificate matching a CA, issuer, key type, project or tag now, and optionally revoke the old ones
+  (ACME, AWS Private CA) once nothing serves them.
 - Certificate Transparency discovery: `farrier ct <domain>`, `GET /api/discover/ct` and **Find names** on
   the Discovery page list every name with a valid public certificate.
 

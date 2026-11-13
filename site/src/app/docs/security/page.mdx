@@ -151,3 +151,22 @@ behind Farrier's back then no longer matches the head you kept, even if the end 
 in Activity give, per project: endpoints and the share renewed automatically, expired and expiring
 certificates, failed renewals in the last 30 days, certificates longer than today's public maximum (47-day
 readiness), crypto and PQC status, and the audit log's integrity.
+
+## Replace and revoke (incident drill)
+
+When a key may be compromised or a CA is distrusted, replace every affected certificate at once:
+
+```bash
+farrier replace --ca "R10" --dry-run                      # what matches
+farrier replace --ca "R10" --reason keyCompromise --revoke
+```
+
+Or **Certificates → Replace…** in the dashboard, which always previews the matches first. Match by the
+certificate's CA (`--ca`), a Farrier issuer (`--issuer`), key type, project, tag or endpoint ids. Matching
+endpoints are renewed now, outside change windows, as **Renew now** does; discovered endpoints nobody approved
+are skipped.
+
+With `--revoke`, each old certificate is revoked once **nothing serves it any more**: one certificate on many
+VIPs is revoked only after the last of them moved, so revocation never breaks a site that hasn't switched.
+ACME CAs (RFC 8555) and AWS Private CA revoke through Farrier; for other CAs, Activity says which
+certificates to revoke by hand.

@@ -68,6 +68,17 @@ class AwsPrivateCA:
             raise RuntimeError(f"the CA is {ca.get('Status')}, not ACTIVE")
         return f"AWS Private CA {self.ca_arn.rsplit('/', 1)[1]} is ACTIVE ({ca.get('UsageMode') or 'GENERAL_PURPOSE'})"
 
+    def revoke(self, cert_pem: str, reason: str = "unspecified") -> None:
+        from cryptography import x509
+        h = format(x509.load_pem_x509_certificate(cert_pem.encode()).serial_number, "x")
+        h = "0" * (len(h) % 2) + h                                   # whole bytes
+        serial = ":".join(h[i:i + 2] for i in range(0, len(h), 2))   # Private CA wants colon-separated hex
+        codes = {"keyCompromise": "KEY_COMPROMISE", "cACompromise": "CERTIFICATE_AUTHORITY_COMPROMISE",
+                 "affiliationChanged": "AFFILIATION_CHANGED", "superseded": "SUPERSEDED",
+                 "cessationOfOperation": "CESSATION_OF_OPERATION"}
+        self._call("RevokeCertificate", {"CertificateAuthorityArn": self.ca_arn, "CertificateSerial": serial,
+                                         "RevocationReason": codes.get(reason, "UNSPECIFIED")})
+
     def issue(self, csr_pem: str, names: list[str]) -> tuple[str, str]:
         body = {"CertificateAuthorityArn": self.ca_arn, "Csr": base64.b64encode(csr_pem.encode()).decode(),
                 "SigningAlgorithm": self._algorithm(), "IdempotencyToken": uuid.uuid4().hex[:36],

@@ -309,6 +309,17 @@ class AcmeIssuer:
                 return self.post(self.directory["newOrder"], payload)
             raise
 
+    def revoke(self, cert_pem: str, reason: str = "unspecified") -> None:
+        """RFC 8555 7.6: revoke a certificate this account ordered. Already revoked counts as done."""
+        from farrier.core.replace import REASONS
+        self.ensure_account()
+        der = x509.load_pem_x509_certificate(cert_pem.encode()).public_bytes(serialization.Encoding.DER)
+        try:
+            self.post(self.directory["revokeCert"], {"certificate": b64u(der), "reason": REASONS.get(reason, 0)})
+        except AcmeError as e:
+            if not e.type.endswith(":alreadyRevoked"):
+                raise
+
     def renewal_window(self, cert_pem: str) -> tuple[str, str] | None:
         """RFC 9773: the CA's suggested renewal window (start, end) for a certificate it issued, or None
         when the CA has no renewalInfo. Cached for as long as the CA's Retry-After asks (6 hours if unset)."""
