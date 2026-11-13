@@ -33,9 +33,9 @@ export const MENUS: NavMenu[] = [
       {
         title: "Devices",
         links: [
-          { href: "/docs/connectors", label: "F5, FortiGate, Palo Alto", desc: "Renewed through each vendor's API" },
+          { href: "/docs/connectors", label: "F5, FortiGate, Palo Alto, Citrix", desc: "Renewed through each vendor's API" },
           { href: "/docs/connectors", label: "Keystores and files", desc: "Tomcat, Kafka, nginx over SSH" },
-          { href: "/docs/connectors", label: "Change packs", desc: "Cisco ASA, Citrix, IIS and the rest" },
+          { href: "/docs/connectors", label: "IIS, Kubernetes, change packs", desc: "Windows over SSH, TLS Secrets, Cisco ASA and the rest" },
         ],
       },
       {

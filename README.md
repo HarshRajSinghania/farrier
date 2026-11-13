@@ -50,7 +50,7 @@ switches over and keeps the old one, so a failed check rolls back by itself.
 
 | | |
 |---|---|
-| **Appliance connectors** | F5 BIG-IP, FortiGate, Palo Alto PAN-OS, Java keystores, files over SSH. Everything else gets a change pack (PEM, PFX, runbook) and a ticket, and closes itself when the scanner sees the new certificate. |
+| **Connectors** | F5 BIG-IP, FortiGate, Palo Alto PAN-OS, Citrix ADC, IIS (over OpenSSH), Kubernetes TLS Secrets, Java keystores, files over SSH. Everything else gets a change pack (PEM, PFX, runbook) and a ticket, and closes itself when the scanner sees the new certificate. |
 | **Any CA** | Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo, AWS Certificate Manager over ACME (with External Account Binding), or the built-in private CA. |
 | **29 DNS providers** | Cloudflare, Route 53, Azure DNS, Cloud DNS, RFC 2136 and more, several accounts each, with CNAME delegation. Records are verified on every authoritative nameserver and always cleaned up. |
 | **Deployment verification** | Done only when the fingerprint, chain, names and every listed VIP check out. |
@@ -119,7 +119,7 @@ Report vulnerabilities privately through GitHub's security advisories. See the [
 |---|---|
 | Renewal engine: plan, issue, deploy, verify, roll back, backoff | 290+ engine tests, every commit |
 | ACME (RFC 8555, EAB, ARI, profiles) | Pebble, Let's Encrypt's own ACME test server, every commit; Let's Encrypt staging and AWS ACM nightly ([live workflow](.github/workflows/live.yml)) |
-| F5 BIG-IP, FortiGate, PAN-OS connectors | Contract tests against each vendor's documented management API |
+| F5, FortiGate, PAN-OS, Citrix ADC, Kubernetes, IIS connectors | Contract tests against each vendor's documented management API |
 | 29 DNS providers | Contract tests per provider API; the dashboard's **Test** button proves a live account end to end |
 | AWS, Azure and Google integrations | Contract tests per API, plus `terraform validate` for every reference deployment |
 | PostgreSQL, MySQL, SQLite | Schema migrations and leader election, every commit |

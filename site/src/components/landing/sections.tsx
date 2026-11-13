@@ -373,7 +373,7 @@ export function Devices() {
         <div data-reveal className="min-w-0 lg:col-span-5">
           <h2 className={h2}>Renews the appliances other tools skip</h2>
           <p className="mt-4 max-w-md text-[17px] text-[var(--l-sub)]">
-            F5, FortiGate and Palo Alto through their own APIs. Everything else gets a change pack and a ticket.
+            F5, FortiGate, Palo Alto and Citrix through their own APIs; IIS over SSH; Kubernetes Secrets. Everything else gets a change pack and a ticket.
           </p>
           <Link href="/docs/connectors" className={cn(secondary, "mt-8")}>
             See connectors <ArrowRight className="size-4" />

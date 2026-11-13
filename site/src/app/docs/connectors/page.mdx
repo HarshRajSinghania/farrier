@@ -5,7 +5,7 @@ export const metadata = {
 
 # Connectors
 
-A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Five connectors are automated (deploy, verify, roll back). The sixth, `manual`, prepares everything for a human and verifies their work.
+A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Eight connectors are automated (deploy, verify, roll back). The ninth, `manual`, prepares everything for a human and verifies their work.
 
 Rules that apply to every connector:
 
@@ -21,10 +21,14 @@ Rules that apply to every connector:
 | `f5` | yes | `url`, `username`, `password`, `profile` |
 | `fortigate` | yes | `url`, `api_token`, `bind` |
 | `panos` | yes | `url`, `api_key`, `profile` |
+| `citrix` | yes | `url`, `username`, `password`, `certkey` |
+| `kubernetes` | yes | `namespace`, `secret` |
+| `iis` | yes | `ssh`, `site` |
 | `manual` | no | none |
 
-<Callout type="warning">
-The `f5`, `fortigate` and `panos` connectors follow the vendors' documented APIs and are tested against mock management APIs, but have not yet been run against real hardware. Validate them on a lab device first.
+<Callout type="info">
+The appliance connectors follow each vendor's documented management API and are contract-tested on every
+commit. Run the [pilot checklist](/docs/pilot) once per device model and OS version before production.
 </Callout>
 
 ## files
@@ -158,9 +162,68 @@ Palo Alto Networks PAN-OS firewalls and GlobalProtect portals/gateways via the X
 }
 ```
 
+## citrix
+
+Citrix ADC / NetScaler via the NITRO REST API. Uploads the key, certificate and intermediate to
+`/nsconfig/ssl/`, updates the existing certkey in place (every vserver bound to it switches at once; nothing is
+unbound), links the intermediate (reusing a certkey that already holds it) and saves the config. Rollback points
+the certkey back at its previous files and link, and saves.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `url` | yes | Management address (NSIP, or a SNIP with management access) |
+| `username`, `password` | yes | A system user that may manage SSL certificates and save the config |
+| `certkey` | yes | The certkey bound to your vservers |
+| `verify_tls` | no | |
+
+```json
+{
+  "connector": "citrix",
+  "connector_config": {
+    "url": "https://adc-mgmt.example.com",
+    "username": "farrier",
+    "password": "env:ADC_PASSWORD",
+    "certkey": "storefront_cert"
+  }
+}
+```
+
+## kubernetes
+
+A `kubernetes.io/tls` Secret, for Ingress controllers, Gateway API listeners and any workload that mounts it.
+The current Secret is copied to `<secret>-farrier-previous` first, so the old key stays in the cluster rather
+than in Farrier's database. `tls.crt` holds the full chain and `ca.crt` the intermediates. Most ingress
+controllers pick up the change by themselves; list workloads that read the Secret only at start-up under
+`restart`. Rollback restores the copy (or deletes a Secret Farrier created).
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `namespace`, `secret` | yes | |
+| `url` | no | API server; default the in-cluster address |
+| `token` | no | Bearer token; default the pod's service account |
+| `verify_tls` | no | Default the in-cluster CA |
+| `restart` | no | e.g. `["deployment/web", "statefulset/kafka"]` |
+
+RBAC for Farrier's service account: `get`, `create`, `update` and `delete` on `secrets` in the namespace, and
+`patch` on the workloads in `restart`.
+
+## iis
+
+Microsoft IIS over OpenSSH (built into Windows Server 2019 and later) and PowerShell. The certificate, key and
+chain travel as a password-protected PFX inside a script on standard input, never on a command line. It is
+imported into `LocalMachine\My` and the site's https binding switches to the new thumbprint. Rollback switches
+the binding back; the old certificate stays in the store.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `ssh` | yes | `user@host`, with key-based authentication for the system `ssh` client |
+| `site` | yes | IIS site name |
+| `port` | no | Default `443` |
+| `host_header` | no | For SNI bindings |
+
 ## manual
 
-For devices with no usable API: Cisco ASA, Citrix ADC, IIS, vCenter, old appliances, anything behind a change advisory board. Farrier does everything except the last click. It issues the certificate, writes a change pack to `<data>/packs/<renewal id>/`, optionally opens a ticket, and watches the endpoint. The renewal closes itself when the new fingerprint is seen live, and the pack is then deleted.
+For devices with no usable API: Cisco ASA, vCenter, old appliances, anything behind a change advisory board. Farrier does everything except the last click. It issues the certificate, writes a change pack to `<data>/packs/<renewal id>/`, optionally opens a ticket, and watches the endpoint. The renewal closes itself when the new fingerprint is seen live, and the pack is then deleted.
 
 The change pack contains `cert.pem`, `chain.pem`, `fullchain.pem`, `key.pem`, `bundle.pfx`, `passphrase.txt` (for the PFX) and `RUNBOOK.md`. Download it as a zip from the dashboard or `GET /api/renewals/{id}/pack`.
 
