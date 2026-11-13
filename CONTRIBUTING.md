@@ -114,7 +114,7 @@ Run the same checks CI runs, for the parts you changed. A pull request can't be 
 
 | You changed | Run |
 |---|---|
-| `farrier/` or `tests/` | `python -m pytest -q` and `ruff check farrier --select F` |
+| `farrier/` or `tests/` | `python -m pytest -q` and `ruff check farrier functions --select F` |
 | `functions/` | `python -m pytest -q functions` |
 | `web/` | in `web/`: `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build` |
 | `site/` | in `site/`: `npm run typecheck`, `npm run lint`, `npm run build` |

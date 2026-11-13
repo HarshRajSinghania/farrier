@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev]" ruff
+      - name: Lint (ruff, pyflakes rules)
+        run: ruff check farrier functions --select F
       - run: python -m pytest -q
 
   web:
