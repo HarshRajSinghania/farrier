@@ -258,6 +258,12 @@ variable "acm_acme_endpoint_arns" {
   default     = []
 }
 
+variable "assumable_role_arns" {
+  description = "IAM roles, usually in other accounts, the engine may sts:AssumeRole into (aws_acm connector role_arn, cloud_inventory aws_accounts). Each role must trust the engine role. Empty grants none."
+  type        = list(string)
+  default     = []
+}
+
 variable "event_bus_arn" {
   description = "Optional EventBridge bus the engine publishes certificate events to (e.g. the aws-events module's bus). Empty grants no EventBridge access."
   type        = string

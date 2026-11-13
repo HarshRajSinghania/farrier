@@ -313,6 +313,28 @@ in each AWS region, **Key Vault Reader** on each vault, and `roles/certificatema
 project. Each source is listed on its own; one that is refused shows its error and the rest still appear.
 Lists are cached for 15 minutes (**List again** refreshes).
 
+To list ACM certificates in other AWS accounts, add `aws_accounts`. Farrier assumes each role on top of its
+own AWS identity (`sts:AssumeRole`, with the external ID when given) and shows those rows with
+`<account id>/<region>` as their location:
+
+```json
+{
+  "cloud_inventory": {
+    "aws_regions": ["eu-west-1"],
+    "aws_accounts": [
+      {
+        "role_arn": "arn:aws:iam::210987654321:role/farrier-inventory",
+        "external_id": "env:AWS_INVENTORY_EXTERNAL_ID",
+        "regions": ["eu-west-1", "us-east-1"]
+      }
+    ]
+  }
+}
+```
+
+Each role needs `acm:ListCertificates` and a trust policy naming the engine's role. The engine needs
+`sts:AssumeRole` on it (Terraform modules: `assumable_role_arns`).
+
 ## Notifications
 
 Add `notifiers` to `settings.json` to hear about renewals in Slack, Microsoft Teams or any webhook:

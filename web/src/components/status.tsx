@@ -85,6 +85,7 @@ export const CONNECTOR_LABEL: Record<string, string> = {
   citrix: "Citrix ADC",
   kubernetes: "Kubernetes Secret",
   iis: "IIS",
+  aws_acm: "AWS ACM",
   manual: "Manual",
 };
 

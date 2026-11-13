@@ -177,6 +177,16 @@ data "aws_iam_policy_document" "engine" {
       resources = flatten([for a in var.acm_acme_endpoint_arns : [a, "${a}/*"]])
     }
   }
+
+  dynamic "statement" {
+    for_each = length(var.assumable_role_arns) > 0 ? [1] : []
+
+    content {
+      sid       = "CrossAccountRoles"
+      actions   = ["sts:AssumeRole"]
+      resources = var.assumable_role_arns
+    }
+  }
 }
 
 resource "aws_iam_role" "engine" {

@@ -5,7 +5,7 @@ export const metadata = {
 
 # Connectors
 
-A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Eight connectors are automated (deploy, verify, roll back). The ninth, `manual`, prepares everything for a human and verifies their work.
+A connector is how a certificate reaches a device. Each endpoint has one `connector` and a `connector_config` object. Nine connectors are automated (deploy, verify, roll back). The tenth, `manual`, prepares everything for a human and verifies their work.
 
 Rules that apply to every connector:
 
@@ -24,6 +24,7 @@ Rules that apply to every connector:
 | `citrix` | yes | `url`, `username`, `password`, `certkey` |
 | `kubernetes` | yes | `namespace`, `secret` |
 | `iis` | yes | `ssh`, `site` |
+| `aws_acm` | yes | `region` |
 | `manual` | no | none |
 
 <Callout type="info">
@@ -206,6 +207,63 @@ controllers pick up the change by themselves; list workloads that read the Secre
 
 RBAC for Farrier's service account: `get`, `create`, `update` and `delete` on `secrets` in the namespace, and
 `patch` on the workloads in `restart`.
+
+## aws_acm
+
+AWS Certificate Manager, for Application and Network Load Balancers, CloudFront, API Gateway and anything else
+that takes an ACM certificate. Calls are signed with the engine's AWS identity (IRSA, EKS Pod Identity, ECS task
+role, instance profile, or keys), optionally through a role in another account.
+
+| Key | Required | Notes |
+| --- | --- | --- |
+| `region` | yes | The certificate's region. CloudFront needs `us-east-1` |
+| `certificate_arn` | no | Re-import into this ARN (see the modes below) |
+| `listener_arn` | no | An ELBv2 HTTPS or TLS listener in `region`. Not with `certificate_arn` |
+| `listener_mode` | no | `default` (default): becomes the listener's default certificate. `additional`: added to its SNI list |
+| `role_arn`, `external_id` | no | `sts:AssumeRole` into the account that holds the certificate. The session is cached until shortly before it expires |
+| `tags` | no | e.g. `{"team": "web"}`, on new imports. Farrier also adds `farrier:endpoint` |
+
+Pick one of three modes:
+
+- **`listener_arn`**: each renewal is imported under a new ARN and the listener switches to it
+  (`ModifyListener`, or `AddListenerCertificates` in `additional` mode, which also takes this endpoint's
+  previous renewal off the SNI list so it cannot keep being chosen). Rollback switches the listener back and
+  deletes the new certificate. The previous certificate is never touched, so rollback is exact.
+- **`certificate_arn`**: the renewal is re-imported into the same ARN, so every load balancer, distribution
+  and API using it switches at once, with no other change on their side.
+- **Neither**: the certificate is imported under a new ARN and nothing else changes, for setups that find
+  certificates by host name, such as the AWS Load Balancer Controller's certificate discovery. Find it by its
+  `farrier:endpoint` tag. Rollback deletes it.
+
+<Callout type="warning" title="Re-importing cannot be rolled back">
+ACM never returns the private key of an imported certificate (`ExportCertificate` only covers private-CA
+and exportable public certificates), so Farrier cannot put the previous certificate back after a re-import.
+If verification fails in `certificate_arn` mode, the rollback fails with an error that says so, and the
+new certificate stays in place. Re-import the old one from your own copy if you need to. Use `listener_arn`
+when an exact rollback matters more than switching every consumer at once.
+</Callout>
+
+IAM permissions, on the account that holds the certificate (the role in `role_arn`, or the engine's own role):
+
+| Mode | Actions |
+| --- | --- |
+| all | `acm:ImportCertificate` |
+| new imports (`listener_arn` or neither) | `acm:AddTagsToCertificate`, `acm:DeleteCertificate` |
+| `listener_arn` | `elasticloadbalancing:DescribeListenerCertificates`, `elasticloadbalancing:ModifyListener` |
+| `listener_mode: additional` | also `elasticloadbalancing:AddListenerCertificates`, `elasticloadbalancing:RemoveListenerCertificates`, `acm:ListTagsForCertificate` |
+| `role_arn` | `sts:AssumeRole` on that role for the engine (Terraform: `assumable_role_arns`). The role's trust policy names the engine role, with `sts:ExternalId` as a condition when you set `external_id` |
+
+```json
+{
+  "connector": "aws_acm",
+  "connector_config": {
+    "region": "eu-west-1",
+    "listener_arn": "arn:aws:elasticloadbalancing:eu-west-1:210987654321:listener/app/web/50dc6c495c0c9188/f2f7dc8efc522ab2",
+    "role_arn": "arn:aws:iam::210987654321:role/farrier-deploy",
+    "external_id": "env:AWS_DEPLOY_EXTERNAL_ID"
+  }
+}
+```
 
 ## iis
 

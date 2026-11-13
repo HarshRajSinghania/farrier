@@ -362,6 +362,12 @@ variable "acm_acme_endpoint_arns" {
   default     = []
 }
 
+variable "assumable_role_arns" {
+  description = "IAM roles, usually in other accounts, the engine may sts:AssumeRole into (aws_acm connector role_arn, cloud_inventory aws_accounts). Each role must trust the engine role. Empty grants none."
+  type        = list(string)
+  default     = []
+}
+
 # ---------------------------------------------------------------------------------------------
 # Dashboard sign-in
 # ---------------------------------------------------------------------------------------------
