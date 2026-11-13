@@ -448,13 +448,14 @@ export function Deploy() {
 
 /* ------------------------------------------------------------------ faq */
 
-const FAQ = [
+export const FAQ = [
   ["Do I install an agent on each machine?", "No. Farrier reads TLS and SSH over the network and makes changes through each device's management API or SSH."],
   ["Does an F5 or FortiGate need internet access?", "No. Farrier answers DNS-01 through your DNS and deploys over the management interface."],
-  ["Which certificate authorities work?", "Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert and Sectigo over ACME, plus a built-in private CA."],
+  ["Which certificate authorities work?", "Let's Encrypt, ZeroSSL, Google Trust Services, Buypass, SSL.com, DigiCert, Sectigo and AWS Certificate Manager over ACME; AWS Private CA and Google CAS; and a built-in private CA."],
+  ["Are renewals automatic?", "Yes. Farrier plans each renewal from the certificate's lifetime and the CA's renewal window, renews inside your change windows, deploys, verifies and rolls back on its own. Devices without an API get a ready change pack and a ticket."],
   ["What if a deploy breaks a profile?", "The old certificate stays installed, and Farrier switches back if the new one never goes live."],
   ["What does it cost?", "Nothing. It is MIT licensed and runs on your own machines, with no hosted service and no account."],
-  ["Has it run on real F5 hardware?", "Not yet. The appliance connectors pass tests against mock APIs. Start on a lab device."],
+  ["How is it tested?", "Every commit runs the renewal engine, each vendor API contract and Let's Encrypt's Pebble test CA; Let's Encrypt staging and AWS ACM run nightly. Start production with the pilot checklist on one endpoint per device type."],
 ];
 
 export function Faq() {

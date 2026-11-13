@@ -16,6 +16,29 @@ a tag that doesn't match both versions and this file.
 
 ## [Unreleased]
 
+### Added
+
+- AWS Certificate Manager managed ACME: the `aws-acm` issuer preset (no DNS-01; with `acm_eab_arn` the
+  directory URL and EAB key come from ACM through IAM) and `farrier acm` commands to create endpoints,
+  prevalidate domains and manage External Account Bindings. Terraform: `acm_acme_endpoint_arns`.
+- AWS Private CA (`aws_pca`) and Google Certificate Authority Service (`gcp_cas`) issuers, with a
+  dashboard **Test** that checks the engine can reach the CA.
+- One-command install: `install.sh` writes a `.env` with a random token and password, pulls the signed
+  images and starts them; `FARRIER_MODE=demo` runs the simulated estate in Docker (`farrier demo --host`).
+  The root `docker-compose.yml` now uses the release images (`--build` still builds from source).
+- Nightly live checks against Let's Encrypt staging and AWS ACM (`.github/workflows/live.yml`), enabled
+  by repository secrets.
+- Dashboard: four sidebar sections (Overview, Certificates, Security, Setup) with each section's pages
+  as tabs; every page keeps its URL.
+- Website: solution pages for F5, FortiGate, PAN-OS, the 47-day schedule, AWS ACM, cloud private CAs and
+  open-source CLM, with schema.org FAQ, breadcrumb and software data, and canonical URLs.
+
+### Fixed
+
+- A failing CA, DNS provider or device is no longer retried every tick. Issuance attempts back off
+  (5, 10, 20, 40 min, or the CA's `Retry-After`), and after a failed or rolled-back renewal the next
+  one waits 1 h, doubling up to 32 h. "Renew now" still starts at once.
+
 ## [0.1.0] - 2026-11-12
 
 First public release.
