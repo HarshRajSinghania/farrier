@@ -33,7 +33,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 # Tables whose INSERTs have no ``id`` column to hand back (Postgres needs RETURNING id otherwise).
 NO_ID_TABLES = {"schema_version", "secrets", "secret_values", "config_items", "config_version", "alert_state",
-                "health_results"}
+                "health_results", "acme_eab", "acme_nonces"}
 # Column names that are reserved words in Postgres and/or MySQL 8 and must be quoted there.
 RESERVED_IDENTIFIERS = {"window"}
 

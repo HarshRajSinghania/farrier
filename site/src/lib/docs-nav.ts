@@ -29,6 +29,7 @@ export const DOCS_NAV: DocsGroup[] = [
       { href: "/docs/connectors", label: "Connectors" },
       { href: "/docs/sso", label: "Single sign-on and roles" },
       { href: "/docs/projects", label: "Teams and projects" },
+      { href: "/docs/acme-server", label: "ACME server" },
     ],
   },
   {

@@ -89,6 +89,8 @@ class Engine:
         self.settings = {**DEFAULT_SETTINGS, **file_settings, **(settings or {})}
         issuance_policy.validate(self.settings.get("policy"))
         approvals.validate(self.settings.get("approvals"))
+        from farrier.core.acme_server import validate as validate_acme_server
+        validate_acme_server(self.settings.get("acme_server"))
         from farrier.monitoring.cloud_inventory import validate as validate_cloud_inventory
         validate_cloud_inventory(self.settings.get("cloud_inventory"))
         # issuers passed in (tests, embedding) are kept; dashboard-configured ones are added around them

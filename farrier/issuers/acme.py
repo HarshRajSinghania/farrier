@@ -104,8 +104,11 @@ def jwk_of(key: ec.EllipticCurvePrivateKey) -> dict:
             "x": b64u(nums.x.to_bytes(32, "big")), "y": b64u(nums.y.to_bytes(32, "big"))}
 
 
+JWK_MEMBERS = {"EC": ("crv", "kty", "x", "y"), "RSA": ("e", "kty", "n"), "OKP": ("crv", "kty", "x")}  # RFC 7638
+
+
 def thumbprint(jwk: dict) -> str:
-    canon = json.dumps({k: jwk[k] for k in ("crv", "kty", "x", "y")}, separators=(",", ":"), sort_keys=True)
+    canon = json.dumps({k: jwk[k] for k in JWK_MEMBERS[jwk["kty"]]}, separators=(",", ":"), sort_keys=True)
     return b64u(hashlib.sha256(canon.encode()).digest())
 
 

@@ -420,6 +420,40 @@ def cmd_runner(args):
                                for g in rows] or ["(no runner groups)"])
 
 
+def cmd_acme_server(args):
+    """Farrier's own ACME server: EAB keys for ACME clients, and what they were issued."""
+    from farrier.core.acme_server import AcmeServer
+    eng = _engine(args)
+    acme = AcmeServer(eng)
+    if args.acme_what == "certs":
+        rows = acme.certificates()
+        return _emit(args, rows, lambda: [f"{r['profile']:<14}{(r['not_after'] or '')[:10]:<12}"
+                                          f"{'REVOKED ' if r['revoked_at'] else ''}{', '.join(r['identifiers'])}  "
+                                          f"(account {r['account_id']}, {r['eab_kid']})" for r in rows]
+                     or ["(no certificates issued over ACME)"])
+    if args.eab_verb == "create":
+        try:
+            key = acme.create_eab(args.profile, args.names.split(",") if args.names else [])
+        except ValueError as e:
+            sys.exit(f"farrier acme-server: {e}")
+        eng.store.log(f"acme {args.profile}: EAB key {key['kid']} created by cli"
+                      + (f" for {args.names}" if args.names else ""))
+        return _emit(args, key, lambda: [
+            f"key id:    {key['kid']}", f"hmac key:  {key['hmac_key']}", "",
+            "Shown once. Registers one ACME account; the directory is",
+            f"  https://<engine address>/acme/{args.profile}/directory",
+            f"e.g. certbot --server <directory> --eab-kid {key['kid']} --eab-hmac-key <hmac key> ..."])
+    if args.eab_verb == "delete":
+        if not acme.delete_eab(args.kid):
+            sys.exit(f"farrier acme-server: no EAB key {args.kid}")
+        eng.store.log(f"acme: EAB key {args.kid} deleted by cli; its account is revoked")
+        return _emit(args, {"ok": True}, lambda: [f"deleted {args.kid}; the account it registered is revoked"])
+    rows = acme.eab_keys()
+    _emit(args, rows, lambda: [f"{r['kid']:<22}{r['profile']:<14}"
+                               f"{'account ' + str(r['account_id']) if r['account_id'] else 'unused':<14}"
+                               f"{', '.join(r['names']) or '(profile names)'}" for r in rows] or ["(no EAB keys)"])
+
+
 def cmd_acm(args):
     """AWS Certificate Manager managed ACME: endpoints, domain prevalidation, External Account Bindings."""
     from farrier.security.cloud_auth.http import CloudError
@@ -652,6 +686,20 @@ def main(argv=None):
                           "Transparency logs (crt.sh)"))
     x.add_argument("domain", help="e.g. example.com (covers every name below it)")
     x.set_defaults(fn=cmd_ct)
+
+    s = sub.add_parser("acme-server", help="Farrier's ACME server (settings.json acme_server): EAB keys and "
+                       "the certificates ACME clients got")
+    asub = s.add_subparsers(dest="acme_what", required=True)
+    js(asub.add_parser("certs", help="certificates issued over ACME: profile, names, account, expiry")
+       ).set_defaults(fn=cmd_acme_server)
+    b = asub.add_parser("eab", help="External Account Binding keys: each registers one ACME account")
+    vsub = b.add_subparsers(dest="eab_verb", required=True)
+    x = js(vsub.add_parser("create", help="a new key for a profile (the HMAC key is shown once)"))
+    x.add_argument("profile", help="an acme_server profile in settings.json")
+    x.add_argument("--names", help="comma-separated name patterns this key may order, within the profile's")
+    js(vsub.add_parser("list", help="keys, their profile and names, and whether they registered an account"))
+    js(vsub.add_parser("delete", help="delete a key and revoke the account it registered")).add_argument("kid")
+    b.set_defaults(fn=cmd_acme_server)
 
     s = sub.add_parser("acm", help="AWS Certificate Manager managed ACME: endpoints, domains, EAB credentials")
     s.add_argument("--region", default=None, help="AWS region for create/list (default: $AWS_REGION); commands "

@@ -340,6 +340,60 @@ def _m10_audit_chain(d: Dialect) -> list[str]:
     return [f"ALTER TABLE events ADD COLUMN chain {d.key} NULL"]
 
 
+def _m11_acme_server(d: Dialect) -> list[str]:
+    """Farrier's own ACME server (farrier.core.acme_server).
+
+    acme_eab       External Account Binding keys an admin handed out: ``hmac`` sealed under the master key,
+                   ``names`` the patterns it may order (JSON, empty = the profile's), ``account_id`` once used.
+    acme_accounts  ACME accounts: the client's public key (JWK) and its RFC 7638 thumbprint, per profile.
+    acme_orders    one per newOrder; names are authorized by policy, so there is no authorization table.
+                   ``issuer``, ``cert_pem`` (with chain), ``fingerprint`` and ``not_after`` once issued: the inventory.
+    acme_nonces    anti-replay nonces, shared by every replica; consumed by deleting the row.
+    """
+    s = d.table_suffix
+    return [
+        f"""CREATE TABLE acme_eab (
+  kid {d.key} NOT NULL PRIMARY KEY,
+  profile {d.key} NOT NULL,
+  hmac {d.text} NOT NULL,
+  names {d.text_default('[]')},
+  account_id {d.ref} NULL,
+  created_at {d.key} NOT NULL
+){s}""",
+        f"""CREATE TABLE acme_accounts (
+  id {d.pk},
+  profile {d.key} NOT NULL,
+  thumbprint {d.key} NOT NULL,
+  jwk {d.text} NOT NULL,
+  eab_kid {d.key} NOT NULL,
+  status {d.key} NOT NULL,
+  contact {d.text_default('[]')},
+  created_at {d.key} NOT NULL
+){s}""",
+        d.create_index("acme_account_key", "acme_accounts", "profile, thumbprint", unique=True),
+        f"""CREATE TABLE acme_orders (
+  id {d.pk},
+  account_id {d.ref} NOT NULL,
+  profile {d.key} NOT NULL,
+  identifiers {d.text} NOT NULL,
+  status {d.key} NOT NULL,
+  expires {d.key} NOT NULL,
+  issuer {d.key},
+  error {d.text},
+  cert_pem {d.text},
+  fingerprint {d.key},
+  not_after {d.key},
+  revoked_at {d.key},
+  created_at {d.key} NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES acme_accounts(id) ON DELETE CASCADE
+){s}""",
+        d.create_index("acme_order_account", "acme_orders", "account_id, created_at"),
+        d.create_index("acme_order_fp", "acme_orders", "fingerprint"),
+        f"CREATE TABLE acme_nonces (nonce {d.key} NOT NULL PRIMARY KEY, expires {d.key} NOT NULL){s}",
+        d.create_index("acme_nonce_expires", "acme_nonces", "expires"),
+    ]
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (1, "initial schema", _m1_initial),
     (2, "lookup indexes", _m2_lookup_indexes),
@@ -351,6 +405,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[Dialect], list[str]]]] = [
     (8, "teams and projects", _m8_projects),
     (9, "remote runner jobs", _m9_runner_jobs),
     (10, "audit log hash chain", _m10_audit_chain),
+    (11, "ACME server", _m11_acme_server),
 ]
 
 

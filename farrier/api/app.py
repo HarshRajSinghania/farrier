@@ -710,6 +710,9 @@ def create_app(engine: Engine, tick_seconds: float | None = None) -> FastAPI:
     from farrier.api.runner_routes import mount as mount_runners
     mount_runners(app, engine, whole_install, actor)
 
+    from farrier.api.acme_routes import mount as mount_acme
+    mount_acme(app, engine, lock, whole_install, actor)
+
     @app.post("/api/notifiers/test", dependencies=whole_install)
     def test_notifiers():
         sent = engine.notifier.send("test", wait=True)
