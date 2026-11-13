@@ -12,7 +12,8 @@ Source, first that applies wins:
 
 AZURE_AUTHORITY_HOST changes the login host (sovereign clouds). Tokens are cached per scope until 5
 minutes before they expire. Scopes: Key Vault https://vault.azure.net/.default, Blob storage
-https://storage.azure.com/.default, Event Grid https://eventgrid.azure.net/.default.
+https://storage.azure.com/.default, Event Grid https://eventgrid.azure.net/.default,
+Resource Manager https://management.azure.com/.default.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ IMDS = "http://169.254.169.254/metadata/identity/oauth2/token"
 VAULT_SCOPE = "https://vault.azure.net/.default"
 STORAGE_SCOPE = "https://storage.azure.com/.default"
 EVENTGRID_SCOPE = "https://eventgrid.azure.net/.default"
+ARM_SCOPE = "https://management.azure.com/.default"
 ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
 
