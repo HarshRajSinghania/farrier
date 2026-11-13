@@ -66,6 +66,7 @@ Details worth knowing:
 - A manual renewal past its `deadline` is flagged `OVERDUE` in its error field and logged as an error. It stays open, so it can still close if the certificate is installed late.
 - `cancelled` is only reached through the API (`POST /api/renewals/{id}/cancel`).
 - **Renew now** (`POST /api/endpoints/{id}/renew`) creates a renewal scheduled for now, or pulls an existing `planned` one forward, and advances it immediately.
+- A renewal that is stuck or failed carries a [reason code](/docs/troubleshooting#reason-codes) with one line on what to do; `farrier explain <endpoint>` shows how its next renewal was scheduled.
 
 ## Renewal timing
 

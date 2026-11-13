@@ -54,6 +54,7 @@ export const DOCS_NAV: DocsGroup[] = [
     items: [
       { href: "/docs/security", label: "Security and hosting" },
       { href: "/docs/pilot", label: "Pilot checklist" },
+      { href: "/docs/troubleshooting", label: "Troubleshooting" },
     ],
   },
   {
