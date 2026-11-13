@@ -63,6 +63,7 @@ The most used inputs (all are documented in `variables.tf`):
 | `engine_certificate_arn`, `engine_domain_name` | `""` | HTTPS between web and engine |
 | `db_instance_class`, `db_multi_az`, `db_iam_auth` | `db.t4g.medium`, `true`, `false` | |
 | `route53_zone_ids` | `[]` | Zones for DNS-01 |
+| `assumable_role_arns` | `[]` | Roles in other accounts the engine may assume (`aws_acm` connector `role_arn`, `cloud_inventory.aws_accounts`) |
 | `oidc_issuer`, `oidc_client_id`, `oidc_scopes`, `web_extra_env` | | SSO; empty issuer = generated Basic-auth password |
 | `storage_admin_principal_arns` | `[]` | Roles besides the engine task role that may write or delete bucket objects (the bucket policy denies everyone else; list your Terraform role to use `force_destroy_bucket`) |
 | `secrets_seeded` | `false` | Services start only once this is `true` |

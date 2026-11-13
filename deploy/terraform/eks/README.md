@@ -37,6 +37,7 @@ All inputs are documented in `variables.tf`; the important ones:
 | `db_allowed_cidrs` | `[]` | Nodes without the cluster SG (self-managed node groups, security groups for pods) |
 | `db_instance_class`, `db_multi_az` | `db.t4g.medium`, `true` | |
 | `route53_zone_ids` | `[]` | Zones for DNS-01 |
+| `assumable_role_arns` | `[]` | Roles in other accounts the engine may assume (`aws_acm` connector `role_arn`, `cloud_inventory.aws_accounts`) |
 | `event_bus_arn` | `""` | EventBridge bus, e.g. from `deploy/terraform/aws-events` |
 | `secret_store_prefix`, `storage_prefix` | `farrier/` | Engine's Secrets Manager and S3 prefixes |
 | `storage_admin_principal_arns` | `[]` | Roles besides the engine role that may write or delete bucket objects |

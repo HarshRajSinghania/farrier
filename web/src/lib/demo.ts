@@ -42,7 +42,7 @@ import type {
 import { OPEN_STATES } from "./types";
 
 const DAY = 86_400_000;
-const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos", "citrix", "kubernetes", "iis", "azure_keyvault", "gcp_certificate_manager"]);
+const AUTOMATED = new Set(["files", "keystore", "f5", "fortigate", "panos", "citrix", "kubernetes", "iis", "azure_keyvault", "gcp_certificate_manager", "aws_acm"]);
 
 export const CONNECTORS: ConnectorInfo[] = [
   { kind: "files", automated: true, required: ["cert_path", "key_path"], doc: "nginx, HAProxy, Apache, Postfix — atomic write + backup, test_command, reload_command; local or over SSH." },
@@ -55,6 +55,7 @@ export const CONNECTORS: ConnectorInfo[] = [
   { kind: "iis", automated: true, required: ["ssh", "site"], doc: "IIS over OpenSSH and PowerShell: import the PFX into LocalMachine\My and switch the https binding." },
   { kind: "azure_keyvault", automated: true, required: ["vault", "certificate"], doc: "A new Key Vault certificate version for Application Gateway, Front Door or App Service, with optional immediate refresh." },
   { kind: "gcp_certificate_manager", automated: true, required: ["project"], doc: "A self-managed Certificate Manager certificate and/or classic target HTTPS proxies on Google Cloud load balancers." },
+  { kind: "aws_acm", automated: true, required: ["region"], doc: "AWS Certificate Manager for ALB, NLB, CloudFront and API Gateway: re-import in place, or import and switch an ELBv2 listener; optional cross-account role." },
   { kind: "manual", automated: false, required: [], doc: "Cisco ASA, vCenter, anything else — change pack (PEM + PFX + runbook) and optional ServiceNow/Jira ticket; closes itself on detection." },
 ];
 

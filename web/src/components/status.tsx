@@ -87,6 +87,7 @@ export const CONNECTOR_LABEL: Record<string, string> = {
   iis: "IIS",
   azure_keyvault: "Azure Key Vault",
   gcp_certificate_manager: "Google Certificate Manager",
+  aws_acm: "AWS ACM",
   manual: "Manual",
 };
 
