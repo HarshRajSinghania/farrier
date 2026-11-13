@@ -158,6 +158,9 @@ export interface Renewal {
   port: number;
   /** present while the renewal waits at an approval gate (settings approvals) */
   approval?: { mode: string; ticket: { ref: string; url: string | null } | null; overdue: boolean };
+  /** why it is stuck or failed (farrier/core/reasons.py), with one line on what to do; null when all is well */
+  reason_code?: string | null;
+  hint?: string | null;
 }
 
 export interface FarrierEvent {
